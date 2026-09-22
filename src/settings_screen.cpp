@@ -20,6 +20,7 @@ void main_loop_request_lvgl_priority(int cycles);
 void low_mem_show_dialog(const char *msg);   // modal dialog defined in main.cpp
 void clock_screen_show();                    // go home to the watch face
 void clock_screen_set_analog_face(bool analog);
+void clock_screen_set_face(int mode);        // 0 Digital, 1 Analog, 2 Dot
 void clock_screen_set_12h(bool use_12h);
 void clock_screen_set_matrix(bool enabled);
 void clock_screen_set_wallpaper(bool enabled);
@@ -127,8 +128,7 @@ static void settings_update_sysinfo()
         det, detlog::kMaxAgeDays);
 }
 static int32_t   s_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
-static lv_obj_t *face_switch;
-static lv_obj_t *face_val_label;
+static lv_obj_t *face_dropdown;   // Watch face: Digital / Analog / Dot
 static lv_obj_t *hour_format_row;
 static lv_obj_t *hour_format_switch;
 static lv_obj_t *hour_format_val_label;
@@ -257,12 +257,21 @@ static void register_manual_obj(lv_obj_t *obj)
 // callers don't have to pass them in. Hidden rows still get a position,
 // just one that's off-screen above their normal slot — harmless because
 // they're invisible.
+// Selected watch face: 0 Digital, 1 Analog, 2 Dot. Matches the dropdown option
+// order and the ClockFace enum in main.cpp.
+static inline int settings_face_mode()
+{
+    return (int)lv_dropdown_get_selected(face_dropdown);
+}
+
 static void apply_layout()
 {
-    bool analog    = lv_obj_has_state(face_switch,        LV_STATE_CHECKED);
+    // The 12h / AM-PM / Show-seconds rows only apply to the Digital face; both
+    // Analog and Dot render their own time, so those rows collapse for either.
+    bool digital   = (settings_face_mode() == 0);
     bool manual_on = lv_obj_has_state(manual_time_switch, LV_STATE_CHECKED);
 
-    if (analog) {
+    if (!digital) {
         lv_obj_add_flag(hour_format_row, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ampm_row,        LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(secs_row,        LV_OBJ_FLAG_HIDDEN);
@@ -277,7 +286,7 @@ static void apply_layout()
         else           lv_obj_add_flag  (s_manual_objs[i], LV_OBJ_FLAG_HIDDEN);
     }
 
-    int face_offset = analog ? -FACE_HIDDEN_SHIFT : 0;
+    int face_offset = digital ? 0 : -FACE_HIDDEN_SHIFT;
     for (int i = 0; i < s_shiftable_count; i++) {
         int base_y = s_shiftable[i].base_y;
         int offset = face_offset;
@@ -295,12 +304,12 @@ static void settings_save_to_sd();
 
 static void on_face_changed(lv_event_t *e)
 {
-    bool analog = lv_obj_has_state(face_switch, LV_STATE_CHECKED);
-    lv_label_set_text(face_val_label, analog ? "Analog" : "Digital");
-    clock_screen_set_analog_face(analog);
+    (void)e;
+    int mode = settings_face_mode();   // 0 Digital, 1 Analog, 2 Dot
+    clock_screen_set_face(mode);
     // 12h / AM-PM / Show-seconds rows are only relevant on the digital
-    // face. apply_layout hides them AND closes the resulting gap by
-    // shifting every row below up by 144 px.
+    // face. apply_layout hides them for Analog/Dot AND closes the resulting
+    // gap by shifting every row below up by 144 px.
     apply_layout();
     settings_save_to_sd();
 }
@@ -708,18 +717,19 @@ void settings_screen_create()
     lv_label_set_text(face_lbl, "Watch Face");
     lv_obj_align(face_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
-    face_val_label = lv_label_create(face_row);
-    lv_obj_set_style_text_color(face_val_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(face_val_label, &font_argus_label_20, LV_PART_MAIN);
-    lv_label_set_text(face_val_label, "Digital");
-    lv_obj_align(face_val_label, LV_ALIGN_RIGHT_MID, -80, 0);
-
-    face_switch = lv_switch_create(face_row);
-    lv_obj_set_size(face_switch, 70, 34);
-    lv_obj_set_style_bg_color(face_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(face_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
-    lv_obj_add_event_cb(face_switch, on_face_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(face_switch, LV_ALIGN_RIGHT_MID, 0, 0);
+    // Watch face selector: Digital / Analog / Dot. Analog and Dot both render
+    // their own time, so the digital-only rows below collapse for either (see
+    // apply_layout / settings_face_mode). Option order matches the ClockFace
+    // enum in main.cpp.
+    face_dropdown = lv_dropdown_create(face_row);
+    lv_dropdown_set_options_static(face_dropdown, "Digital\nAnalog\nDot");
+    lv_obj_set_width(face_dropdown, 150);
+    lv_obj_set_style_text_font(face_dropdown, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(face_dropdown, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(face_dropdown, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
+    lv_obj_set_style_border_color(face_dropdown, ARGUS_ACCENT, LV_PART_MAIN);
+    lv_obj_align(face_dropdown, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_event_cb(face_dropdown, on_face_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Time format row — visible only when Digital face is active
     hour_format_row = lv_obj_create(settings_screen);
@@ -1538,7 +1548,7 @@ static void settings_save_to_sd()
     if (!f) return;
 
     f.printf("brightness=%d\n",      (int)s_brightness);
-    f.printf("analog_face=%d\n",     lv_obj_has_state(face_switch,        LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("clock_face=%d\n",      settings_face_mode());
     f.printf("format_12h=%d\n",      lv_obj_has_state(hour_format_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_ampm=%d\n",       lv_obj_has_state(ampm_switch,        LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_secs=%d\n",       lv_obj_has_state(secs_switch,        LV_STATE_CHECKED) ? 1 : 0);
@@ -1589,13 +1599,20 @@ void settings_screen_load()
             instance.setBrightness((uint8_t)v);
             int pct = (int)v * 100 / (int)DEVICE_MAX_BRIGHTNESS_LEVEL;
             lv_label_set_text_fmt(brightness_val_label, "%d%%", pct);
-        } else if (key == "analog_face") {
-            apply_switch(face_switch, b);
-            lv_label_set_text(face_val_label, b ? "Analog" : "Digital");
-            // Honour the saved face state both for the clock and for the
+        } else if (key == "clock_face") {
+            int m = (int)v;
+            if (m < 0 || m > 2) m = 0;
+            lv_dropdown_set_selected(face_dropdown, (uint32_t)m);
+            // Honour the saved face both for the clock and for the
             // settings-screen layout reflow.
             apply_layout();
-            clock_screen_set_analog_face(b);
+            clock_screen_set_face(m);
+        } else if (key == "analog_face") {
+            // Legacy cards written before the 3-way selector: 0 Digital, 1 Analog.
+            int m = b ? 1 : 0;
+            lv_dropdown_set_selected(face_dropdown, (uint32_t)m);
+            apply_layout();
+            clock_screen_set_face(m);
         } else if (key == "format_12h") {
             apply_switch(hour_format_switch, b);
             lv_label_set_text(hour_format_val_label, b ? "12h" : "24h");
