@@ -128,3 +128,34 @@ jobs:
         run: |
           echo "Flash budget is 3145728 bytes; the build has been running near 95%."
           pio run -e twatch_ultra --target size 2>/dev/null | tail -20 || true
+
+      # Test builds: publish the four component binaries of THIS build so a
+      # branch can be flashed without cutting a release. Same four files at the
+      # same four offsets as release.yml (never a merged image: see the
+      # 2026-09-09 QIO brick note there). Flash with any esptool front end,
+      # e.g. https://espressif.github.io/esptool-js/ :
+      #   0x0 bootloader.bin | 0x8000 partitions.bin | 0xe000 boot_app0.bin | 0x10000 firmware.bin
+      - name: Collect flashable binaries
+        run: |
+          set -euo pipefail
+          b=.pio/build/twatch_ultra
+          out=flash
+          mkdir -p "$out"
+          cp "$b/bootloader.bin" "$b/partitions.bin" "$b/firmware.bin" "$out/"
+          cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin "$out/"
+          printf '%s\n' \
+            "Flash these four files at these offsets (flash mode/freq/size: keep):" \
+            "  0x0      bootloader.bin" \
+            "  0x8000   partitions.bin" \
+            "  0xe000   boot_app0.bin" \
+            "  0x10000  firmware.bin" \
+            "" \
+            "Built from ${GITHUB_SHA} (${GITHUB_REF_NAME})." > "$out/FLASH.txt"
+          (cd "$out" && sha256sum *.bin > SHA256SUMS)
+
+      - name: Upload flashable binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: twatch_ultra-${{ github.sha }}
+          path: flash/
+          retention-days: 14
