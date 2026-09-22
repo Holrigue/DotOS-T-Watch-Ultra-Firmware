@@ -1,0 +1,103 @@
+#include "offense_wifi.h"
+#include "wifi_beacon_manager.h"   // wifi_beacon_active()
+#include "radio_coexist.h"
+#include <WiFi.h>
+#include "esp_wifi.h"
+#include "esp_bt.h"
+#include <stdio.h>
+#include <string.h>
+
+// True while the BLE controller is up. Same guard wifi_beacon_manager uses:
+// WiFi.mode(WIFI_STA) HANGS if BLE holds the internal SRAM.
+[[maybe_unused]] static bool ble_is_active()
+{
+    return esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_ENABLED;
+}
+
+static bool s_held = false;
+static bool s_ap   = false;   // held in AP (rogue-AP) mode vs STA-injection mode
+static const char *s_owner = nullptr;
+
+bool offense_wifi_claim(uint8_t channel, const char *owner)
+{
+    // Single-owner: if some offense tool already holds WiFi, REFUSE rather than let
+    // a second tool drive the same radio (two injectors on one interface collide).
+    if (s_held) return false;
+#if !ARGUS_RADIO_COEXIST
+    if (ble_is_active())     return false;   // would hang the watch (fallback)
+#endif
+    if (wifi_beacon_active()) return false;  // a detector scan owns WiFi (hopping)
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();                        // stay idle; we only inject
+    if (channel < 1 || channel > 13) channel = 1;
+    esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+    s_held  = true;
+    s_owner = owner;
+    return true;
+}
+
+bool offense_wifi_claim_ap(const char *ssid, const char *owner)
+{
+    if (s_held) return false;
+#if !ARGUS_RADIO_COEXIST
+    if (ble_is_active())      return false;   // would hang the watch (fallback)
+#endif
+    if (wifi_beacon_active()) return false;   // a detector scan owns WiFi
+
+    WiFi.mode(WIFI_AP);
+    // Open AP (no password) so target devices set to auto-join these SSIDs
+    // associate without a prompt.
+    WiFi.softAP(ssid && ssid[0] ? ssid : "Free WiFi");
+    s_held  = true;
+    s_ap    = true;
+    s_owner = owner;
+    return true;
+}
+
+int offense_wifi_ap_clients()
+{
+    return s_ap ? (int)WiFi.softAPgetStationNum() : 0;
+}
+
+const char *offense_wifi_busy_reason()
+{
+    static char buf[96];
+    if (s_held) {
+        snprintf(buf, sizeof(buf), "%s is already running.\nStop it first, then try again.",
+                 s_owner ? s_owner : "Another tool");
+        return buf;
+    }
+#if !ARGUS_RADIO_COEXIST
+    if (ble_is_active())
+        return "Bluetooth is on.\nWiFi and BT can't run together -\nturn Bluetooth off, then try again.";
+#endif
+    if (wifi_beacon_active())
+        return "A detector is scanning WiFi.\nStop it first, then try again.";
+    return nullptr;   // radio is free
+}
+
+bool offense_wifi_tx(const uint8_t *frame, size_t len)
+{
+    if (!s_held || !frame || len == 0) return false;
+    return esp_wifi_80211_tx(WIFI_IF_STA, frame, len, false) == ESP_OK;
+}
+
+void offense_wifi_set_channel(uint8_t channel)
+{
+    if (!s_held) return;
+    if (channel < 1 || channel > 13) return;
+    esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+}
+
+void offense_wifi_release()
+{
+    if (!s_held) return;
+    if (s_ap) WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_OFF);
+    s_held  = false;
+    s_ap    = false;
+    s_owner = nullptr;
+}
+
+bool offense_wifi_held() { return s_held; }
