@@ -30,6 +30,7 @@
 #include "tpms_screen.h"
 #include "timezone.h"
 #include "clock_time.h"
+#include "dot_font_5x7.h"   // ARGUS-Design-OS "Dot" face 5x7 dot-matrix digits
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -173,6 +174,9 @@ static lv_obj_t *hand_hour;
 static lv_obj_t *hand_min;
 static lv_obj_t *hand_sec;
 static lv_obj_t *dot_container = nullptr;   // ARGUS-Design-OS "Dot" face; built hidden
+static lv_obj_t *dot_time_img  = nullptr;   // dot-matrix time raster (lv_image)
+static uint32_t *dot_time_buf  = nullptr;   // ARGB8888 pixels in PSRAM
+static lv_image_dsc_t dot_time_dsc;         // descriptor pointing at dot_time_buf
 
 // Watch face selection. Digital and Analog are the stock faces; Dot is the
 // ARGUS-Design-OS dot-matrix face added alongside them. Persisted in
@@ -477,9 +481,46 @@ static inline lv_color_t dot_red()       { return lv_color_hex(0xE02020); }
 static inline lv_color_t dot_bg()        { return lv_color_hex(0x0A0A0A); }
 static inline lv_color_t dot_seg_empty() { return lv_color_hex(0x3A3A3A); }
 
+// Dot-matrix time raster geometry, in the native 410x502 face space straight
+// from docs/dotface/dotface_final.svg. The raster is an ARGB8888 image (exact
+// colours, no RGB565 byte-swap surprises on the strict palette) that covers the
+// HH:MM block; only lit dots are opaque, the rest stays transparent so the face
+// background shows through.
+static constexpr int   DOT_TIME_X    = 44;      // raster origin on the face
+static constexpr int   DOT_TIME_Y    = 184;
+static constexpr int   DOT_TIME_W    = 308;     // covers x 44..352
+static constexpr int   DOT_TIME_H    = 96;      // covers y 184..280
+static constexpr int   DOT_CELL      = 14;      // grid pitch
+static constexpr int   DOT_ROW_Y0    = 190;     // top-row centre y
+static constexpr float DOT_DIGIT_X[4] = { 50.0f, 119.44f, 220.24f, 289.68f };
+static constexpr float DOT_COLON_X   = 197.84f;
+static constexpr int   DOT_COLON_Y0  = 218;
+static constexpr int   DOT_COLON_Y1  = 246;
+static constexpr float DOT_R         = 5.2f;    // digit dot radius
+static constexpr float DOT_COLON_R   = 4.42f;   // colon dot radius
+
+// Stamp one filled anti-aliasing-free disc into an ARGB8888 buffer. Centre is
+// in raster-local pixels; out-of-range pixels are skipped.
+static void dot_plot_disc(uint32_t *buf, int w, int h,
+                          float cx, float cy, float r, uint32_t argb)
+{
+    int x0 = (int)floorf(cx - r), x1 = (int)ceilf(cx + r);
+    int y0 = (int)floorf(cy - r), y1 = (int)ceilf(cy + r);
+    float r2 = r * r;
+    for (int y = y0; y <= y1; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = x0; x <= x1; x++) {
+            if (x < 0 || x >= w) continue;
+            float dx = (float)x + 0.5f - cx;
+            float dy = (float)y + 0.5f - cy;
+            if (dx * dx + dy * dy <= r2) buf[y * w + x] = argb;
+        }
+    }
+}
+
 // Builds the Dot face layer, hidden. Populated incrementally (status row, USB
-// indicator, dot-matrix time, accent, date, detection badges, bottom row); for
-// now it is the opaque background panel the rest hangs off.
+// indicator, accent, date, detection badges, bottom row); for now it carries
+// the opaque background panel and the dot-matrix time raster.
 static void build_dot_face(lv_obj_t *screen)
 {
     dot_container = lv_obj_create(screen);
@@ -490,13 +531,70 @@ static void build_dot_face(lv_obj_t *screen)
     lv_obj_set_style_bg_opa(dot_container, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(dot_container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(dot_container, LV_OBJ_FLAG_HIDDEN);   // shown by set_face()
+
+    // Time raster: ARGB8888 in PSRAM, refreshed each minute (same PSRAM
+    // image-descriptor pattern as background.cpp's wallpaper rasters).
+    size_t px = (size_t)DOT_TIME_W * (size_t)DOT_TIME_H;
+    dot_time_buf = (uint32_t *)heap_caps_malloc(px * 4u, MALLOC_CAP_SPIRAM);
+    if (dot_time_buf) {
+        memset(dot_time_buf, 0, px * 4u);
+        dot_time_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        dot_time_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+        dot_time_dsc.header.flags  = 0;
+        dot_time_dsc.header.w      = DOT_TIME_W;
+        dot_time_dsc.header.h      = DOT_TIME_H;
+        dot_time_dsc.header.stride = DOT_TIME_W * 4;
+        dot_time_dsc.data_size     = (uint32_t)(px * 4u);
+        dot_time_dsc.data          = (const uint8_t *)dot_time_buf;
+
+        dot_time_img = lv_image_create(dot_container);
+        lv_image_set_src(dot_time_img, &dot_time_dsc);
+        lv_obj_set_pos(dot_time_img, DOT_TIME_X, DOT_TIME_Y);
+    }
 }
 
-// Refreshes the Dot face for the given local time. A stub until the dot-matrix
-// time renderer lands; the periodic tick already routes here when Dot is active.
+// Refreshes the Dot face for the given local time. Renders HH:MM as white dots
+// on the 5x7 custom grid; hours honour the 12h/24h setting, always 2 digits.
 static void update_dot_face(const struct tm *t)
 {
-    (void)t;
+    if (!dot_time_buf || !dot_time_img) return;
+
+    // The dots only change on a minute edge; skip the raster churn otherwise.
+    // Reset to -1 elsewhere would force a redraw, but the buffer persists across
+    // face switches so a same-minute re-show needs no work.
+    static int dot_last_key = -1;
+    int key = t->tm_hour * 60 + t->tm_min;
+    if (key == dot_last_key) return;
+    dot_last_key = key;
+
+    int hh = t->tm_hour;
+    if (clock_12h) { hh %= 12; if (hh == 0) hh = 12; }
+    int mm = t->tm_min;
+    int digits[4] = { hh / 10, hh % 10, mm / 10, mm % 10 };
+
+    memset(dot_time_buf, 0, (size_t)DOT_TIME_W * (size_t)DOT_TIME_H * 4u);
+    const uint32_t white = 0xFFFFFFFFu;   // ARGB8888, opaque white
+
+    for (int d = 0; d < 4; d++) {
+        for (int row = 0; row < DOT_GLYPH_ROWS; row++) {
+            for (int col = 0; col < DOT_GLYPH_COLS; col++) {
+                if (!dot_glyph_lit(digits[d], col, row)) continue;
+                float cx = DOT_DIGIT_X[d] + (float)(col * DOT_CELL) - DOT_TIME_X;
+                float cy = (float)(DOT_ROW_Y0 + row * DOT_CELL)     - DOT_TIME_Y;
+                dot_plot_disc(dot_time_buf, DOT_TIME_W, DOT_TIME_H, cx, cy, DOT_R, white);
+            }
+        }
+    }
+    dot_plot_disc(dot_time_buf, DOT_TIME_W, DOT_TIME_H,
+                  DOT_COLON_X - DOT_TIME_X, (float)(DOT_COLON_Y0 - DOT_TIME_Y), DOT_COLON_R, white);
+    dot_plot_disc(dot_time_buf, DOT_TIME_W, DOT_TIME_H,
+                  DOT_COLON_X - DOT_TIME_X, (float)(DOT_COLON_Y1 - DOT_TIME_Y), DOT_COLON_R, white);
+
+    // Re-point the image at its (mutated) buffer so LVGL drops any cached decode
+    // and re-reads the pixels, mirroring background.cpp's refresh.
+    lv_image_set_src(dot_time_img, NULL);
+    lv_image_set_src(dot_time_img, &dot_time_dsc);
+    lv_obj_invalidate(dot_time_img);
 }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
