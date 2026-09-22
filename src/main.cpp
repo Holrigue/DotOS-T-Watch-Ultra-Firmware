@@ -150,6 +150,7 @@ static void update_clock();
 static void update_dot_face(const struct tm *t);
 static void build_dot_status_row(lv_obj_t *parent);
 static void build_dot_usb(lv_obj_t *parent);
+static void build_dot_bottom(lv_obj_t *parent);
 static void update_dot_status();
 static void dot_face_tick();
 
@@ -690,6 +691,7 @@ static void build_dot_face(lv_obj_t *screen)
     build_dot_status_row(dot_container);
     build_dot_usb(dot_container);
     build_dot_accent_date(dot_container);
+    build_dot_bottom(dot_container);
 }
 
 // Refreshes the Dot face for the given local time. Renders HH:MM as white dots
@@ -1028,6 +1030,133 @@ static void update_dot_usb()
     }
 }
 
+// ---- Bottom row: stopwatch / timer / alarm + 13-segment battery -------------
+//
+// Same state as the stock face (stopwatch_is_running, timer_is_running,
+// alarm_is_enabled, PMU battery %), but at the fixed Dot positions instead of
+// the stock right-to-left packing: icons are always drawn, white when active,
+// gray when idle. Battery is 13 discrete segments (11 px wide, 3 px gap, from
+// x=140), white when filled, #3A3A3A when empty; the percentage is anchored on
+// its RIGHT edge at x=350.88 so it stays aligned from "0%" to "100%".
+static constexpr int DOT_BOT_X = 52;
+static constexpr int DOT_BOT_Y = 424;
+static constexpr int DOT_BOT_W = 78;    // covers x 52..130
+static constexpr int DOT_BOT_H = 26;    // covers y 424..450
+static constexpr int DOT_BAT_SEGS = 13;
+
+static lv_obj_t *dot_bot_img = nullptr;
+static uint32_t *dot_bot_buf = nullptr;
+static lv_image_dsc_t dot_bot_dsc;
+static lv_obj_t *dot_bat_seg[DOT_BAT_SEGS];
+static lv_obj_t *dot_bat_pct = nullptr;
+
+static void dot_fill_rect(uint32_t *b, int w, int h, int x0, int y0, int x1, int y1, uint32_t c)
+{
+    for (int y = y0; y < y1; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = x0; x < x1; x++)
+            if (x >= 0 && x < w) b[y * w + x] = c;
+    }
+}
+
+static void dot_draw_stopwatch(uint32_t *b, int w, int h, uint32_t c)   // chronometre, cx=63
+{
+    const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
+    dot_plot_arc(b, w, h, 63 - ox, 438 - oy, 8.0f, 0, 360, 1.6f, c);
+    dot_plot_seg(b, w, h, 63 - ox, 438 - oy, 67 - ox, 433 - oy, 1.6f, c);
+}
+
+static void dot_draw_timer(uint32_t *b, int w, int h, uint32_t c)       // minuteur, cx=89
+{
+    const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
+    dot_plot_arc(b, w, h, 89 - ox, 438 - oy, 8.0f, 0, 360, 1.6f, c);
+    dot_fill_rect(b, w, h, 85 - DOT_BOT_X, 427 - DOT_BOT_Y, 93 - DOT_BOT_X, 430 - DOT_BOT_Y, c);   // cap
+    dot_plot_seg(b, w, h, 89 - ox, 438 - oy, 85 - ox, 433 - oy, 1.6f, c);
+}
+
+static void dot_draw_bell(uint32_t *b, int w, int h, uint32_t c)        // alarme, x=118
+{
+    const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
+    dot_plot_disc(b, w, h, 118 - ox, 436 - oy, 6.0f, c);                              // dome
+    dot_fill_rect(b, w, h, 112 - DOT_BOT_X, 436 - DOT_BOT_Y, 124 - DOT_BOT_X, 440 - DOT_BOT_Y, c); // body
+    dot_fill_tri (b, w, h, 112 - ox, 440 - oy, 124 - ox, 440 - oy, 126 - ox, 443 - oy, c);   // flare
+    dot_fill_tri (b, w, h, 112 - ox, 440 - oy, 126 - ox, 443 - oy, 110 - ox, 443 - oy, c);
+    dot_plot_disc(b, w, h, 118 - ox, 445 - oy, 1.6f, c);                              // clapper
+}
+
+static void build_dot_bottom(lv_obj_t *parent)
+{
+    size_t px = (size_t)DOT_BOT_W * (size_t)DOT_BOT_H;
+    dot_bot_buf = (uint32_t *)heap_caps_malloc(px * 4u, MALLOC_CAP_SPIRAM);
+    if (dot_bot_buf) {
+        memset(dot_bot_buf, 0, px * 4u);
+        dot_bot_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        dot_bot_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+        dot_bot_dsc.header.flags  = 0;
+        dot_bot_dsc.header.w      = DOT_BOT_W;
+        dot_bot_dsc.header.h      = DOT_BOT_H;
+        dot_bot_dsc.header.stride = DOT_BOT_W * 4;
+        dot_bot_dsc.data_size     = (uint32_t)(px * 4u);
+        dot_bot_dsc.data          = (const uint8_t *)dot_bot_buf;
+        dot_bot_img = lv_image_create(parent);
+        lv_image_set_src(dot_bot_img, &dot_bot_dsc);
+        lv_obj_set_pos(dot_bot_img, DOT_BOT_X, DOT_BOT_Y);
+    }
+
+    for (int i = 0; i < DOT_BAT_SEGS; i++) {
+        lv_obj_t *s = lv_obj_create(parent);
+        lv_obj_remove_style_all(s);
+        lv_obj_set_size(s, 11, 16);
+        lv_obj_set_pos(s, 140 + i * 14, 430);
+        lv_obj_set_style_bg_color(s, dot_seg_empty(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(s, LV_OBJ_FLAG_CLICKABLE);
+        dot_bat_seg[i] = s;
+    }
+
+    // Right-anchored percentage: a fixed-width box whose right edge is x=351.
+    dot_bat_pct = lv_label_create(parent);
+    lv_obj_set_width(dot_bat_pct, 64);
+    lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dot_bat_pct, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_bat_pct, lv_color_hex(0x8A8A8A), LV_PART_MAIN);
+    lv_label_set_text(dot_bat_pct, "");
+    lv_obj_set_pos(dot_bat_pct, 351 - 64, 430);
+}
+
+// 1 Hz: redraw the icons / segments / percentage only when something changed.
+static void update_dot_bottom()
+{
+    bool sw = stopwatch_is_running();
+    bool tm = timer_is_running();
+    bool al = alarm_is_enabled();
+    int  pct = instance.pmu.getBatteryPercent();
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+
+    static int last = -1;
+    int key = (sw ? 1 : 0) | (tm ? 2 : 0) | (al ? 4 : 0) | (pct << 3);
+    if (key == last) return;
+    last = key;
+
+    if (dot_bot_buf && dot_bot_img) {
+        const uint32_t W = 0xFFFFFFFFu, G = 0xFF5C5C5Cu;
+        memset(dot_bot_buf, 0, (size_t)DOT_BOT_W * (size_t)DOT_BOT_H * 4u);
+        dot_draw_stopwatch(dot_bot_buf, DOT_BOT_W, DOT_BOT_H, sw ? W : G);
+        dot_draw_timer    (dot_bot_buf, DOT_BOT_W, DOT_BOT_H, tm ? W : G);
+        dot_draw_bell     (dot_bot_buf, DOT_BOT_W, DOT_BOT_H, al ? W : G);
+        lv_image_set_src(dot_bot_img, NULL);
+        lv_image_set_src(dot_bot_img, &dot_bot_dsc);
+        lv_obj_invalidate(dot_bot_img);
+    }
+
+    int filled = (pct * DOT_BAT_SEGS + 50) / 100;   // 67% -> 9 of 13
+    for (int i = 0; i < DOT_BAT_SEGS; i++)
+        lv_obj_set_style_bg_color(dot_bat_seg[i], i < filled ? dot_white() : dot_seg_empty(), LV_PART_MAIN);
+
+    if (dot_bat_pct) lv_label_set_text_fmt(dot_bat_pct, "%d%%", pct);
+}
+
 // Per-second Dot-face refresh hook, called from the 1 Hz status block. No-op
 // unless the Dot face is the active one (and parks the USB wave otherwise so it
 // never animates off screen). Grows as Dot components land.
@@ -1040,6 +1169,7 @@ static void dot_face_tick()
     }
     update_dot_status();
     update_dot_usb();
+    update_dot_bottom();
 }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
