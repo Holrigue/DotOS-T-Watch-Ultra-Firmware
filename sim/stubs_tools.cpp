@@ -12,6 +12,13 @@
 // to detect anything.
 #include "Arduino.h"
 #include "threat_radar.h"
+#include "detector_toggle.h"
+
+// ---- detector persistence ----------------------------------------------------
+// The Tools tiles persist each detector's on/off to NVS via detector_remember().
+// There is no NVS in the simulator and every detector reads back "not running",
+// so there is nothing to remember: a no-op keeps the link whole.
+void detector_remember(Detector, bool) {}
 
 // ---- detector run-state ----------------------------------------------------
 // All report "not running". Toggling a tile in a live sim window will call

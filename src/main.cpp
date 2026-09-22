@@ -31,6 +31,7 @@
 #include "timezone.h"
 #include "clock_time.h"
 #include "dot_font_5x7.h"   // ARGUS-Design-OS "Dot" face 5x7 dot-matrix digits
+#include "detector_toggle.h" // shared detector on/off + NVS persistence (Dot badges, Tools)
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -151,6 +152,7 @@ static void update_dot_face(const struct tm *t);
 static void build_dot_status_row(lv_obj_t *parent);
 static void build_dot_usb(lv_obj_t *parent);
 static void build_dot_bottom(lv_obj_t *parent);
+static void build_dot_badges(lv_obj_t *parent);
 static void update_dot_status();
 static void dot_face_tick();
 
@@ -692,6 +694,7 @@ static void build_dot_face(lv_obj_t *screen)
     build_dot_usb(dot_container);
     build_dot_accent_date(dot_container);
     build_dot_bottom(dot_container);
+    build_dot_badges(dot_container);
 }
 
 // Refreshes the Dot face for the given local time. Renders HH:MM as white dots
@@ -1157,6 +1160,125 @@ static void update_dot_bottom()
     if (dot_bat_pct) lv_label_set_text_fmt(dot_bat_pct, "%d%%", pct);
 }
 
+// ---- Detection badges -----------------------------------------------------------
+//
+// Five always-visible badges at the fixed dotface_final.svg positions (y=365),
+// each bound to one detector through detector_toggle, the same control point the
+// Tools tiles use, so the two surfaces always agree. Three states:
+//   off      gray #5C5C5C outline + label, no count
+//   armed    white outline + label, no count (running, nothing seen yet)
+//   hit      red pill, white label, red count beside it (running and count > 0)
+// A tap toggles the detector. Like the Tools grid (gated off in Daily so a glance
+// or confiscation reveals nothing), taps are ignored in Daily mode.
+struct DotBadgeSpec {
+    Detector    det;
+    const char *text;
+    int         pill_x, pill_w;   // pill rect (y=365, h=19)
+    int         count_x;          // count text left edge
+};
+static const DotBadgeSpec kDotBadges[] = {
+    { Detector::Flock,    "Flock",  62, 40, 106 },
+    { Detector::EvilTwin, "EvilT", 124, 40, 168 },
+    { Detector::AirTag,   "AirT",  186, 34, 224 },
+    { Detector::Flipper,  "Flip",  242, 34, 280 },
+    { Detector::Skimmer,  "Skim",  298, 38, 340 },
+};
+static constexpr int DOT_BADGE_N = sizeof(kDotBadges) / sizeof(kDotBadges[0]);
+
+struct DotBadge { lv_obj_t *hit, *pill, *label, *count; int shown; };
+static DotBadge dot_badges[DOT_BADGE_N];
+
+static void update_dot_badges(bool force);
+
+static void on_dot_badge_clicked(lv_event_t *e)
+{
+    if (argus_mode_current() == ArgusMode::Daily) return;   // same gate as Tools
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (i < 0 || i >= DOT_BADGE_N) return;
+    Detector d = kDotBadges[i].det;
+    bool was = detector_is_running(d);
+    bool now = detector_toggle(d);
+    if (!was && !now) {
+        low_mem_show_dialog(
+            "#ff5555 RADIO BUSY#\n\n"
+            "This detector needs a radio\n"
+            "another feature is using.\n\n"
+            "Turn that off, then try again.");
+    }
+    update_dot_badges(true);
+}
+
+static void build_dot_badges(lv_obj_t *parent)
+{
+    for (int i = 0; i < DOT_BADGE_N; i++) {
+        const DotBadgeSpec &s = kDotBadges[i];
+        DotBadge &b = dot_badges[i];
+        // Invisible hit area around pill + count: a finger-sized tap target.
+        const int hx = s.pill_x - 4, hy = 358;
+        b.hit = lv_obj_create(parent);
+        lv_obj_remove_style_all(b.hit);
+        lv_obj_set_pos(b.hit, hx, hy);
+        lv_obj_set_size(b.hit, (s.count_x + 14) - hx, 33);
+        lv_obj_clear_flag(b.hit, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(b.hit, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(b.hit, on_dot_badge_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+        b.pill = lv_obj_create(b.hit);
+        lv_obj_remove_style_all(b.pill);
+        lv_obj_set_pos(b.pill, s.pill_x - hx, 365 - hy);
+        lv_obj_set_size(b.pill, s.pill_w, 19);
+        lv_obj_set_style_radius(b.pill, 4, LV_PART_MAIN);
+        lv_obj_set_style_border_width(b.pill, 1, LV_PART_MAIN);
+        lv_obj_clear_flag(b.pill, LV_OBJ_FLAG_CLICKABLE);   // let the hit area take the tap
+
+        b.label = lv_label_create(b.pill);
+        lv_obj_set_style_text_font(b.label, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_label_set_text(b.label, s.text);
+        lv_obj_center(b.label);
+
+        b.count = lv_label_create(b.hit);
+        lv_obj_set_style_text_font(b.count, &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_set_style_text_color(b.count, dot_red(), LV_PART_MAIN);
+        lv_label_set_text(b.count, "");
+        lv_obj_set_pos(b.count, s.count_x - hx, 366 - hy);
+        lv_obj_add_flag(b.count, LV_OBJ_FLAG_HIDDEN);
+
+        b.shown = -1;
+    }
+}
+
+// Restyle each badge only when its state or count changed (1 Hz, or forced
+// right after a tap so the badge answers immediately).
+static void update_dot_badges(bool force)
+{
+    for (int i = 0; i < DOT_BADGE_N; i++) {
+        DotBadge &b = dot_badges[i];
+        if (!b.hit) continue;
+        Detector d   = kDotBadges[i].det;
+        bool     on  = detector_is_running(d);
+        int      cnt = on ? detector_count(d) : 0;
+        // 0 off, 1 armed, 2+ hit (encodes the count so a new hit repaints).
+        int state = !on ? 0 : (cnt > 0 ? 2 + (cnt > 999 ? 999 : cnt) : 1);
+        if (!force && state == b.shown) continue;
+        b.shown = state;
+
+        if (state >= 2) {
+            lv_obj_set_style_bg_color(b.pill, dot_red(), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(b.pill, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_border_color(b.pill, dot_red(), LV_PART_MAIN);
+            lv_obj_set_style_text_color(b.label, dot_white(), LV_PART_MAIN);
+            lv_label_set_text_fmt(b.count, "%d", cnt);
+            lv_obj_clear_flag(b.count, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_color_t c = on ? dot_white() : dot_gray();
+            lv_obj_set_style_bg_opa(b.pill, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_color(b.pill, c, LV_PART_MAIN);
+            lv_obj_set_style_text_color(b.label, c, LV_PART_MAIN);
+            lv_obj_add_flag(b.count, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
 // Per-second Dot-face refresh hook, called from the 1 Hz status block. No-op
 // unless the Dot face is the active one (and parks the USB wave otherwise so it
 // never animates off screen). Grows as Dot components land.
@@ -1170,6 +1292,7 @@ static void dot_face_tick()
     update_dot_status();
     update_dot_usb();
     update_dot_bottom();
+    update_dot_badges(false);
 }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
@@ -2843,6 +2966,12 @@ void setup()
     // the boot radios, so it correctly no-ops if WiFi-at-boot or a BLE scanner is
     // already holding the radio (and keeps the preference for next time).
     device_mode_restore_boot();
+
+    // Re-start the detectors the user left on (Tools tiles / Dot face badges).
+    // Deferred ~10 s and crash-guarded inside detector_toggle; after the boot
+    // radios and notifications, so a detector whose radio is taken just stays
+    // off this boot and keeps its saved choice.
+    detector_restore_on_boot();
     coex_log_heap("setup-done");
 }
 

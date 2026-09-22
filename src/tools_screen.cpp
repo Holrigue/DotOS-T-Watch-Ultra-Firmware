@@ -30,6 +30,7 @@
 #include "notifications_screen.h"
 #include "analyze_screen.h"
 #include "ble_scan_manager.h"
+#include "detector_toggle.h"   // persist detector on/off (shared with the Dot face badges)
 #include <LilyGoLib.h>
 #include <SD.h>
 
@@ -120,6 +121,7 @@ static void on_airtag_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
         set_airtag_tile_running(ok);   // stays gray if it couldn't start
     }
+    detector_remember(Detector::AirTag, airtag_is_running());
 }
 
 static void set_trackers_tile_running(bool running)
@@ -162,6 +164,7 @@ static void on_flipper_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
         set_flipper_tile_running(ok);   // stays gray if it couldn't start
     }
+    detector_remember(Detector::Flipper, flipper_is_running());
 }
 
 static void set_skimmer_tile_running(bool running)
@@ -182,6 +185,7 @@ static void on_skimmer_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
         set_skimmer_tile_running(ok);   // stays gray if it couldn't start
     }
+    detector_remember(Detector::Skimmer, skimmer_is_running());
 }
 
 static void set_eviltwin_tile_running(bool running)
@@ -202,6 +206,7 @@ static void on_eviltwin_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(false);  // WiFi feature blocked by BT
         set_eviltwin_tile_running(ok);
     }
+    detector_remember(Detector::EvilTwin, evil_twin_is_running());
 }
 
 static void set_flock_tile_running(bool running)
@@ -252,6 +257,7 @@ static void on_flock_clicked(lv_event_t *e)
         }
         set_flock_tile_running(ok);
     }
+    detector_remember(Detector::Flock, flock_is_running());
 }
 
 // Tile container — 180x180 button-like card with a label at the bottom.
@@ -2141,6 +2147,14 @@ void tools_screen_show()
 {
     main_loop_request_lvgl_priority(12);
     tools_apply_mode();   // reflect the current mode before the screen paints
+    // The detectors can also be toggled from the Dot face's badges (and restored
+    // at boot), so re-read their live state here rather than trusting the colour
+    // the tiles were given when this screen was built.
+    set_airtag_tile_running(airtag_is_running());
+    set_flipper_tile_running(flipper_is_running());
+    set_skimmer_tile_running(skimmer_is_running());
+    set_eviltwin_tile_running(evil_twin_is_running());
+    set_flock_tile_running(flock_is_running());
     // Repaint the title with the MODE accent on entry: red-team red in Offense,
     // calm steel-blue in Daily/Defense. Deliberately argus_base_accent(), not
     // argus_accent(): a live threat must not turn Defense-side headings red.
