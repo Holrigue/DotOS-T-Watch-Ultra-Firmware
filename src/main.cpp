@@ -148,6 +148,9 @@ void low_mem_show_dialog(const char *msg);
 // full refresh of whichever face is active without depending on definition order.
 static void update_clock();
 static void update_dot_face(const struct tm *t);
+static void build_dot_status_row(lv_obj_t *parent);
+static void update_dot_status();
+static void dot_face_tick();
 
 
 static lv_obj_t *clock_screen;
@@ -177,6 +180,14 @@ static lv_obj_t *dot_container = nullptr;   // ARGUS-Design-OS "Dot" face; built
 static lv_obj_t *dot_time_img  = nullptr;   // dot-matrix time raster (lv_image)
 static uint32_t *dot_time_buf  = nullptr;   // ARGB8888 pixels in PSRAM
 static lv_image_dsc_t dot_time_dsc;         // descriptor pointing at dot_time_buf
+// Status row: the six line-art icons are rasterised into one ARGB8888 sprite;
+// NFC and the Meshtastic unread count stay LVGL labels, the mesh badge a pill.
+static lv_obj_t *dot_status_img = nullptr;
+static uint32_t *dot_status_buf = nullptr;
+static lv_image_dsc_t dot_status_dsc;
+static lv_obj_t *dot_nfc_label  = nullptr;
+static lv_obj_t *dot_mesh_pill  = nullptr;
+static lv_obj_t *dot_mesh_count = nullptr;
 
 // Watch face selection. Digital and Analog are the stock faces; Dot is the
 // ARGUS-Design-OS dot-matrix face added alongside them. Persisted in
@@ -518,6 +529,78 @@ static void dot_plot_disc(uint32_t *buf, int w, int h,
     }
 }
 
+// Stamp a thick line segment (rounded caps) into an ARGB8888 buffer, by the
+// distance from each pixel to the segment. Coordinates are raster-local.
+static void dot_plot_seg(uint32_t *buf, int w, int h,
+                         float x0, float y0, float x1, float y1,
+                         float width, uint32_t argb)
+{
+    float hw = width * 0.5f;
+    int minx = (int)floorf(fminf(x0, x1) - hw - 1), maxx = (int)ceilf(fmaxf(x0, x1) + hw + 1);
+    int miny = (int)floorf(fminf(y0, y1) - hw - 1), maxy = (int)ceilf(fmaxf(y0, y1) + hw + 1);
+    float dx = x1 - x0, dy = y1 - y0;
+    float len2 = dx * dx + dy * dy;
+    for (int y = miny; y <= maxy; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = minx; x <= maxx; x++) {
+            if (x < 0 || x >= w) continue;
+            float px = (float)x + 0.5f - x0, py = (float)y + 0.5f - y0;
+            float t = len2 > 0 ? (px * dx + py * dy) / len2 : 0.0f;
+            if (t < 0) t = 0; if (t > 1) t = 1;
+            float cx = px - t * dx, cy = py - t * dy;
+            if (cx * cx + cy * cy <= hw * hw) buf[y * w + x] = argb;
+        }
+    }
+}
+
+// Stamp a stroked circular arc, centre (cx,cy) radius r, spanning [a0,a1]
+// degrees measured clockwise from +x in this y-down raster (so 180..360 is the
+// top half, matching the SVG arcs). Coordinates are raster-local.
+static void dot_plot_arc(uint32_t *buf, int w, int h,
+                         float cx, float cy, float r, float a0, float a1,
+                         float width, uint32_t argb)
+{
+    float hw = width * 0.5f;
+    int minx = (int)floorf(cx - r - hw - 1), maxx = (int)ceilf(cx + r + hw + 1);
+    int miny = (int)floorf(cy - r - hw - 1), maxy = (int)ceilf(cy + r + hw + 1);
+    for (int y = miny; y <= maxy; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = minx; x <= maxx; x++) {
+            if (x < 0 || x >= w) continue;
+            float dx = (float)x + 0.5f - cx, dy = (float)y + 0.5f - cy;
+            float dist = sqrtf(dx * dx + dy * dy);
+            if (fabsf(dist - r) > hw) continue;
+            float ang = atan2f(dy, dx) * 57.29578f;
+            if (ang < 0) ang += 360.0f;
+            bool in = (a0 <= a1) ? (ang >= a0 && ang <= a1) : (ang >= a0 || ang <= a1);
+            if (in) buf[y * w + x] = argb;
+        }
+    }
+}
+
+// Fill a triangle (used for the GPS pin's tapered point). Coordinates are
+// raster-local; a pixel is inside when it sits on the same side of all edges.
+static void dot_fill_tri(uint32_t *buf, int w, int h,
+                         float ax, float ay, float bx, float by,
+                         float ccx, float ccy, uint32_t argb)
+{
+    int minx = (int)floorf(fminf(ax, fminf(bx, ccx))), maxx = (int)ceilf(fmaxf(ax, fmaxf(bx, ccx)));
+    int miny = (int)floorf(fminf(ay, fminf(by, ccy))), maxy = (int)ceilf(fmaxf(ay, fmaxf(by, ccy)));
+    for (int y = miny; y <= maxy; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = minx; x <= maxx; x++) {
+            if (x < 0 || x >= w) continue;
+            float px = (float)x + 0.5f, py = (float)y + 0.5f;
+            float d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+            float d2 = (px - ccx) * (by - ccy) - (bx - ccx) * (py - ccy);
+            float d3 = (px - ax) * (ccy - ay) - (ccx - ax) * (py - ay);
+            bool neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+            if (!(neg && pos)) buf[y * w + x] = argb;
+        }
+    }
+}
+
 // Builds the Dot face layer, hidden. Populated incrementally (status row, USB
 // indicator, accent, date, detection badges, bottom row); for now it carries
 // the opaque background panel and the dot-matrix time raster.
@@ -551,6 +634,8 @@ static void build_dot_face(lv_obj_t *screen)
         lv_image_set_src(dot_time_img, &dot_time_dsc);
         lv_obj_set_pos(dot_time_img, DOT_TIME_X, DOT_TIME_Y);
     }
+
+    build_dot_status_row(dot_container);
 }
 
 // Refreshes the Dot face for the given local time. Renders HH:MM as white dots
@@ -595,6 +680,173 @@ static void update_dot_face(const struct tm *t)
     lv_image_set_src(dot_time_img, NULL);
     lv_image_set_src(dot_time_img, &dot_time_dsc);
     lv_obj_invalidate(dot_time_img);
+}
+
+// ---- Status row --------------------------------------------------------------
+//
+// The six line-art icons (LoRa, SD, Bluetooth, WiFi, Wardriver, GPS) are drawn
+// into one ARGB8888 sprite that spans the icon band; NFC and the mesh count are
+// labels, the mesh badge a pill. Coordinates below are the exact face-space
+// values from dotface_final.svg; each icon draws at its absolute position minus
+// the sprite origin. Colours: white = active, gray = idle, per the same state
+// predicates the stock status icons already read.
+static constexpr int DOT_STAT_X = 96;
+static constexpr int DOT_STAT_Y = 44;
+static constexpr int DOT_STAT_W = 252;   // covers x 96..348
+static constexpr int DOT_STAT_H = 32;    // covers y 44..76
+
+static void dot_draw_lora(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    dot_plot_seg (b, w, h, 107 - ox, 60 - oy, 107 - ox, 70 - oy, 1.8f, c);   // stick
+    dot_plot_disc(b, w, h, 107 - ox, 58 - oy, 3.2f, c);                      // ball
+    dot_plot_arc (b, w, h, 107 - ox, 58 - oy, 5.0f, 180, 360, 1.8f, c);      // top arc
+}
+
+static void dot_draw_sd(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    // Card outline with the cut top-right corner (closed polyline).
+    const float px[6] = { 184-ox, 192-ox, 196-ox, 196-ox, 184-ox, 184-ox };
+    const float py[6] = { 49-oy,  49-oy,  53-oy,  67-oy,  67-oy,  49-oy  };
+    for (int i = 0; i < 5; i++) dot_plot_seg(b, w, h, px[i], py[i], px[i+1], py[i+1], 1.6f, c);
+    dot_plot_seg(b, w, h, 188-ox, 62-oy, 188-ox, 67-oy, 1.6f, c);   // contacts
+    dot_plot_seg(b, w, h, 192-ox, 62-oy, 192-ox, 67-oy, 1.6f, c);
+}
+
+static void dot_draw_bt(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ax[4] = { 222-ox, 226-ox, 218-ox, 222-ox }, ay[4] = { 50-oy, 54-oy, 62-oy, 66-oy };
+    const float bx[4] = { 222-ox, 218-ox, 226-ox, 222-ox }, by[4] = { 50-oy, 54-oy, 62-oy, 66-oy };
+    for (int i = 0; i < 3; i++) dot_plot_seg(b, w, h, ax[i], ay[i], ax[i+1], ay[i+1], 1.6f, c);
+    for (int i = 0; i < 3; i++) dot_plot_seg(b, w, h, bx[i], by[i], bx[i+1], by[i+1], 1.6f, c);
+}
+
+static void dot_draw_wifi(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    dot_plot_arc (b, w, h, 258-ox, 62-oy, 9.0f, 180, 360, 1.7f, c);
+    dot_plot_arc (b, w, h, 258-ox, 65-oy, 6.0f, 180, 360, 1.7f, c);
+    dot_plot_arc (b, w, h, 258-ox, 68-oy, 3.0f, 180, 360, 1.7f, c);
+    dot_plot_disc(b, w, h, 258-ox, 70.5f-oy, 1.3f, c);
+}
+
+static void dot_draw_radar(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    dot_plot_arc (b, w, h, 295-ox, 58-oy, 7.0f, 0, 360, 1.4f, c);    // outer ring
+    dot_plot_arc (b, w, h, 295-ox, 58-oy, 3.5f, 0, 360, 1.1f, c);    // inner ring
+    dot_plot_seg (b, w, h, 295-ox, 58-oy, 301-ox, 54-oy, 1.6f, c);   // sweep
+    dot_plot_disc(b, w, h, 295-ox, 58-oy, 1.2f, c);                  // centre
+}
+
+static void dot_draw_gps(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float cx = 330 - ox, cy = 58 - oy;
+    dot_plot_disc(b, w, h, cx, cy - 2, 7.0f, c);                                 // bulb
+    dot_fill_tri (b, w, h, cx - 6.0f, cy - 1.0f, cx + 6.0f, cy - 1.0f, cx, cy + 9.0f, c); // point
+    dot_plot_disc(b, w, h, cx, cy - 2, 2.2f, 0x00000000u);                       // hole
+}
+
+// Creates the status-row widgets, hidden state driven later by update_dot_status().
+static void build_dot_status_row(lv_obj_t *parent)
+{
+    size_t px = (size_t)DOT_STAT_W * (size_t)DOT_STAT_H;
+    dot_status_buf = (uint32_t *)heap_caps_malloc(px * 4u, MALLOC_CAP_SPIRAM);
+    if (dot_status_buf) {
+        memset(dot_status_buf, 0, px * 4u);
+        dot_status_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        dot_status_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+        dot_status_dsc.header.flags  = 0;
+        dot_status_dsc.header.w      = DOT_STAT_W;
+        dot_status_dsc.header.h      = DOT_STAT_H;
+        dot_status_dsc.header.stride = DOT_STAT_W * 4;
+        dot_status_dsc.data_size     = (uint32_t)(px * 4u);
+        dot_status_dsc.data          = (const uint8_t *)dot_status_buf;
+        dot_status_img = lv_image_create(parent);
+        lv_image_set_src(dot_status_img, &dot_status_dsc);
+        lv_obj_set_pos(dot_status_img, DOT_STAT_X, DOT_STAT_Y);
+    }
+
+    // NFC label, centred on x=146 (face centre is 205).
+    dot_nfc_label = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_nfc_label, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_nfc_label, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_nfc_label, "NFC");
+    lv_obj_align(dot_nfc_label, LV_ALIGN_TOP_MID, 146 - 205, 50);
+
+    // Meshtastic unread badge: red pill + white count, hidden while unread == 0.
+    dot_mesh_pill = lv_obj_create(parent);
+    lv_obj_remove_style_all(dot_mesh_pill);
+    lv_obj_set_size(dot_mesh_pill, 22, 18);
+    lv_obj_set_pos(dot_mesh_pill, 55, 49);
+    lv_obj_set_style_radius(dot_mesh_pill, 9, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(dot_mesh_pill, dot_red(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_mesh_pill, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_SCROLLABLE);
+    dot_mesh_count = lv_label_create(dot_mesh_pill);
+    lv_obj_set_style_text_font(dot_mesh_count, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_mesh_count, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_mesh_count, "0");
+    lv_obj_center(dot_mesh_count);
+    lv_obj_add_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Recolours the status icons from the same live predicates the stock status
+// bar reads, and refreshes the NFC label + mesh badge. Only redraws the sprite
+// on a state edge so the 1 Hz tick stays cheap.
+static void update_dot_status()
+{
+    if (!dot_status_buf || !dot_status_img) return;
+
+    bool lora = lora_screen_is_powered() || pager_is_running() || tpms_is_running()
+             || aprs_is_running() || lora_analyze_is_running();
+    bool bt   = btStarted();
+    wifi_mode_t wm = WIFI_MODE_NULL; esp_wifi_get_mode(&wm);
+    bool wifi = (wm != WIFI_MODE_NULL);
+    bool sd   = instance.isCardReady();
+    bool nfc  = instance.pmu.isEnableDLDO1();
+    bool wd   = wardriver_is_running();
+    bool gps  = gps_screen_is_powered();
+    int  unread = meshtastic_get_unread();
+
+    uint32_t state = (uint32_t)lora | (uint32_t)bt << 1 | (uint32_t)wifi << 2
+                   | (uint32_t)sd << 3 | (uint32_t)nfc << 4 | (uint32_t)wd << 5
+                   | (uint32_t)gps << 6 | ((uint32_t)(unread & 0x3FF)) << 7;
+    static uint32_t last_state = 0xFFFFFFFFu;
+    if (state == last_state) return;
+    last_state = state;
+
+    const uint32_t W = 0xFFFFFFFFu, G = 0xFF5C5C5Cu;   // opaque white / gray
+    memset(dot_status_buf, 0, (size_t)DOT_STAT_W * (size_t)DOT_STAT_H * 4u);
+    dot_draw_lora (dot_status_buf, DOT_STAT_W, DOT_STAT_H, lora ? W : G);
+    dot_draw_sd   (dot_status_buf, DOT_STAT_W, DOT_STAT_H, sd   ? W : G);
+    dot_draw_bt   (dot_status_buf, DOT_STAT_W, DOT_STAT_H, bt   ? W : G);
+    dot_draw_wifi (dot_status_buf, DOT_STAT_W, DOT_STAT_H, wifi ? W : G);
+    dot_draw_radar(dot_status_buf, DOT_STAT_W, DOT_STAT_H, wd   ? W : G);
+    dot_draw_gps  (dot_status_buf, DOT_STAT_W, DOT_STAT_H, gps  ? W : G);
+    lv_image_set_src(dot_status_img, NULL);
+    lv_image_set_src(dot_status_img, &dot_status_dsc);
+    lv_obj_invalidate(dot_status_img);
+
+    lv_obj_set_style_text_color(dot_nfc_label, nfc ? dot_white() : dot_gray(), LV_PART_MAIN);
+
+    if (unread > 0) {
+        lv_label_set_text_fmt(dot_mesh_count, "%d", unread);
+        lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+// Per-second Dot-face refresh hook, called from the 1 Hz status block. No-op
+// unless the Dot face is the active one. Grows as Dot components land.
+static void dot_face_tick()
+{
+    if (clock_face != FACE_DOT || !dot_container) return;
+    update_dot_status();
 }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
@@ -1020,6 +1272,7 @@ void clock_screen_set_face(int mode)
     } else if (clock_face == FACE_DOT && dot_container) {
         lv_obj_clear_flag(dot_container, LV_OBJ_FLAG_HIDDEN);
         update_dot_face(&t);
+        update_dot_status();
     } else {
         clock_face = FACE_DIGITAL;   // fall back if Dot is picked before it built
         lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
@@ -2843,6 +3096,7 @@ void loop()
         if (!usb_sd_is_running())   // host owns the SD card while mounted
             wardriver_bg_tick();
         update_wardriver_indicator();
+        dot_face_tick();   // refresh the Dot face's own status row when active
         if (wardriver_screen_is_active())
             wardriver_screen_update();
         if (configuration_screen_is_active())
