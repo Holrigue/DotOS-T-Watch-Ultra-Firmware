@@ -149,6 +149,7 @@ void low_mem_show_dialog(const char *msg);
 static void update_clock();
 static void update_dot_face(const struct tm *t);
 static void build_dot_status_row(lv_obj_t *parent);
+static void build_dot_usb(lv_obj_t *parent);
 static void update_dot_status();
 static void dot_face_tick();
 
@@ -636,6 +637,7 @@ static void build_dot_face(lv_obj_t *screen)
     }
 
     build_dot_status_row(dot_container);
+    build_dot_usb(dot_container);
 }
 
 // Refreshes the Dot face for the given local time. Renders HH:MM as white dots
@@ -841,12 +843,150 @@ static void update_dot_status()
     }
 }
 
+// ---- USB connection indicator ------------------------------------------------
+//
+// Two rows of 8 dots at y=130 (left x=55..153, right x=247..345, 14 px pitch).
+// Idle: static gray dots, no label. As soon as USB is present, every dot loops
+// white -> red -> white with a ~80 ms cascade from left to right (a wave), and
+// the centre label says why:
+//   charge only   bolt   centred at x=200
+//   data only     "DATA" centred at x=200
+//   both          bolt at x=178 + "DATA" at x=208 (grouped, centred)
+// "Charge" is the debounced PMU state (bat_charge: Charging or Topped, i.e.
+// VBUS present). "Data" is the USB-SD mass-storage mode (usb_sd_is_running()),
+// the only host data transfer this firmware can observe: TinyUSB is not up at
+// boot, so a plain cable to a PC with no mode active reads as charge only.
+//
+// 16 lightweight objects animated by one lv_timer; the timer only runs while
+// the Dot face is on screen and USB is present.
+static constexpr int      DOT_USB_N        = 16;
+static constexpr int      DOT_USB_Y        = 130;
+static constexpr int      DOT_USB_R        = 3;
+static constexpr uint32_t DOT_USB_TICK_MS  = 40;     // ~25 fps
+static constexpr uint32_t DOT_USB_PERIOD   = 1200;   // one white->red->white cycle
+static constexpr uint32_t DOT_USB_STAGGER  = 80;     // cascade delay per dot
+
+static lv_obj_t   *dot_usb_dots[DOT_USB_N];
+static lv_obj_t   *dot_usb_bolt  = nullptr;
+static lv_obj_t   *dot_usb_data  = nullptr;
+static lv_timer_t *dot_usb_timer = nullptr;
+static bool        dot_usb_live  = false;   // wave currently running
+
+static int dot_usb_x(int i)
+{
+    return (i < 8) ? 55 + i * 14 : 247 + (i - 8) * 14;
+}
+
+static void dot_usb_set_all(lv_color_t c)
+{
+    for (int i = 0; i < DOT_USB_N; i++)
+        lv_obj_set_style_bg_color(dot_usb_dots[i], c, LV_PART_MAIN);
+}
+
+// Wave frame: each dot's phase lags its left neighbour by DOT_USB_STAGGER.
+// Red weight follows a raised cosine, so 0 = white, peak = full red.
+static void dot_usb_anim_cb(lv_timer_t *t)
+{
+    (void)t;
+    uint32_t now = lv_tick_get();
+    for (int i = 0; i < DOT_USB_N; i++) {
+        uint32_t ph = (now + DOT_USB_PERIOD * 16 - (uint32_t)i * DOT_USB_STAGGER) % DOT_USB_PERIOD;
+        float    k  = 0.5f - 0.5f * cosf(6.2831853f * (float)ph / (float)DOT_USB_PERIOD);
+        lv_obj_set_style_bg_color(dot_usb_dots[i],
+            lv_color_mix(dot_red(), dot_white(), (uint8_t)(k * 255.0f)), LV_PART_MAIN);
+    }
+}
+
+static void build_dot_usb(lv_obj_t *parent)
+{
+    for (int i = 0; i < DOT_USB_N; i++) {
+        lv_obj_t *d = lv_obj_create(parent);
+        lv_obj_remove_style_all(d);
+        lv_obj_set_size(d, DOT_USB_R * 2, DOT_USB_R * 2);
+        lv_obj_set_pos(d, dot_usb_x(i) - DOT_USB_R, DOT_USB_Y - DOT_USB_R);
+        lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(d, dot_seg_empty(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(d, LV_OBJ_FLAG_CLICKABLE);
+        dot_usb_dots[i] = d;
+    }
+
+    dot_usb_bolt = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_usb_bolt, &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_usb_bolt, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_usb_bolt, LV_SYMBOL_CHARGE);
+    lv_obj_add_flag(dot_usb_bolt, LV_OBJ_FLAG_HIDDEN);
+
+    dot_usb_data = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_usb_data, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_usb_data, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_usb_data, "DATA");
+    lv_obj_add_flag(dot_usb_data, LV_OBJ_FLAG_HIDDEN);
+
+    dot_usb_timer = lv_timer_create(dot_usb_anim_cb, DOT_USB_TICK_MS, NULL);
+    lv_timer_pause(dot_usb_timer);
+}
+
+// Park the wave: timer paused, dots back to idle gray. Safe to call repeatedly.
+static void dot_usb_stop()
+{
+    if (!dot_usb_timer || !dot_usb_live) return;
+    lv_timer_pause(dot_usb_timer);
+    dot_usb_set_all(dot_seg_empty());
+    dot_usb_live = false;
+}
+
+// 1 Hz: work out the USB state, start/stop the wave and place the label(s).
+static void update_dot_usb()
+{
+    if (!dot_usb_timer) return;
+
+    bool charge = bat_charge.state() != ChargeState::Discharging;
+    bool data   = usb_sd_is_running();
+
+    // Label layout only changes on a state edge.
+    static int last = -1;
+    int key = (charge ? 1 : 0) | (data ? 2 : 0);
+    if (key != last) {
+        last = key;
+        // Centre each label on its x; y centres on the dot row (~127 / ~134
+        // baselines in the SVG). Face centre x is 205.
+        if (charge) {
+            lv_obj_align(dot_usb_bolt, LV_ALIGN_TOP_MID, (data ? 178 : 200) - 205, DOT_USB_Y - 11);
+            lv_obj_clear_flag(dot_usb_bolt, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(dot_usb_bolt, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (data) {
+            lv_obj_align(dot_usb_data, LV_ALIGN_TOP_MID, (charge ? 208 : 200) - 205, DOT_USB_Y - 9);
+            lv_obj_clear_flag(dot_usb_data, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(dot_usb_data, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (charge || data) {
+        if (!dot_usb_live) {
+            lv_timer_resume(dot_usb_timer);
+            dot_usb_live = true;
+        }
+    } else {
+        dot_usb_stop();
+    }
+}
+
 // Per-second Dot-face refresh hook, called from the 1 Hz status block. No-op
-// unless the Dot face is the active one. Grows as Dot components land.
+// unless the Dot face is the active one (and parks the USB wave otherwise so it
+// never animates off screen). Grows as Dot components land.
 static void dot_face_tick()
 {
-    if (clock_face != FACE_DOT || !dot_container) return;
+    if (clock_face != FACE_DOT || !dot_container
+        || lv_screen_active() != clock_screen) {
+        dot_usb_stop();
+        return;
+    }
     update_dot_status();
+    update_dot_usb();
 }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
