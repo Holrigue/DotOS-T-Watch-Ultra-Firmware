@@ -156,6 +156,7 @@ static void build_dot_badges(lv_obj_t *parent);
 static void update_dot_status();
 static void dot_face_tick();
 void main_loop_request_lvgl_priority(int cycles);   // defined with the main loop below
+void clock_screen_show();                           // defined further down
 
 
 static lv_obj_t *clock_screen;
