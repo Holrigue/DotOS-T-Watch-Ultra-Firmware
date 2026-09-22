@@ -143,6 +143,11 @@ static inline void coex_log_heap(const char *) {}
 // from setup()'s boot-radio block above it, so it needs an early prototype.
 void low_mem_show_dialog(const char *msg);
 
+// Early prototypes so the face-switch plumbing (defined up here) can drive a
+// full refresh of whichever face is active without depending on definition order.
+static void update_clock();
+static void update_dot_face(const struct tm *t);
+
 
 static lv_obj_t *clock_screen;
 static lv_obj_t *time_label;
@@ -167,7 +172,14 @@ static lv_obj_t *analog_container;
 static lv_obj_t *hand_hour;
 static lv_obj_t *hand_min;
 static lv_obj_t *hand_sec;
-static bool      analog_face = false;
+static lv_obj_t *dot_container = nullptr;   // ARGUS-Design-OS "Dot" face; built hidden
+
+// Watch face selection. Digital and Analog are the stock faces; Dot is the
+// ARGUS-Design-OS dot-matrix face added alongside them. Persisted in
+// /Settings/settings.txt as clock_face=0|1|2 (legacy analog_face=0|1 still read
+// for back-compat on cards written by older builds).
+enum ClockFace { FACE_DIGITAL = 0, FACE_ANALOG = 1, FACE_DOT = 2 };
+static ClockFace clock_face = FACE_DIGITAL;
 static uint32_t last_update_ms   = 0;
 static int      clock_utc_offset = -4; // hours; default US Eastern (EDT).
                                        // The RTC ALWAYS holds UTC; this shifts it
@@ -445,6 +457,46 @@ static void update_analog_clock(const struct tm *t)
     lv_obj_set_style_transform_rotation(hand_hour, h, LV_PART_MAIN);
     lv_obj_set_style_transform_rotation(hand_min,  m, LV_PART_MAIN);
     lv_obj_set_style_transform_rotation(hand_sec,  s, LV_PART_MAIN);
+}
+
+// ---------------------------------------------------------------------------
+// ARGUS-Design-OS "Dot" watch face
+//
+// A self-contained dot-matrix face rendered on its own opaque layer
+// (dot_container) that covers the normal clock background when active. Built
+// hidden; clock_screen_set_face() shows it. All coordinates are the native
+// 410x502 portrait space, straight from docs/dotface/dotface_final.svg.
+//
+// Strict palette: white = active, gray = idle, red = notifications/detections,
+// near-black background. Kept as helpers so every Dot widget draws from one
+// source of truth.
+// ---------------------------------------------------------------------------
+static inline lv_color_t dot_white()     { return lv_color_hex(0xFFFFFF); }
+static inline lv_color_t dot_gray()      { return lv_color_hex(0x5C5C5C); }
+static inline lv_color_t dot_red()       { return lv_color_hex(0xE02020); }
+static inline lv_color_t dot_bg()        { return lv_color_hex(0x0A0A0A); }
+static inline lv_color_t dot_seg_empty() { return lv_color_hex(0x3A3A3A); }
+
+// Builds the Dot face layer, hidden. Populated incrementally (status row, USB
+// indicator, dot-matrix time, accent, date, detection badges, bottom row); for
+// now it is the opaque background panel the rest hangs off.
+static void build_dot_face(lv_obj_t *screen)
+{
+    dot_container = lv_obj_create(screen);
+    lv_obj_remove_style_all(dot_container);
+    lv_obj_set_size(dot_container, 410, 502);
+    lv_obj_set_pos(dot_container, 0, 0);
+    lv_obj_set_style_bg_color(dot_container, dot_bg(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_container, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(dot_container, LV_OBJ_FLAG_HIDDEN);   // shown by set_face()
+}
+
+// Refreshes the Dot face for the given local time. A stub until the dot-matrix
+// time renderer lands; the periodic tick already routes here when Dot is active.
+static void update_dot_face(const struct tm *t)
+{
+    (void)t;
 }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
@@ -848,22 +900,40 @@ static void on_clock_gesture(lv_event_t *e)
     }
 }
 
-// Called by settings screen to switch between digital and analog face
+// Called by settings screen to switch between the Digital, Analog and Dot faces.
+// Digital shows the span-group time_label, Analog the hands container, Dot the
+// dot-matrix layer. Whichever comes up is driven to the current time at once so
+// there is no one-tick stale frame right after a switch.
+void clock_screen_set_face(int mode)
+{
+    clock_face = (ClockFace)mode;
+
+    lv_obj_add_flag(time_label,       LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
+    if (dot_container) lv_obj_add_flag(dot_container, LV_OBJ_FLAG_HIDDEN);
+
+    struct tm t;
+    instance.rtc.getDateTime(&t);
+    clocktime::tm_utc_to_local(&t, clock_utc_offset);
+
+    if (clock_face == FACE_ANALOG) {
+        lv_obj_clear_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
+        update_analog_clock(&t);
+    } else if (clock_face == FACE_DOT && dot_container) {
+        lv_obj_clear_flag(dot_container, LV_OBJ_FLAG_HIDDEN);
+        update_dot_face(&t);
+    } else {
+        clock_face = FACE_DIGITAL;   // fall back if Dot is picked before it built
+        lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
+        update_clock();
+    }
+}
+
+// Back-compat wrapper: older callers (and legacy settings.txt without a
+// clock_face key) only know the binary digital/analog switch.
 void clock_screen_set_analog_face(bool analog)
 {
-    analog_face = analog;
-    if (analog) {
-        lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
-        // Immediately drive hands to the current time
-        struct tm t;
-        instance.rtc.getDateTime(&t);
-        clocktime::tm_utc_to_local(&t, clock_utc_offset);
-        update_analog_clock(&t);
-    } else {
-        lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
-    }
+    clock_screen_set_face(analog ? FACE_ANALOG : FACE_DIGITAL);
 }
 
 // Called by the LoRa screen when LoRa power is toggled, for an immediate icon
@@ -1001,7 +1071,7 @@ void clock_screen_set_12h(bool use_12h)
 // whether to show its AM/PM selector.
 bool clock_screen_uses_12h()
 {
-    return clock_12h || analog_face;
+    return clock_12h || clock_face == FACE_ANALOG;
 }
 
 void clock_screen_set_show_day(bool show)
@@ -1358,8 +1428,10 @@ static void update_clock()
     // refills tm_wday / tm_yday, which the day-name label and the calendar read.
     clocktime::tm_utc_to_local(&t, clock_utc_offset);
 
-    if (analog_face) {
+    if (clock_face == FACE_ANALOG) {
         update_analog_clock(&t);
+    } else if (clock_face == FACE_DOT) {
+        update_dot_face(&t);
     } else {
         char hours_buf[4];
         char rest_buf[12];
@@ -1918,6 +1990,9 @@ void setup()
     time_screen_create();
     flashlight_screen_create();
     wardriver_screen_create();
+    // Dot face layer, created last so its opaque panel sits above every other
+    // clock_screen child; hidden until the Dot face is selected.
+    build_dot_face(clock_screen);
     lv_obj_add_event_cb(clock_screen, on_clock_gesture, LV_EVENT_GESTURE, NULL);
     // Hold the boot splash to a minimum ~1.5 s, then reveal the clock.
     while (millis() - boot_splash_ms < 1500) delay(10);
