@@ -28,10 +28,12 @@ enum class NotifyPlatform {
 NotifyPlatform device_mode_platform();
 void device_mode_set_platform(NotifyPlatform p);
 
-// Re-apply the persisted notification state at boot: if the user had Daily-wear
-// enabled, bring the saved platform's notifications back up. Call once from
-// setup() after basic init. A no-op (leaving the preference intact) if WiFi is
-// active, so a blocked restore is retried the next time the user toggles.
+// Re-apply the persisted notification state at boot: always restore the saved
+// platform (iOS / Android), and if the user had Daily-wear enabled, bring its
+// notifications back up. If the radio is busy at boot, retries every few
+// seconds for ~2 minutes (cancelled by any switch the user makes). Never
+// rewrites the saved preference, so a boot where it cannot come up still
+// restores on the next. Call once from setup() after basic init.
 void device_mode_restore_boot();
 
 // What actuation a requested switch implies. Pure, so it is unit-tested.

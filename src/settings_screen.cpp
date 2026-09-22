@@ -411,6 +411,25 @@ static void on_show_date_changed(lv_event_t *e)
     settings_save_to_sd();
 }
 
+int settings_get_brightness()
+{
+    return (int)s_brightness;
+}
+
+void settings_set_brightness(int level, bool save)
+{
+    if (level < 1) level = 1;
+    if (level > DEVICE_MAX_BRIGHTNESS_LEVEL) level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+    s_brightness = level;
+    instance.setBrightness((uint8_t)s_brightness);
+    if (brightness_slider) lv_slider_set_value(brightness_slider, s_brightness, LV_ANIM_OFF);
+    if (brightness_val_label) {
+        int pct = (int)s_brightness * 100 / (int)DEVICE_MAX_BRIGHTNESS_LEVEL;
+        lv_label_set_text_fmt(brightness_val_label, "%d%%", pct);
+    }
+    if (save) settings_save_to_sd();
+}
+
 static void on_brightness_changed(lv_event_t *e)
 {
     s_brightness = lv_slider_get_value(brightness_slider);
@@ -723,6 +742,7 @@ void settings_screen_create()
     // enum in main.cpp.
     face_dropdown = lv_dropdown_create(face_row);
     lv_dropdown_set_options_static(face_dropdown, "Digital\nAnalog\nDot");
+    lv_dropdown_set_selected(face_dropdown, 2);   // Dot is the default face
     lv_obj_set_width(face_dropdown, 150);
     lv_obj_set_style_text_font(face_dropdown, &font_argus_label_20, LV_PART_MAIN);
     lv_obj_set_style_text_color(face_dropdown, ARGUS_TEXT, LV_PART_MAIN);
@@ -1608,11 +1628,14 @@ void settings_screen_load()
             apply_layout();
             clock_screen_set_face(m);
         } else if (key == "analog_face") {
-            // Legacy cards written before the 3-way selector: 0 Digital, 1 Analog.
-            int m = b ? 1 : 0;
-            lv_dropdown_set_selected(face_dropdown, (uint32_t)m);
-            apply_layout();
-            clock_screen_set_face(m);
+            // Legacy cards written before the 3-way selector. Only an explicit
+            // Analog choice (1) is carried over; 0 was merely the old Digital
+            // default, so it yields to the new default face (Dot).
+            if (b) {
+                lv_dropdown_set_selected(face_dropdown, 1);
+                apply_layout();
+                clock_screen_set_face(1);
+            }
         } else if (key == "format_12h") {
             apply_switch(hour_format_switch, b);
             lv_label_set_text(hour_format_val_label, b ? "12h" : "24h");

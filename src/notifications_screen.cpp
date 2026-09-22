@@ -8,6 +8,7 @@
 #include "theme.h"
 #include "device_mode.h"
 #include "ancs.h"
+#include "ans.h"
 #include "notify/notify_center.h"
 
 #include <LilyGoLib.h>
@@ -41,7 +42,8 @@ static void update_status()
     lv_color_t col = ARGUS_TEXT_DIM;
     if (!device_mode_is_daily_wear()) {
         txt = "Notifications off - tap Enable";
-    } else if (ancs::is_connected()) {
+    } else if (device_mode_platform() == NotifyPlatform::iOS ? ancs::is_connected()
+                                                             : ans::is_connected()) {
         txt = "Phone connected";
         col = lv_color_make(0x33, 0xCC, 0x66);
     } else {
@@ -68,9 +70,9 @@ static void update_status()
 }
 
 // ---- notification list -----------------------------------------------------
-static void add_card(const notify::Notification *n)
+void notifications_add_card(lv_obj_t *parent, const notify::Notification *n)
 {
-    lv_obj_t *card = lv_obj_create(list_box);
+    lv_obj_t *card = lv_obj_create(parent);
     lv_obj_set_width(card, LV_PCT(100));
     lv_obj_set_height(card, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_color(card, lv_color_make(0x14, 0x14, 0x14), LV_PART_MAIN);
@@ -121,7 +123,7 @@ static void rebuild_list()
     } else {
         for (int i = 0; i < n; i++) {
             const notify::Notification *item = notify::center().get(i);
-            if (item) add_card(item);
+            if (item) notifications_add_card(list_box, item);
         }
     }
     s_shown_count = n;

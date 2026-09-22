@@ -3,33 +3,71 @@
 #include "notify/notify_center.h"
 #include "notify/notify_log.h"
 #include "notifications_screen.h"
+#include "settings_screen.h"
 #include "theme.h"
 
 #include <LilyGoLib.h>
 
+// Defined in main.cpp: back to the dim level or the Settings brightness.
+void clock_screen_restore_brightness();
+
 static lv_obj_t   *s_banner        = nullptr;
 static lv_timer_t *s_dismiss_timer = nullptr;
+static bool        s_boosted       = false;   // brightness raised for the banner
 
 static constexpr uint32_t POPUP_MS = 6000;   // auto-dismiss after 6s
+// While a banner is up the panel runs 15% (of full scale) above the user's
+// normal brightness, so the message is readable at a glance even from a dim
+// screen; it drops back as soon as the banner goes away.
+static constexpr int BOOST = DEVICE_MAX_BRIGHTNESS_LEVEL * 15 / 100;
 
-static void destroy_banner()
+static void boost_brightness()
+{
+    if (s_boosted) return;   // a newer arrival replacing a banner: already up
+    int level = settings_get_brightness() + BOOST;
+    if (level > DEVICE_MAX_BRIGHTNESS_LEVEL) level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+    instance.setBrightness((uint8_t)level);
+    s_boosted = true;
+}
+
+static void delete_banner()
 {
     if (s_dismiss_timer) { lv_timer_del(s_dismiss_timer); s_dismiss_timer = nullptr; }
     if (s_banner)        { lv_obj_del(s_banner);          s_banner        = nullptr; }
 }
 
-static void on_dismiss_timer(lv_timer_t *) { destroy_banner(); }
+// The banner is gone for good (timeout or tap): drop the brightness boost and
+// repaint the WHOLE screen underneath. With the panel's partial refresh, only
+// the banner's own rect used to be redrawn, which left its shadow and edges
+// smeared over the face until another full redraw (e.g. going back home).
+static void dismiss_banner(bool repaint)
+{
+    delete_banner();
+    if (s_boosted) {
+        clock_screen_restore_brightness();
+        s_boosted = false;
+    }
+    if (repaint) {
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(NULL);
+    }
+}
+
+static void on_dismiss_timer(lv_timer_t *) { dismiss_banner(true); }
 
 static void on_banner_click(lv_event_t *)
 {
-    destroy_banner();
+    dismiss_banner(false);          // the screen load below repaints everything
     notifications_screen_show();   // tap the banner -> open the full list
 }
+
+bool notify_popup_is_showing() { return s_banner != nullptr; }
 
 static void show_banner(const notify::Notification &n)
 {
     NLOG("[popup] show_banner: \"%s\"\n", n.title);
-    destroy_banner();   // one banner at a time; a newer arrival replaces the old
+    delete_banner();    // one banner at a time; a newer arrival replaces the old
+    boost_brightness();
 
     // Parent on the TOP layer so it floats above the clock and every screen and
     // survives screen loads. We own its lifetime (auto-dismiss / tap).

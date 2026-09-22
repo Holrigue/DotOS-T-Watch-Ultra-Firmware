@@ -6,9 +6,15 @@
 
 #include <WiFi.h>
 #include <Preferences.h>
+#include <lvgl.h>
 
 static DeviceMode     s_mode     = DeviceMode::FieldTool;
 static NotifyPlatform s_platform = NotifyPlatform::iOS;
+
+// Boot-restore retry (see device_mode_restore_boot). A switch the USER makes
+// cancels it, so a retry can never undo a choice made during the retry window.
+static lv_timer_t *s_restore_timer = nullptr;
+static bool        s_restoring     = false;   // true while the retry itself calls set()
 
 static bool wifi_active() { return WiFi.getMode() != WIFI_MODE_NULL; }
 
@@ -47,6 +53,10 @@ static void stop_notifications()
 
 ModeAction device_mode_set(DeviceMode requested)
 {
+    if (!s_restoring && s_restore_timer) {
+        lv_timer_delete(s_restore_timer);
+        s_restore_timer = nullptr;
+    }
     ModeAction action = device_mode_plan(s_mode, requested, wifi_active());
     switch (action) {
     case ModeAction::StartNotifications:
@@ -69,6 +79,42 @@ ModeAction device_mode_set(DeviceMode requested)
     return action;
 }
 
+// Boot restore of the saved notification state.
+//
+// The platform (iOS / Android) is always restored, so the Notify screen shows
+// the user's choice even when notifications were left off. If they were left
+// ON, bring them back up. At boot the radio is often briefly busy (a boot
+// radio, WiFi still tearing down, a BLE scan holding the GAP slot), which used
+// to make the restore give up silently and leave Notify off until the user
+// re-enabled it by hand. Instead, retry every few seconds for a while. A retry
+// never rewrites the saved preference, so a boot where it cannot come up (WiFi
+// kept on at boot, for example) still restores on the next one.
+static constexpr uint32_t RESTORE_RETRY_MS    = 5000;
+static constexpr uint32_t RESTORE_RETRY_COUNT = 24;    // ~2 minutes
+
+static bool try_restore_notifications()
+{
+    if (s_mode == DeviceMode::DailyWear) return true;   // already up (user enabled it)
+    if (ble_scan_active()) return false;                // don't fight a BLE scanner
+    s_restoring = true;
+    device_mode_set(DeviceMode::DailyWear);
+    s_restoring = false;
+    return s_mode == DeviceMode::DailyWear;
+}
+
+static uint32_t s_restore_runs = 0;
+
+static void restore_retry_cb(lv_timer_t *t)
+{
+    bool done = try_restore_notifications();
+    // Stop on success or after the last attempt. We delete the timer ourselves
+    // (no repeat count) so s_restore_timer never points at a freed timer.
+    if (done || ++s_restore_runs >= RESTORE_RETRY_COUNT) {
+        lv_timer_delete(t);
+        s_restore_timer = nullptr;
+    }
+}
+
 void device_mode_restore_boot()
 {
     Preferences p;
@@ -77,11 +123,11 @@ void device_mode_restore_boot()
     uint8_t plat = p.getUChar("plat", (uint8_t)NotifyPlatform::iOS);
     p.end();
 
-    if (!en) return;                         // was off; nothing to restore
-    // If a BLE scanner (AirTag/Flipper/etc., e.g. a boot radio) already owns the
-    // single GAP callback slot, don't fight it; keep the preference and let the
-    // user re-enable from a clean state.
-    if (ble_scan_active()) return;
-    s_platform = (NotifyPlatform)plat;
-    device_mode_set(DeviceMode::DailyWear);  // no-op + preference kept if WiFi is up
+    s_platform = (plat == (uint8_t)NotifyPlatform::Android) ? NotifyPlatform::Android
+                                                            : NotifyPlatform::iOS;
+    if (!en) return;                        // was off; the platform is all we restore
+
+    if (try_restore_notifications()) return;
+    s_restore_runs  = 0;
+    s_restore_timer = lv_timer_create(restore_retry_cb, RESTORE_RETRY_MS, NULL);
 }

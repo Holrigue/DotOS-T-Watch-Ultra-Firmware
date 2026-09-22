@@ -22,3 +22,11 @@ bool settings_get_screenshot_long_press();
 // SD-state-change branch and once at boot, so the toggle never lies
 // about whether the feature can actually write a file right now.
 void settings_screen_apply_sd_state();
+
+// Active (undimmed) display brightness, 1..DEVICE_MAX_BRIGHTNESS_LEVEL. The dim
+// timer restores this, not the hardware maximum, when the watch wakes.
+int settings_get_brightness();
+
+// Set the active brightness from anywhere (e.g. the notification shade): applies
+// it, keeps the Settings slider + % label in sync, and persists it when `save`.
+void settings_set_brightness(int level, bool save);

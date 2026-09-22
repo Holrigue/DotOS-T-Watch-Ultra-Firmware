@@ -14,6 +14,8 @@
 
 #include "lvgl.h"
 
+LV_FONT_DECLARE(font_argus_accent_16);   // accent fallback, see .fallback below
+
 /*-----------------
  *    BITMAPS
  *----------------*/
@@ -844,5 +846,8 @@ const lv_font_t font_argus_label_16 = {
     // ASCII-only subset: fall back to montserrat so an
     // LV_SYMBOL_* glyph renders instead of silently drawing
     // nothing. montserrat is already linked, so this is free.
-    .fallback = &lv_font_montserrat_16,
+    // Accented letters (e.g. e-acute, c-cedilla, typographic apostrophe) come
+    // from the Orbitron accent subset, which itself falls back to montserrat
+    // for LV_SYMBOL_* glyphs.
+    .fallback = &font_argus_accent_16,
 };

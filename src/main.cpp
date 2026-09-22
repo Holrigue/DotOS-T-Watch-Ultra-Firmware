@@ -1926,7 +1926,7 @@ void clock_screen_set_dim_timeout(uint32_t ms)
     s_last_activity_ms = millis();
     if (s_is_dimmed) {
         s_is_dimmed = false;
-        instance.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+        instance.setBrightness((uint8_t)settings_get_brightness());
     }
 }
 
@@ -1942,8 +1942,19 @@ static void dim_reset_activity()
     s_last_activity_ms = millis();
     if (s_is_dimmed) {
         s_is_dimmed = false;
-        instance.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+        // Wake to the brightness the user chose in Settings, not the
+        // hardware maximum.
+        instance.setBrightness((uint8_t)settings_get_brightness());
     }
+}
+
+// Put the panel back to whatever it should show right now: the dim level while
+// dimmed, otherwise the user's Settings brightness. Used after a temporary
+// override (the notification banner's brightness boost) ends.
+void clock_screen_restore_brightness()
+{
+    instance.setBrightness(s_is_dimmed ? s_dim_brightness
+                                       : (uint8_t)settings_get_brightness());
 }
 
 // Public hook so full-screen utility screens (e.g. the Flashlight) can keep the
@@ -2790,6 +2801,7 @@ void setup()
     // Dot face layer, created last so its opaque panel sits above every other
     // clock_screen child; hidden until the Dot face is selected.
     build_dot_face(clock_screen);
+    clock_screen_set_face(FACE_DOT);   // default face; a saved choice overrides it in settings_screen_load()
     lv_obj_add_event_cb(clock_screen, on_clock_gesture, LV_EVENT_GESTURE, NULL);
     // Hold the boot splash to a minimum ~1.5 s, then reveal the clock.
     while (millis() - boot_splash_ms < 1500) delay(10);
@@ -3520,7 +3532,9 @@ void loop()
     }
 
     // Dim timer: check every loop iteration for low latency
-    if (s_dim_timeout_ms > 0 && !s_is_dimmed) {
+    // Never dim under a notification banner: it is boosted on purpose so the
+    // message is readable, and dims back on its own once it is dismissed.
+    if (s_dim_timeout_ms > 0 && !s_is_dimmed && !notify_popup_is_showing()) {
         if (millis() - s_last_activity_ms >= s_dim_timeout_ms) {
             s_is_dimmed = true;
             instance.setBrightness(s_dim_brightness);
