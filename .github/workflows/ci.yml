@@ -153,9 +153,23 @@ jobs:
             "Built from ${GITHUB_SHA} (${GITHUB_REF_NAME})." > "$out/FLASH.txt"
           (cd "$out" && sha256sum *.bin > SHA256SUMS)
 
+      # One-click flasher for this exact build: a single self-contained HTML
+      # file (open it locally in Chrome/Edge) embedding the four binaries above
+      # and the vendored ESP Web Tools 10.4.0, bundled into one module so no
+      # CDN or network is involved. Same parts/offsets as the published flasher.
+      - name: Build one-click flasher page
+        run: |
+          set -euo pipefail
+          npx --yes esbuild@0.23.1 flasher/vendor/esp-web-tools/install-button.js \
+            --bundle --format=esm --minify --outfile="$RUNNER_TEMP/ewt.bundle.js"
+          python3 tools/gen_dot_flasher.py .pio/build/twatch_ultra \
+            ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            "${{ github.event.pull_request.head.sha || github.sha }}" \
+            "$RUNNER_TEMP/ewt.bundle.js" flash/argus-dot-flasher.html
+
       - name: Upload flashable binaries
         uses: actions/upload-artifact@v4
         with:
-          name: twatch_ultra-${{ github.sha }}
+          name: twatch_ultra-${{ github.event.pull_request.head.sha || github.sha }}
           path: flash/
           retention-days: 14
