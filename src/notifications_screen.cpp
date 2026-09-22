@@ -10,11 +10,12 @@
 #include "ancs.h"
 #include "ans.h"
 #include "notify/notify_center.h"
+#include "settings_screen.h"
 
 #include <LilyGoLib.h>
 
 // Defined in main.cpp.
-void tools_screen_show();
+void screen_return_to(lv_obj_t *scr);
 
 static lv_obj_t *screen;
 static lv_obj_t *status_label;
@@ -24,15 +25,39 @@ static lv_obj_t *toggle_btn;
 static lv_obj_t *toggle_label;
 static lv_obj_t *list_box;
 static lv_timer_t *refresh_timer;
+static lv_obj_t *bright_slider;
+static lv_obj_t *bright_pct;
+static lv_obj_t *s_return = nullptr;   // screen to go back to when the shade closes
 
 static int s_shown_count = -1;   // last rendered store count, so we rebuild lazily
 
 // ---- back gesture ----------------------------------------------------------
+// This screen doubles as the pull-down shade, so it closes like one: swipe up
+// (or right, the usual back swipe) returns to whatever screen it was opened
+// over - the watch face, the Tools grid, or any other screen.
 static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
-    if (lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT)
-        tools_screen_show();
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT)
+        screen_return_to(s_return);
+}
+
+// ---- brightness ------------------------------------------------------------
+// Same setting as Settings > Brightness (kept in sync both ways), applied live
+// while dragging and saved once on release.
+static void show_brightness(int level)
+{
+    lv_slider_set_value(bright_slider, level, LV_ANIM_OFF);
+    lv_label_set_text_fmt(bright_pct, "%d%%", level * 100 / DEVICE_MAX_BRIGHTNESS_LEVEL);
+}
+
+static void on_brightness(lv_event_t *e)
+{
+    int level = lv_slider_get_value(bright_slider);
+    bool release = lv_event_get_code(e) == LV_EVENT_RELEASED;
+    settings_set_brightness(level, release);
+    show_brightness(level);
 }
 
 // ---- status + toggle label -------------------------------------------------
@@ -188,11 +213,25 @@ void notifications_screen_create()
     lv_obj_set_style_bg_color(screen, lv_color_black(), LV_PART_MAIN);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *title = lv_label_create(screen);
-    lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
-    lv_label_set_text(title, "Notify");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    // Brightness bar across the top of the shade (replaces the old "Notify"
+    // title: the status line below already says what this screen is).
+    bright_slider = lv_slider_create(screen);
+    lv_obj_set_size(bright_slider, 280, 22);
+    lv_obj_align(bright_slider, LV_ALIGN_TOP_MID, -30, 18);
+    lv_slider_set_range(bright_slider, 1, DEVICE_MAX_BRIGHTNESS_LEVEL);
+    lv_obj_set_style_bg_color(bright_slider, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bright_slider, lv_color_white(), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(bright_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(bright_slider, 6, LV_PART_KNOB);
+    // A horizontal drag on the slider must not also count as a back swipe.
+    lv_obj_clear_flag(bright_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(bright_slider, on_brightness, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(bright_slider, on_brightness, LV_EVENT_RELEASED, NULL);
+
+    bright_pct = lv_label_create(screen);
+    lv_obj_set_style_text_font(bright_pct, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(bright_pct, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_align(bright_pct, LV_ALIGN_TOP_MID, 150, 18);
 
     status_label = lv_label_create(screen);
     lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
@@ -265,7 +304,12 @@ void notifications_screen_create()
 
 void notifications_screen_show()
 {
+    lv_obj_t *from = lv_screen_active();
+    if (from != screen) s_return = from;   // where swipe-up / back returns to
+    show_brightness(settings_get_brightness());
     update_status();
     rebuild_list();
     lv_scr_load(screen);
 }
+
+bool notifications_screen_is_active() { return lv_screen_active() == screen; }

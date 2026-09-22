@@ -89,7 +89,9 @@ static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_TOP)
+    // Reached from the watch face by a right-to-left swipe, so the reverse
+    // swipe (left-to-right) goes home; swipe up still does too.
+    if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT)
         clock_screen_show();
 }
 
@@ -2130,8 +2132,11 @@ void tools_apply_mode()
 // Mirrors the clock's swipe-down->Tools and is gated to Defense/Offense (Daily
 // hides Tools). Screens with vertically-scrolling content still scroll; the
 // gesture only fires when the scroll doesn't consume the swipe.
+bool touch_started_at_top_edge();   // main.cpp: a pull from the top edge opens the shade
+
 static void tools_jump_gesture_cb(lv_event_t *e)
 {
+    if (touch_started_at_top_edge()) return;   // that pull belongs to the notification shade
     lv_indev_t *indev = lv_event_get_indev(e);
     if (lv_indev_get_gesture_dir(indev) == LV_DIR_BOTTOM &&
         argus_mode_current() != ArgusMode::Daily)

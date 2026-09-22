@@ -33,11 +33,15 @@ static bool     s_ttiles_red      = false;  // last-rendered regime (true = Offe
 // Swipe DOWN to return to the clock face — mirrors the swipe-UP entry from
 // the clock. Other directions are no-ops so a sloppy left/right swipe inside
 // a tile doesn't accidentally page away.
+bool touch_started_at_top_edge();   // main.cpp: a pull from the top edge opens the shade
+
 static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_BOTTOM)
+    // A pull from the very top edge opens the notification shade over this
+    // screen instead (handled in main.cpp); any other swipe down goes home.
+    if (dir == LV_DIR_BOTTOM && !touch_started_at_top_edge())
         clock_screen_show();
 }
 

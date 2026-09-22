@@ -20,6 +20,12 @@
 // so there is nothing to remember: a no-op keeps the link whole.
 void detector_remember(Detector, bool) {}
 
+// ---- top-edge pull ------------------------------------------------------------
+// main.cpp (not built here) tracks where each touch starts so a pull from the top
+// edge opens the notification shade instead of the Tools jump gesture. The sim
+// has no shade: report "not from the top edge" so swipe-down keeps its old role.
+bool touch_started_at_top_edge() { return false; }
+
 // ---- detector run-state ----------------------------------------------------
 // All report "not running". Toggling a tile in a live sim window will call
 // start() and then still read back false, so a tile cannot latch into a lying

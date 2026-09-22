@@ -1676,6 +1676,73 @@ static void update_wardriver_indicator()
     realign_status_icons();
 }
 
+// ---- Pull-down from the top edge (any screen) -------------------------------
+//
+// An Android-style pull that starts on the top edge of ANY screen opens the
+// notification shade (the Notify screen, brightness slider on top). The touch
+// indev's PRESSED / RELEASED events (LVGL 9 forwards both to the indev) give the
+// exact start and end points, which a plain LV_EVENT_GESTURE does not expose.
+static int32_t s_press_x = -1, s_press_y = -1;
+static constexpr int32_t TOP_EDGE_PX  = 60;   // a pull must start this close to the top
+static constexpr int32_t PULL_MIN_PX  = 70;   // and travel at least this far down
+
+bool touch_started_at_top_edge()
+{
+    return s_press_y >= 0 && s_press_y < TOP_EDGE_PX;
+}
+
+static void on_touch_pressed(lv_event_t *e)
+{
+    lv_indev_t *indev = (lv_indev_t *)lv_event_get_user_data(e);
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    s_press_x = p.x;
+    s_press_y = p.y;
+}
+
+static void on_touch_released(lv_event_t *e)
+{
+    lv_indev_t *indev = (lv_indev_t *)lv_event_get_user_data(e);
+    bool from_top = touch_started_at_top_edge();
+    int32_t x0 = s_press_x, y0 = s_press_y;
+    s_press_x = s_press_y = -1;
+    if (!from_top) return;
+
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    int32_t dx = p.x - x0, dy = p.y - y0;
+    if (dy < PULL_MIN_PX || dy <= (dx < 0 ? -dx : dx)) return;   // not a downward pull
+
+    // Never over the PIN pad (it guards Offense; the shade must not leak past it),
+    // and not again if the shade is already up (the clock's own swipe-down got
+    // there first on this same touch).
+    if (pin_pad_screen_is_active() || notifications_screen_is_active()) return;
+    notifications_screen_show();
+}
+
+// Hook every pointer indev. Call once after the LVGL input devices exist.
+static void watch_touch_pulls()
+{
+    for (lv_indev_t *i = lv_indev_get_next(NULL); i; i = lv_indev_get_next(i)) {
+        if (lv_indev_get_type(i) != LV_INDEV_TYPE_POINTER) continue;
+        lv_indev_add_event_cb(i, on_touch_pressed,  LV_EVENT_PRESSED,  i);
+        lv_indev_add_event_cb(i, on_touch_released, LV_EVENT_RELEASED, i);
+    }
+}
+
+// Go back to the screen a transient surface (the shade) was opened over. The
+// clock needs its full synchronous repaint; any other screen is simply reloaded.
+void screen_return_to(lv_obj_t *scr)
+{
+    if (!scr || scr == clock_screen || !lv_obj_is_valid(scr)) {
+        clock_screen_show();
+        return;
+    }
+    lv_scr_load(scr);
+    lv_obj_invalidate(scr);
+    main_loop_request_lvgl_priority(12);
+}
+
 static void on_clock_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
@@ -1683,14 +1750,26 @@ static void on_clock_gesture(lv_event_t *e)
     // Daily keeps the innocent surfaces reachable. Meshtastic (mesh comms) and Time
     // are day-to-day features allowed in every mode; Wardriver (recon) and the Tools
     // grid are gated to Defense/Offense so a Daily glance/confiscation reveals nothing.
+    //
+    // Home navigation:
+    //   swipe right-to-left  -> Tools grid (gated in Daily)
+    //   swipe left-to-right  -> Wardriver, then Meshtastic, then Nodes (each a
+    //                           further swipe the same way; Daily skips the
+    //                           gated Wardriver and lands on Meshtastic)
+    //   swipe down           -> notification shade (every mode)
+    //   swipe up             -> Time
     bool daily = (argus_mode_current() == ArgusMode::Daily);
     if (dir == LV_DIR_LEFT) {
-        if (!daily) wardriver_screen_show();   // recon, gated in Daily
-    } else if (dir == LV_DIR_RIGHT) {
-        meshtastic_mark_read();                // comms, available in every mode
-        meshtastic_screen_show();
-    } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
         if (!daily) tools_screen_show();       // Tools gated in Daily
+    } else if (dir == LV_DIR_RIGHT) {
+        if (!daily) {
+            wardriver_screen_show();           // recon, gated in Daily
+        } else {
+            meshtastic_mark_read();            // comms, available in every mode
+            meshtastic_screen_show();
+        }
+    } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
+        notifications_screen_show();     // shade: notifications + brightness, every mode
     } else if (dir == LV_DIR_TOP) {      // swipe up from clock face
         time_screen_show();              // Time is innocent - allowed in every mode
     }
@@ -2803,6 +2882,7 @@ void setup()
     build_dot_face(clock_screen);
     clock_screen_set_face(FACE_DOT);   // default face; a saved choice overrides it in settings_screen_load()
     lv_obj_add_event_cb(clock_screen, on_clock_gesture, LV_EVENT_GESTURE, NULL);
+    watch_touch_pulls();   // top-edge pull-down -> notification shade, from any screen
     // Hold the boot splash to a minimum ~1.5 s, then reveal the clock.
     while (millis() - boot_splash_ms < 1500) delay(10);
     lv_scr_load(clock_screen);
