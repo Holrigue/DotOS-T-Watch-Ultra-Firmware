@@ -602,6 +602,57 @@ static void dot_fill_tri(uint32_t *buf, int w, int h,
     }
 }
 
+// ---- Accent line + date --------------------------------------------------------
+//
+// Accent: solid red rule under the time (x=50 y=300, 245x3, 90% opacity). The
+// step-progress variant is out of scope (no step source in this firmware).
+//
+// Date: same logic as the stock date_label (honours Show day / Show date), in
+// the Dot face's compact single-line form, e.g. "THUR 15/02" (DD/MM), gray
+// #9A9A9A monospace at x=50, baseline y=338.
+static lv_obj_t *dot_accent     = nullptr;
+static lv_obj_t *dot_date_label = nullptr;
+
+static void build_dot_accent_date(lv_obj_t *parent)
+{
+    dot_accent = lv_obj_create(parent);
+    lv_obj_remove_style_all(dot_accent);
+    lv_obj_set_size(dot_accent, 245, 3);
+    lv_obj_set_pos(dot_accent, 50, 300);
+    lv_obj_set_style_bg_color(dot_accent, dot_red(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_accent, LV_OPA_90, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_accent, LV_OBJ_FLAG_CLICKABLE);
+
+    dot_date_label = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_date_label, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_date_label, lv_color_hex(0x9A9A9A), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(dot_date_label, 3, LV_PART_MAIN);
+    lv_label_set_text(dot_date_label, "");
+    lv_obj_set_pos(dot_date_label, 50, 324);
+}
+
+static void update_dot_date(const struct tm *t)
+{
+    if (!dot_date_label) return;
+    static const char *const kDay[7] = { "SUN", "MON", "TUES", "WED", "THUR", "FRI", "SAT" };
+    char buf[24];
+    int  wd = (t->tm_wday >= 0 && t->tm_wday < 7) ? t->tm_wday : 0;
+    if (clock_show_day && clock_show_date)
+        snprintf(buf, sizeof(buf), "%s %02d/%02d", kDay[wd], t->tm_mday, t->tm_mon + 1);
+    else if (clock_show_day)
+        snprintf(buf, sizeof(buf), "%s", kDay[wd]);
+    else if (clock_show_date)
+        snprintf(buf, sizeof(buf), "%02d/%02d", t->tm_mday, t->tm_mon + 1);
+    else
+        buf[0] = '\0';
+
+    // Only touch the label when the text actually changes (this runs at 1 Hz).
+    static char last[24] = { '\x01', '\0' };
+    if (strcmp(buf, last) == 0) return;
+    strncpy(last, buf, sizeof(last) - 1);
+    lv_label_set_text(dot_date_label, buf);
+}
+
 // Builds the Dot face layer, hidden. Populated incrementally (status row, USB
 // indicator, accent, date, detection badges, bottom row); for now it carries
 // the opaque background panel and the dot-matrix time raster.
@@ -638,12 +689,14 @@ static void build_dot_face(lv_obj_t *screen)
 
     build_dot_status_row(dot_container);
     build_dot_usb(dot_container);
+    build_dot_accent_date(dot_container);
 }
 
 // Refreshes the Dot face for the given local time. Renders HH:MM as white dots
 // on the 5x7 custom grid; hours honour the 12h/24h setting, always 2 digits.
 static void update_dot_face(const struct tm *t)
 {
+    update_dot_date(t);   // cheap, and must follow the show-day/date settings live
     if (!dot_time_buf || !dot_time_img) return;
 
     // The dots only change on a minute edge; skip the raster churn otherwise.
