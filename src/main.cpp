@@ -1227,7 +1227,7 @@ static void update_dot_bottom()
     for (int i = 0; i < DOT_BAT_SEGS; i++)
         lv_obj_set_style_bg_color(dot_bat_seg[i], i < filled ? dot_white() : dot_seg_empty(), LV_PART_MAIN);
 
-    if (dot_bat_pct) lv_label_set_text_fmt(dot_bat_pct, "%d%%", pct);
+    if (dot_bat_pct) lv_label_set_text_fmt(dot_bat_pct, "%d", pct);   // number only, no '%'
 }
 
 // ---- Detection badges -----------------------------------------------------------

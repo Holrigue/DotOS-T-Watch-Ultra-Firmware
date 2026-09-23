@@ -43,6 +43,12 @@ bool health_data_fresh();
 // Copies the bytes into the mailbox and returns; the loop applies them.
 void health_ingest_packet(const uint8_t *data, size_t len);
 
+// Monotonic count of health packets the loop has applied. The Health screen's
+// swipe-up refresh samples it, then watches for it to change: an increment means
+// the phone just pushed a fresh packet (refresh succeeded). Loop-only, like the
+// model itself.
+uint32_t health_rx_seq();
+
 // Wire format for the health-input characteristic (see docs/health/README.md).
 namespace health_packet {
 constexpr uint8_t VERSION      = 1;

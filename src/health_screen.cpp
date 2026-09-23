@@ -29,19 +29,85 @@ lv_obj_t *s_steps_val  = nullptr;
 lv_obj_t *s_stress_val = nullptr;
 lv_obj_t *s_hr_val     = nullptr;
 
+// Swipe-up refresh overlays + state. The watch cannot pull from the phone, so a
+// "refresh" waits for the companion app to push a fresh packet: it shows a
+// loading spinner and watches health_rx_seq() for an increment. If none arrives
+// before the timeout, it shows a dismissible error card.
+lv_obj_t   *s_load_ov       = nullptr;   // loading backdrop + spinner
+lv_obj_t   *s_load_card     = nullptr;   // spinner's parent card
+lv_obj_t   *s_spinner       = nullptr;   // created only during a refresh
+lv_obj_t   *s_err_ov        = nullptr;   // error card (X to close)
+lv_timer_t *s_refresh_timer = nullptr;
+uint32_t    s_refresh_start = 0;
+uint32_t    s_refresh_seq0  = 0;
+
+constexpr uint32_t REFRESH_TIMEOUT_MS = 8000;   // wait this long for a push
+constexpr uint32_t REFRESH_POLL_MS    = 150;    // spinner/seq poll cadence
+
+void cancel_refresh()
+{
+    if (s_refresh_timer) { lv_timer_delete(s_refresh_timer); s_refresh_timer = nullptr; }
+    // Delete the spinner so its animation stops (a persistent spinner would keep
+    // ticking forever, even hidden, and keep the loop from idling).
+    if (s_spinner) { lv_obj_delete(s_spinner); s_spinner = nullptr; }
+    if (s_load_ov) lv_obj_add_flag(s_load_ov, LV_OBJ_FLAG_HIDDEN);
+}
+
+void refresh_timer_cb(lv_timer_t *)
+{
+    // A fresh packet arrived: dismiss the spinner and repaint the values.
+    if (health_rx_seq() != s_refresh_seq0) {
+        cancel_refresh();
+        health_screen_update();
+        return;
+    }
+    // Timed out with nothing new: show the error card.
+    if (millis() - s_refresh_start >= REFRESH_TIMEOUT_MS) {
+        cancel_refresh();
+        if (s_err_ov) lv_obj_clear_flag(s_err_ov, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void start_refresh()
+{
+    if (!s_screen || s_refresh_timer) return;   // already refreshing
+    if (s_err_ov)  lv_obj_add_flag(s_err_ov, LV_OBJ_FLAG_HIDDEN);
+
+    // Spawn the spinner fresh (deleted again in cancel_refresh).
+    if (s_load_card && !s_spinner) {
+        s_spinner = lv_spinner_create(s_load_card);
+        lv_spinner_set_anim_params(s_spinner, 1000, 60);
+        lv_obj_set_size(s_spinner, 66, 66);
+        lv_obj_align(s_spinner, LV_ALIGN_TOP_MID, 0, 16);
+        lv_obj_set_style_arc_color(s_spinner, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(s_spinner, c_red(), LV_PART_INDICATOR);
+        lv_obj_clear_flag(s_spinner, LV_OBJ_FLAG_CLICKABLE);
+    }
+    if (s_load_ov) lv_obj_clear_flag(s_load_ov, LV_OBJ_FLAG_HIDDEN);
+    s_refresh_seq0  = health_rx_seq();
+    s_refresh_start = millis();
+    s_refresh_timer = lv_timer_create(refresh_timer_cb, REFRESH_POLL_MS, nullptr);
+}
+
+void err_close_cb(lv_event_t *)
+{
+    if (s_err_ov) lv_obj_add_flag(s_err_ov, LV_OBJ_FLAG_HIDDEN);
+}
+
 void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
     // A pull from the very top edge opens the notification shade (handled in
     // main.cpp); any other swipe down goes home.
-    if (dir == LV_DIR_BOTTOM && !touch_started_at_top_edge())
+    if (dir == LV_DIR_BOTTOM && !touch_started_at_top_edge()) {
+        cancel_refresh();
         clock_screen_show();
-    // Swipe up: re-read the model and repaint at once, so the latest values the
-    // phone has pushed show immediately (the screen also auto-refreshes at 1 Hz).
-    // The watch cannot pull from the phone; the companion app is what sends.
+    }
+    // Swipe up: ask for the latest. The watch can only wait for the companion
+    // app to push; show a spinner and resolve to the fresh values or an error.
     else if (dir == LV_DIR_TOP)
-        health_screen_update();
+        start_refresh();
 }
 
 // One metric row: a small gray name on the left, a big value on the right.
@@ -87,6 +153,95 @@ void set_val(lv_obj_t *val, bool present, bool stale, const char *text)
                                 LV_PART_MAIN);
 }
 
+// A full-screen dim backdrop that lets gestures pass to the screen underneath
+// (so swipe-down-home still works while it is up). Returns it, hidden.
+lv_obj_t *make_backdrop()
+{
+    lv_obj_t *ov = lv_obj_create(s_screen);
+    lv_obj_remove_style_all(ov);
+    lv_obj_set_size(ov, 410, 502);
+    lv_obj_set_pos(ov, 0, 0);
+    lv_obj_set_style_bg_color(ov, lv_color_hex(0x000000), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ov, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_clear_flag(ov, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(ov, LV_OBJ_FLAG_CLICKABLE);   // touches fall through
+    lv_obj_add_flag(ov, LV_OBJ_FLAG_HIDDEN);
+    return ov;
+}
+
+// Builds the loading spinner and the error card, both hidden. Called once.
+void build_overlays()
+{
+    // ---- Loading: spinner + "REFRESHING" on a small card ----
+    s_load_ov = make_backdrop();
+    lv_obj_t *lcard = lv_obj_create(s_load_ov);
+    lv_obj_remove_style_all(lcard);
+    lv_obj_set_size(lcard, 190, 160);
+    lv_obj_center(lcard);
+    lv_obj_set_style_bg_color(lcard, lv_color_hex(0x121212), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(lcard, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(lcard, 14, LV_PART_MAIN);
+    lv_obj_set_style_border_color(lcard, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
+    lv_obj_set_style_border_width(lcard, 1, LV_PART_MAIN);
+    lv_obj_clear_flag(lcard, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(lcard, LV_OBJ_FLAG_CLICKABLE);
+    s_load_card = lcard;   // start_refresh() spawns the spinner in here
+
+    lv_obj_t *ll = lv_label_create(lcard);
+    lv_obj_set_style_text_font(ll, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(ll, c_dim(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(ll, 2, LV_PART_MAIN);
+    lv_label_set_text(ll, "REFRESHING");
+    lv_obj_align(ll, LV_ALIGN_BOTTOM_MID, 0, -18);
+
+    // ---- Error card: title + detail + an X button to close ----
+    s_err_ov = make_backdrop();
+    lv_obj_t *ecard = lv_obj_create(s_err_ov);
+    lv_obj_remove_style_all(ecard);
+    lv_obj_set_size(ecard, 250, 176);
+    lv_obj_center(ecard);
+    lv_obj_set_style_bg_color(ecard, lv_color_hex(0x160B0B), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ecard, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(ecard, 14, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ecard, c_red(), LV_PART_MAIN);
+    lv_obj_set_style_border_width(ecard, 2, LV_PART_MAIN);
+    lv_obj_clear_flag(ecard, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(ecard, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *etitle = lv_label_create(ecard);
+    lv_obj_set_style_text_font(etitle, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(etitle, c_red(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(etitle, 2, LV_PART_MAIN);
+    lv_label_set_text(etitle, "REFRESH FAILED");
+    lv_obj_align(etitle, LV_ALIGN_TOP_MID, 0, 40);
+
+    lv_obj_t *edetail = lv_label_create(ecard);
+    lv_obj_set_style_text_font(edetail, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(edetail, c_dim(), LV_PART_MAIN);
+    lv_obj_set_style_text_align(edetail, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_long_mode(edetail, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(edetail, 210);
+    lv_label_set_text(edetail, "No new data from the phone");
+    lv_obj_align(edetail, LV_ALIGN_TOP_MID, 0, 78);
+
+    // Close (X) button, top-right corner of the card.
+    lv_obj_t *xbtn = lv_obj_create(ecard);
+    lv_obj_remove_style_all(xbtn);
+    lv_obj_set_size(xbtn, 40, 40);
+    lv_obj_align(xbtn, LV_ALIGN_TOP_RIGHT, -4, 4);
+    lv_obj_set_style_radius(xbtn, 20, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(xbtn, lv_color_hex(0x2A1414), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(xbtn, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(xbtn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(xbtn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(xbtn, err_close_cb, LV_EVENT_CLICKED, nullptr);
+    lv_obj_t *xl = lv_label_create(xbtn);
+    lv_obj_set_style_text_font(xl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(xl, c_white(), LV_PART_MAIN);
+    lv_label_set_text(xl, "X");
+    lv_obj_center(xl);
+}
+
 }  // namespace
 
 void health_screen_create()
@@ -119,6 +274,9 @@ void health_screen_create()
     s_steps_val  = make_row(178, "STEPS");
     s_stress_val = make_row(250, "STRESS");
     s_hr_val     = make_row(322, "HEART");
+
+    // Overlays last so they sit on top of the rows.
+    build_overlays();
 }
 
 void health_screen_update()
@@ -147,6 +305,8 @@ void health_screen_update()
 void health_screen_show()
 {
     if (!s_screen) health_screen_create();
+    cancel_refresh();                                  // no stale spinner
+    if (s_err_ov) lv_obj_add_flag(s_err_ov, LV_OBJ_FLAG_HIDDEN);
     health_screen_update();
     lv_scr_load(s_screen);
 }

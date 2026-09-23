@@ -27,6 +27,9 @@ constexpr uint32_t SAVE_EVERY_MS = 300000;   // at most every 5 min
 uint32_t s_last_save_ms = 0;
 bool     s_dirty        = false;
 
+// Bumped once per applied packet; the Health screen's refresh watches it.
+uint32_t s_rx_seq = 0;
+
 // Snapshot of what we last wrote, to skip no-op saves.
 uint8_t  s_saved_sleep = 0, s_saved_stress = 0; uint16_t s_saved_hr = 0;
 uint32_t s_saved_steps = 0;
@@ -130,6 +133,7 @@ void health_tick_1hz()
         portEXIT_CRITICAL(&s_mail_mux);
         apply_packet(buf, n, now);
         s_dirty = true;
+        s_rx_seq++;   // a fresh push landed; the Health refresh watches this
     }
 
     s_model.tick(now);   // 2-minute HR compile
@@ -154,6 +158,8 @@ void health_set_step_goal(uint32_t goal)
 }
 
 uint32_t health_get_step_goal() { return s_model.step_goal(); }
+
+uint32_t health_rx_seq() { return s_rx_seq; }
 
 bool health_data_fresh()
 {
