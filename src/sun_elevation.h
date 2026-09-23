@@ -14,11 +14,11 @@ static inline double sun_elevation_deg(double lat_deg, double lon_deg,
                                        int year, int yday /*0-based*/,
                                        int hour, int minute, int second)
 {
-    const double PI  = 3.14159265358979323846;
-    const double D2R = PI / 180.0;
+    const double kPi = 3.14159265358979323846;
+    const double D2R = kPi / 180.0;
     bool   leap  = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
     double days  = leap ? 366.0 : 365.0;
-    double g     = 2.0 * PI / days * (yday + (hour - 12) / 24.0);   // fractional year
+    double g     = 2.0 * kPi / days * (yday + (hour - 12) / 24.0);   // fractional year
 
     double eqtime = 229.18 * (0.000075 + 0.001868 * cos(g) - 0.032077 * sin(g)
                               - 0.014615 * cos(2 * g) - 0.040849 * sin(2 * g));
