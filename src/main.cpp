@@ -2209,10 +2209,13 @@ static void drop_wake_blocker()
 
 static void on_wake_blocker_up(lv_event_t *) { drop_wake_blocker(); }
 
+static void hide_dim_gate();   // defined below; the off-state uses the wake blocker instead
+
 static void display_off()
 {
     if (s_display_off) return;
     s_display_off = true;
+    hide_dim_gate();   // the full-off state wakes on any tap via the wake blocker
     s_wake_blocker = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_wake_blocker);
     lv_obj_set_size(s_wake_blocker, LV_PCT(100), LV_PCT(100));
@@ -2243,6 +2246,54 @@ static void display_on()
     if (!touch_is_down()) drop_wake_blocker();
     lv_obj_invalidate(lv_screen_active());
     lv_refr_now(NULL);
+}
+
+// ---- Dim wake-gate: swipe up to wake -----------------------------------------
+//
+// While the screen is dimmed (but still on), a full-screen top-layer gate
+// captures touches so a stray pocket/sleeve tap can neither wake the watch nor
+// click the UI behind it. A first touch reveals a subtle "swipe up to wake"
+// hint; only a swipe up actually wakes. Hardware buttons wake directly and
+// bypass this gate, so there is always a reliable way back even if a swipe is
+// missed.
+static void dim_reset_activity();   // forward: the gate wakes through it
+static lv_obj_t *s_dim_gate = nullptr;
+static lv_obj_t *s_dim_hint = nullptr;
+
+static void hide_dim_gate()
+{
+    if (s_dim_gate) { lv_obj_delete_async(s_dim_gate); s_dim_gate = nullptr; s_dim_hint = nullptr; }
+}
+
+static void on_dim_gate_gesture(lv_event_t *e)
+{
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (indev && lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) dim_reset_activity();
+}
+
+static void on_dim_gate_pressed(lv_event_t *)
+{
+    if (s_dim_hint) lv_obj_clear_flag(s_dim_hint, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void show_dim_gate()
+{
+    if (s_dim_gate) return;
+    s_dim_gate = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_dim_gate);
+    lv_obj_set_size(s_dim_gate, LV_PCT(100), LV_PCT(100));
+    lv_obj_add_flag(s_dim_gate, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_dim_gate, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(s_dim_gate, on_dim_gate_gesture, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(s_dim_gate, on_dim_gate_pressed, LV_EVENT_PRESSED, NULL);
+
+    s_dim_hint = lv_label_create(s_dim_gate);
+    lv_obj_set_style_text_font(s_dim_hint, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_dim_hint, lv_color_hex(0xB0B0B0), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(s_dim_hint, 2, LV_PART_MAIN);
+    lv_label_set_text(s_dim_hint, "swipe up to wake");
+    lv_obj_align(s_dim_hint, LV_ALIGN_BOTTOM_MID, 0, -70);
+    lv_obj_add_flag(s_dim_hint, LV_OBJ_FLAG_HIDDEN);   // revealed on first touch
 }
 
 bool clock_screen_display_is_off() { return s_display_off; }
@@ -2283,6 +2334,7 @@ void clock_screen_set_dim_brightness(uint8_t level)
 static void dim_reset_activity()
 {
     s_last_activity_ms = millis();
+    hide_dim_gate();          // waking: drop the swipe-to-wake gate
     display_on();
     if (s_is_dimmed) {
         s_is_dimmed = false;
@@ -3243,10 +3295,12 @@ void setup()
     //   - settings -> clock
     instance.onEvent([](DeviceEvent_t event, void *params, void *user_data) {
         if (instance.getPMUEventType(params) == PMU_EVENT_KEY_CLICKED) {
-            // With the screen switched off (battery saver) a press only wakes it.
-            bool was_off = clock_screen_display_is_off();
+            // A button press wakes the watch directly (buttons are sturdy - no
+            // accidental press), so when the screen is dimmed or off the press
+            // only wakes and does not also advance the screen chain.
+            bool was_asleep = clock_screen_display_is_off() || s_is_dimmed;
             dim_reset_activity();
-            if (was_off) return;
+            if (was_asleep) return;
             if (clock_vibrate) instance.vibrator();
             if (lv_screen_active() == clock_screen)
                 gps_screen_show();
@@ -3778,7 +3832,7 @@ static void boot_knock_feed(BootPress p, uint32_t press_down_ms, uint32_t releas
 // real press timestamps for knock-gap timing (equal for a synthesized tap).
 static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
 {
-    if (clock_screen_display_is_off()) {   // battery saver: a press only wakes the screen
+    if (clock_screen_display_is_off() || s_is_dimmed) {   // dimmed/off: a press only wakes
         dim_reset_activity();
         return;
     }
@@ -3941,13 +3995,21 @@ void loop()
             if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
                 lv_indev_state_t state = lv_indev_get_state(indev);
                 if (state == LV_INDEV_STATE_PRESSED) {
-                    dim_reset_activity();
-                    // Keep LVGL on its fast cadence while the user is interacting
-                    // so the next taps (buttons, Exit Offense, etc.) aren't starved
-                    // by the heavy per-iteration background work.
-                    main_loop_request_lvgl_priority(20);
-                    if (clock_vibrate && prev_touch == LV_INDEV_STATE_RELEASED)
-                        instance.vibrator();
+                    // While dimmed-but-on, the swipe-to-wake gate owns the touch:
+                    // a stray tap must not wake or click through. The gate wakes
+                    // on a swipe up (and buttons wake directly). The fully-off
+                    // saver still wakes on any tap, so it is not gated here.
+                    if (s_is_dimmed && !s_display_off) {
+                        // gated - do nothing; on_dim_gate_* handles hint + wake
+                    } else {
+                        dim_reset_activity();
+                        // Keep LVGL on its fast cadence while the user is interacting
+                        // so the next taps (buttons, Exit Offense, etc.) aren't starved
+                        // by the heavy per-iteration background work.
+                        main_loop_request_lvgl_priority(20);
+                        if (clock_vibrate && prev_touch == LV_INDEV_STATE_RELEASED)
+                            instance.vibrator();
+                    }
                 }
                 prev_touch = state;
                 break;
@@ -3967,6 +4029,16 @@ void loop()
             s_is_dimmed    = true;
             s_dimmed_at_ms = millis();
             instance.setBrightness(s_dim_brightness);
+            // After inactivity, fall back to the home clock (still dimmed) so the
+            // time is glanceable again - unless a modal/overlay is up that must
+            // not be torn down under the user.
+            if (lv_screen_active() != clock_screen &&
+                !pin_pad_screen_is_active() && !notifications_screen_is_active() &&
+                s_low_mem_dialog == nullptr && !alarm_is_ringing()) {
+                clock_screen_show();
+            }
+            // Raise the swipe-to-wake gate so a stray touch cannot wake it.
+            show_dim_gate();
         }
     }
 

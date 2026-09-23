@@ -10,6 +10,7 @@
 #include "detect_log_sd.h"
 #include "detect/log_retention.h"   // kMaxAgeDays, for the readout
 #include "health_state.h"           // daily step goal (Dot progress bar + Health screen)
+#include "haptic.h"                  // global vibration intensity
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
@@ -159,6 +160,8 @@ static lv_obj_t *motion_sens_slider;
 static lv_obj_t *motion_sens_val_label;
 static lv_obj_t *step_goal_slider;
 static lv_obj_t *step_goal_val_label;
+static lv_obj_t *vib_intensity_slider;
+static lv_obj_t *vib_intensity_val_label;
 static lv_obj_t *auto_bright_switch;
 static lv_obj_t *auto_bright_val_label;
 static lv_obj_t *batt_saver_switch;
@@ -224,7 +227,7 @@ static lv_obj_t *defpersist_val_label;
 // list was laid out. Rather than renumber every row below, each row registered
 // AFTER them is pushed down by POWER_ROWS_SHIFT at registration (s_shift_extra),
 // so the literal base Ys below keep their original meaning.
-#define POWER_ROWS_SHIFT    (4 * 48)
+#define POWER_ROWS_SHIFT    (5 * 48)
 #define MANUAL_SECTION_TOP  (900 + POWER_ROWS_SHIFT)
 // Must exceed the TOTAL number of register_shiftable*() entries created at
 // runtime. Note the 5 manual-time rollers each register twice (header + roller),
@@ -432,6 +435,20 @@ static void on_step_goal_changed(lv_event_t *e)
     if (v < 1000) v = 1000;
     lv_label_set_text_fmt(step_goal_val_label, "%d", v);
     health_set_step_goal((uint32_t)v);
+}
+
+// Global vibration intensity (0..100%), snapped to 5%. Scales every buzz
+// (notifications, calls, alarms, timers) through the haptic module, which
+// persists it. 0 = silent.
+static void on_vib_intensity_changed(lv_event_t *e)
+{
+    (void)e;
+    int v = lv_slider_get_value(vib_intensity_slider);
+    v = ((v + 2) / 5) * 5;                // snap to 5
+    if (v < 0)   v = 0;
+    if (v > 100) v = 100;
+    lv_label_set_text_fmt(vib_intensity_val_label, "%d%%", v);
+    haptic_set_intensity((uint8_t)v);
 }
 
 static void show_auto_bright_state(bool on)
@@ -1226,6 +1243,43 @@ void settings_screen_create()
     lv_obj_set_style_text_font(step_goal_val_label, &font_argus_label_20, LV_PART_MAIN);
     lv_label_set_text_fmt(step_goal_val_label, "%d", (int)goal_now);
     lv_obj_align(step_goal_val_label, LV_ALIGN_RIGHT_MID, -180, 0);
+
+    // Vibration intensity (0..100%): scales all haptics; persisted by the haptic
+    // module. Same row style as the sliders above.
+    lv_obj_t *vib_row = lv_obj_create(settings_screen);
+    lv_obj_set_size(vib_row, 380, 40);
+    lv_obj_set_style_bg_opa(vib_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(vib_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(vib_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(vib_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(vib_row, LV_ALIGN_TOP_MID, 0, 1018);
+    register_shiftable(vib_row, 1018);
+
+    lv_obj_t *vib_lbl = lv_label_create(vib_row);
+    lv_obj_set_style_text_color(vib_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(vib_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text(vib_lbl, "Vibration");
+    lv_obj_align(vib_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    int vib_now = (int)haptic_get_intensity();
+
+    vib_intensity_slider = lv_slider_create(vib_row);
+    lv_obj_set_size(vib_intensity_slider, 150, 16);
+    lv_slider_set_range(vib_intensity_slider, 0, 100);
+    lv_slider_set_value(vib_intensity_slider, vib_now, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(vib_intensity_slider, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(vib_intensity_slider, ARGUS_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(vib_intensity_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(vib_intensity_slider, 6, LV_PART_KNOB);
+    lv_obj_clear_flag(vib_intensity_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(vib_intensity_slider, on_vib_intensity_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_align(vib_intensity_slider, LV_ALIGN_RIGHT_MID, -12, 0);
+
+    vib_intensity_val_label = lv_label_create(vib_row);
+    lv_obj_set_style_text_color(vib_intensity_val_label, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(vib_intensity_val_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text_fmt(vib_intensity_val_label, "%d%%", vib_now);
+    lv_obj_align(vib_intensity_val_label, LV_ALIGN_RIGHT_MID, -180, 0);
 
     s_shift_extra = POWER_ROWS_SHIFT;   // every row registered from here on sits lower
 
