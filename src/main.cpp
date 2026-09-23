@@ -1800,15 +1800,15 @@ static void on_clock_gesture(lv_event_t *e)
     // grid are gated to Defense/Offense so a Daily glance/confiscation reveals nothing.
     //
     // Home navigation:
-    //   swipe right-to-left  -> Tools grid (gated in Daily)
+    //   swipe right-to-left  -> Recon grid (gated in Daily)
     //   swipe left-to-right  -> Wardriver, then Meshtastic, then Nodes (each a
     //                           further swipe the same way; Daily skips the
     //                           gated Wardriver and lands on Meshtastic)
     //   swipe down           -> notification shade (every mode)
-    //   swipe up             -> Time
+    //   swipe up             -> Tools (clock utilities + Health, every mode)
     bool daily = (argus_mode_current() == ArgusMode::Daily);
     if (dir == LV_DIR_LEFT) {
-        if (!daily) tools_screen_show();       // Tools gated in Daily
+        if (!daily) tools_screen_show();       // Recon grid gated in Daily
     } else if (dir == LV_DIR_RIGHT) {
         if (!daily) {
             wardriver_screen_show();           // recon, gated in Daily
@@ -1819,7 +1819,7 @@ static void on_clock_gesture(lv_event_t *e)
     } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
         notifications_screen_show();     // shade: notifications + brightness, every mode
     } else if (dir == LV_DIR_TOP) {      // swipe up from clock face
-        time_screen_show();              // Time is innocent - allowed in every mode
+        time_screen_show();              // Tools grid, allowed in every mode
     }
 }
 

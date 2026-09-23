@@ -26,7 +26,7 @@ static lv_obj_t *s_time_grid  = nullptr;   // tile grid; tile borders recolored 
 // Per-tile record so an icon can be REDRAWN on a mode change: Offense recolors it
 // red; Daily/Defense redraws it in its natural multi-colour.
 struct TimeTile { lv_obj_t *tile; const char *name; void (*draw)(lv_obj_t *); };
-static TimeTile s_ttiles[10];
+static TimeTile s_ttiles[12];
 static int      s_ttile_n         = 0;
 static bool     s_ttile_recording = true;   // record only during the initial create pass
 static bool     s_ttiles_red      = false;  // last-rendered regime (true = Offense red)
@@ -44,8 +44,6 @@ static void on_gesture(lv_event_t *e)
     // screen instead (handled in main.cpp); any other swipe down goes home.
     if (dir == LV_DIR_BOTTOM && !touch_started_at_top_edge())
         clock_screen_show();
-    else if (dir == LV_DIR_TOP)
-        health_screen_show();   // swipe up again -> Sante (daily health glance)
 }
 
 // ---- Tile helper -----------------------------------------------------------
@@ -81,7 +79,7 @@ static lv_obj_t *make_tile(lv_obj_t *parent, const char *label_text)
 // else fall back to the procedural draw_*_icon(). Same pattern as tools_screen.
 static void tile_icon(lv_obj_t *tile, const char *name, void (*fallback)(lv_obj_t *))
 {
-    if (s_ttile_recording && s_ttile_n < 10) s_ttiles[s_ttile_n++] = { tile, name, fallback };
+    if (s_ttile_recording && s_ttile_n < 12) s_ttiles[s_ttile_n++] = { tile, name, fallback };
     char sdpath[40];
     snprintf(sdpath, sizeof(sdpath), "/Icons/%s.png", name);
     if (SD.exists(sdpath)) {
@@ -763,6 +761,40 @@ static void draw_notify_icon(lv_obj_t *tile)
     lv_obj_set_pos(clap, cx - 6, 94);
 }
 
+// Simple heart: a 45-rotated square makes the bottom point, two circles the top
+// lobes. Drawn in the Dot red so it reads as the health tile at a glance.
+static void draw_health_icon(lv_obj_t *tile)
+{
+    tile = icon_layer(tile);
+    lv_color_t red = lv_color_make(0xE0, 0x20, 0x20);
+    int cx = 90;
+
+    // Bottom point (square rotated 45; its lower half is the heart tip).
+    lv_obj_t *pt = lv_obj_create(tile);
+    lv_obj_set_size(pt, 52, 52);
+    lv_obj_set_style_bg_color(pt, red, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(pt, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(pt, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(pt, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(pt, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(pt, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_transform_rotation(pt, 450, LV_PART_MAIN);   // 45.0 deg
+    lv_obj_set_pos(pt, cx - 26, 46);
+
+    // Two top lobes, drawn over the square's upper corner to round the humps.
+    for (int side = -1; side <= 1; side += 2) {
+        lv_obj_t *lobe = lv_obj_create(tile);
+        lv_obj_set_size(lobe, 42, 42);
+        lv_obj_set_style_radius(lobe, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(lobe, red, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(lobe, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(lobe, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(lobe, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(lobe, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_pos(lobe, cx + side * 20 - 21, 38);
+    }
+}
+
 // ---- Public API ------------------------------------------------------------
 
 void time_screen_create()
@@ -775,7 +807,7 @@ void time_screen_create()
     s_time_title = title;
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
     lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
-    lv_label_set_text(title, "TIME");
+    lv_label_set_text(title, "TOOLS");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     // Three-column flex grid — same geometry as the Tools grid so the two
@@ -827,16 +859,19 @@ void time_screen_create()
     // Daily-wear utilities: Flashlight (torch), Meshtastic (comms) and Settings.
     // The Time hub is the one app grid reachable in Daily mode (Tools is gated),
     // so these benign apps live here alongside the clock tools.
+    lv_obj_t *t_health = make_tile(grid, "Health");
     lv_obj_t *t_flash  = make_tile(grid, "Flashlight");
     lv_obj_t *t_mesh   = make_tile(grid, "Meshtastic");
     lv_obj_t *t_notify = make_tile(grid, "Notify");
     lv_obj_t *t_set    = make_tile(grid, "Settings");
 
+    tile_icon(t_health, "health",     draw_health_icon);
     tile_icon(t_flash,  "flashlight", draw_flashlight_icon);
     tile_icon(t_mesh,   "meshtastic", draw_meshtastic_icon);
     tile_icon(t_notify, "notify",     draw_notify_icon);
     tile_icon(t_set,    "settings",   draw_settings_icon);
 
+    lv_obj_add_event_cb(t_health, [](lv_event_t *) { health_screen_show();        }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(t_flash,  [](lv_event_t *) { flashlight_screen_show();    }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(t_mesh,   [](lv_event_t *) { meshtastic_screen_show();    }, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(t_notify, [](lv_event_t *) { notifications_screen_show(); }, LV_EVENT_CLICKED, NULL);

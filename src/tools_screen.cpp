@@ -1800,7 +1800,7 @@ void tools_screen_create()
     tools_title = lv_label_create(tools_screen);
     lv_obj_set_style_text_color(tools_title, argus_base_accent(), LV_PART_MAIN);
     lv_obj_set_style_text_font(tools_title, &font_argus_label_28, LV_PART_MAIN);
-    lv_label_set_text(tools_title, "TOOLS");
+    lv_label_set_text(tools_title, "RECON");
     lv_obj_align(tools_title, LV_ALIGN_TOP_MID, 0, 8);
 
     // Three-column flex grid. ROW_WRAP gives us 3 tiles per row: three 118px

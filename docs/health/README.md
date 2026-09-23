@@ -118,7 +118,8 @@ correcte au débordement de `millis()`.
 1. **Transport** : caractéristique GATT custom, alimentée par Tasker / app
    compagnon lisant Gadgetbridge. Fait.
 2. **Champs Gadgetbridge** : confirmé (sommeil + stress + cardio disponibles).
-3. **Affichage** : nouvel écran « Santé » dédié (swipe haut depuis Time). Fait.
+3. **Affichage** : nouvel écran « Santé » dédié, ouvert par une tuile « Health »
+   (icône cœur) dans la grille « Tools » (swipe haut). Fait.
    De plus, la ligne d'accent sous l'heure du cadran Dot devient une **barre de
    progression de pas** : rail **rouge** plein, remplissage **blanc** qui grandit
    avec les pas ; tout rouge à 0 %, tout blanc à l'objectif. Fait.
