@@ -320,6 +320,7 @@ static void on_timer(lv_timer_t *)
         s_hop_start_ms = millis();
         hop_one();
     }
+    if (lv_screen_active() != screen) return;   // hop keeps going; skip hidden redraws
     update_bars();
     update_status();
     update_legend();

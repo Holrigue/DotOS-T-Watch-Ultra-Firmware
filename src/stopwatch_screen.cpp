@@ -87,6 +87,10 @@ static void update_buttons()
 
 static void on_timer(lv_timer_t *)
 {
+    // Timing runs off millis(), so the 20 Hz readout is only worth redrawing
+    // while this screen is actually shown (it used to format and set the label
+    // every 50 ms in the background, for nothing).
+    if (lv_screen_active() != stopwatch_screen) return;
     update_display();
 }
 

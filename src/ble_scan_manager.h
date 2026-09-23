@@ -57,3 +57,11 @@ bool ble_scan_active();
 // How many consumers are currently registered. Useful for status UIs
 // that want to surface "N scanners running" instead of just on/off.
 int  ble_scan_consumer_count();
+
+// Switch the scan duty cycle. low = true stretches the interval between listen
+// windows (~15% on-air instead of ~60%) to save receiver current while the
+// watch screen is off; low = false restores the responsive foreground duty.
+// A live scan is reprogrammed immediately; otherwise the choice is remembered
+// and applied the next time the controller comes up. Safe to call any time
+// (no-op when WiFi holds the radio or nothing is scanning).
+void ble_scan_set_low_duty(bool low);

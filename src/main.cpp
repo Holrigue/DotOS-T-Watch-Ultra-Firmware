@@ -2094,6 +2094,35 @@ static bool      s_batt_saver   = false;
 static bool      s_display_off  = false;
 static lv_obj_t *s_wake_blocker = nullptr;
 
+// ---- CPU frequency scaling --------------------------------------------------
+//
+// The ESP32-S3 idles far cheaper at a lower core clock. While the panel is off
+// nothing renders and the loop only polls a few cheap inputs, so the full
+// 240 MHz is pure waste. Drop to 80 MHz then — the lowest clock that still
+// keeps the WiFi/BLE radios and their PLL usable, so a background detector scan
+// keeps running — and restore 240 MHz the instant the screen comes back so the
+// UI never feels sluggish. Going below 80 MHz would stall the radios.
+static constexpr uint32_t CPU_MHZ_AWAKE = 240;
+static constexpr uint32_t CPU_MHZ_IDLE  = 80;
+static bool s_cpu_low = false;
+
+// Auto battery saver: below 20% on the cell (and not charging) the screen-off
+// saver is forced on regardless of the Settings toggle, to stretch the last of
+// the charge. Released with hysteresis (back above 25%, or once charging) so it
+// cannot flap around the threshold. Tracked separately from s_batt_saver so it
+// never overwrites the user's own choice — when the cell recovers, the manual
+// toggle is whatever they left it.
+static constexpr int LOW_BATT_ENTER_PCT = 20;
+static constexpr int LOW_BATT_EXIT_PCT  = 25;
+static bool s_low_batt_saver = false;
+
+static void cpu_set_low(bool low)
+{
+    if (low == s_cpu_low) return;
+    s_cpu_low = low;
+    setCpuFrequencyMhz(low ? CPU_MHZ_IDLE : CPU_MHZ_AWAKE);
+}
+
 static bool touch_is_down()
 {
     for (lv_indev_t *i = lv_indev_get_next(NULL); i; i = lv_indev_get_next(i))
@@ -2122,12 +2151,20 @@ static void display_off()
     lv_obj_add_event_cb(s_wake_blocker, on_wake_blocker_up, LV_EVENT_PRESS_LOST, NULL);
     lv_timer_pause(lv_display_get_refr_timer(lv_display_get_default()));
     instance.sleepDisplay();
+    // Nothing renders now: stretch a background BLE scan to ~15% duty and drop
+    // the core clock to 80 MHz. Both are restored the moment the screen wakes.
+    ble_scan_set_low_duty(true);
+    cpu_set_low(true);
 }
 
 static void display_on()
 {
     if (!s_display_off) return;
     s_display_off = false;
+    // Restore full clock and scan responsiveness before repainting so the wake
+    // frame renders at 240 MHz.
+    cpu_set_low(false);
+    ble_scan_set_low_duty(false);
     instance.wakeupDisplay();
     lv_timer_resume(lv_display_get_refr_timer(lv_display_get_default()));
     // A touch that is still down keeps the blocker until it lifts; any other
@@ -2205,7 +2242,22 @@ static void display_power_tick()
         if (s_sun_factor != before && !s_is_dimmed && !s_display_off && !notify_popup_is_showing())
             instance.setBrightness(active_brightness());
     }
-    if (s_batt_saver && s_is_dimmed && !s_display_off && !notify_popup_is_showing() &&
+    // Auto-engage the saver under 20% (released with hysteresis, or on charge).
+    // Kept separate from the user's toggle so the cell recovering doesn't clear
+    // a saver they turned on themselves.
+    int  batt_pct  = instance.pmu.getBatteryPercent();
+    bool charging  = instance.pmu.isVbusIn();
+    if (!s_low_batt_saver) {
+        if (!charging && batt_pct >= 0 && batt_pct <= LOW_BATT_ENTER_PCT)
+            s_low_batt_saver = true;
+    } else if (charging || batt_pct >= LOW_BATT_EXIT_PCT) {
+        s_low_batt_saver = false;
+        // If the user never asked for the saver, undo the forced screen-off now.
+        if (!s_batt_saver && s_display_off) display_on();
+    }
+
+    if ((s_batt_saver || s_low_batt_saver) && s_is_dimmed && !s_display_off &&
+        !notify_popup_is_showing() &&
         millis() - s_dimmed_at_ms >= SAVER_OFF_AFTER_MS)
         display_off();
 }
@@ -3825,17 +3877,29 @@ void loop()
         update_clock();
         argus_mode_indicator_refresh();   // Offense border flips to threat-red live
         alarm_tick();              // fires the alarm at the set time
-        layout_battery_indicators(); // pack alarm/stopwatch/timer icons R→L
-        update_battery();
-        update_lora_indicator();
-        update_bt_indicator();
-        update_wifi_indicator();
-        update_sd_indicator();
-        update_nfc_indicator();
-        update_scan_indicators();
+        // The classic analog/digital face's status icons and battery widget are
+        // only on screen when that face is showing on the (awake) clock screen.
+        // Under the Dot face they sit hidden beneath dot_container, and on any
+        // other screen or with the panel off they aren't drawn at all — so
+        // restyling them every second is pure waste. dot_face_tick() paints the
+        // Dot's own equivalents; the classic ones repaint on return via
+        // screen_return_to()/the face switch.
+        bool classic_face_visible = (lv_screen_active() == clock_screen
+                                     && clock_face != FACE_DOT && !s_display_off);
+        if (classic_face_visible) {
+            layout_battery_indicators(); // pack alarm/stopwatch/timer icons R→L
+            update_battery();
+            update_lora_indicator();
+            update_bt_indicator();
+            update_wifi_indicator();
+            update_sd_indicator();
+            update_nfc_indicator();
+            update_scan_indicators();
+        }
         if (!usb_sd_is_running())   // host owns the SD card while mounted
             wardriver_bg_tick();
-        update_wardriver_indicator();
+        if (classic_face_visible)
+            update_wardriver_indicator();
         dot_face_tick();   // refresh the Dot face's own status row when active
         display_power_tick();   // auto brightness from the sun + battery saver
         if (wardriver_screen_is_active())
@@ -3854,6 +3918,18 @@ void loop()
         ble_detect_pipeline_tick(millis() / 1000);
 #endif
     }
+    // Panel off (battery saver): the LVGL refresh timer is paused, so the extra
+    // render passes below would do nothing. Run one cheap handler pass to keep
+    // any pending timers serviced, then idle ~40 ms. The core is already at
+    // 80 MHz here; the long delay lets it sit mostly asleep between the cheap
+    // per-loop polls (motion wake, BOOT button, touch) which still run at ~25 Hz
+    // — fast enough that a wrist-raise or tap wakes the screen without lag.
+    if (s_display_off) {
+        lv_task_handler();
+        delay(40);
+        return;
+    }
+
     // Multiple LVGL passes per loop iteration. Each lv_task_handler call
     // renders at most one partial-refresh tile, and the watch panel needs
     // ~6 tiles for a full screen. When wardriver is dumping detector hits
