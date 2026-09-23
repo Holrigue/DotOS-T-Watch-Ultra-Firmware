@@ -119,9 +119,12 @@ rouge plein. L'ajouter demanderait un transport BLE dedie (chantier separe).
 
 ### Persistance des detecteurs
 
-Les tuiles Tools ne persistent pas l'etat on/off des detecteurs : c'est un etat
-runtime (`*_is_running()`), remis a zero au reboot. Les badges du cadran Dot
-s'alignent sur ce comportement (pas de nouveau mecanisme de persistance).
+L'etat on/off de chaque detecteur est persiste en NVS (Preferences, namespace
+`argusdet`) par le module `detector_toggle`, point de controle unique partage
+par les badges du cadran Dot et les tuiles Tools. Au boot, les detecteurs
+laisses actifs sont relances ~10 s apres les radios et les notifications, au
+mieux selon la radio disponible, avec une garde anti-boucle de crash (un
+redemarrage pendant la restauration fait sauter la restauration suivante).
 
 ### Rendu des chiffres
 
