@@ -270,10 +270,10 @@ void health_screen_create()
     // Rows compressed and raised so the last one (HEART) never lands in the
     // display's rounded bottom corner, which was clipping the value (a "68" read
     // as "58"). Block spans y 106..392, centered vertically on the round face.
-    s_sleep_val  = make_row(106, "SLEEP");
-    s_steps_val  = make_row(178, "STEPS");
-    s_stress_val = make_row(250, "STRESS");
-    s_hr_val     = make_row(322, "HEART");
+    s_sleep_val  = make_row(106, "Sleep score");
+    s_steps_val  = make_row(178, "Step goal");
+    s_stress_val = make_row(250, "Stress level");
+    s_hr_val     = make_row(322, "Avg Heartrate (2min)");
 
     // Overlays last so they sit on top of the rows.
     build_overlays();
