@@ -28,6 +28,7 @@ lv_obj_t *s_sleep_val  = nullptr;
 lv_obj_t *s_steps_val  = nullptr;
 lv_obj_t *s_stress_val = nullptr;
 lv_obj_t *s_hr_val     = nullptr;
+lv_obj_t *s_sync_lbl   = nullptr;   // "last sync" age under the title
 
 // Swipe-up refresh overlays + state. The watch cannot pull from the phone, so a
 // "refresh" waits for the companion app to push a fresh packet: it shows a
@@ -267,6 +268,16 @@ void health_screen_create()
     lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_align(rule, LV_ALIGN_TOP_MID, 0, 80);
 
+    // "Last sync" age, small and dim, just under the rule.
+    s_sync_lbl = lv_label_create(s_screen);
+    lv_obj_set_width(s_sync_lbl, 300);   // fixed width + center so it stays centered
+    lv_obj_set_style_text_align(s_sync_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_sync_lbl, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_sync_lbl, c_gray(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(s_sync_lbl, 1, LV_PART_MAIN);
+    lv_label_set_text(s_sync_lbl, "Last sync: --");
+    lv_obj_align(s_sync_lbl, LV_ALIGN_TOP_MID, 0, 88);
+
     // Rows compressed and raised so the last one (HEART) never lands in the
     // display's rounded bottom corner, which was clipping the value (a "68" read
     // as "58"). Block spans y 106..392, centered vertically on the round face.
@@ -300,6 +311,22 @@ void health_screen_update()
 
     snprintf(buf, sizeof(buf), "%u BPM", (unsigned)h.hr());
     set_val(s_hr_val, h.has_hr(), h.hr_stale(now), buf);
+
+    // "Last sync" age (session only; a restored NVS snapshot reads as no sync).
+    if (s_sync_lbl) {
+        uint32_t last = health_last_rx_ms();
+        char sbuf[32];
+        if (last == 0) {
+            snprintf(sbuf, sizeof(sbuf), "Last sync: --");
+        } else {
+            uint32_t sec = (now - last) / 1000;
+            if (sec < 60)          snprintf(sbuf, sizeof(sbuf), "Last sync: %us ago", (unsigned)sec);
+            else if (sec < 3600)   snprintf(sbuf, sizeof(sbuf), "Last sync: %um ago", (unsigned)(sec / 60));
+            else if (sec < 86400)  snprintf(sbuf, sizeof(sbuf), "Last sync: %uh ago", (unsigned)(sec / 3600));
+            else                   snprintf(sbuf, sizeof(sbuf), "Last sync: >1d ago");
+        }
+        lv_label_set_text(s_sync_lbl, sbuf);
+    }
 }
 
 void health_screen_show()

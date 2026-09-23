@@ -49,6 +49,11 @@ void health_ingest_packet(const uint8_t *data, size_t len);
 // model itself.
 uint32_t health_rx_seq();
 
+// millis() when the last packet was applied this session, or 0 if none has
+// arrived since boot. The Health screen shows it as a "last sync" age. It is a
+// session value (not persisted): a restored NVS snapshot reads as "no sync yet".
+uint32_t health_last_rx_ms();
+
 // Wire format for the health-input characteristic (see docs/health/README.md).
 namespace health_packet {
 constexpr uint8_t VERSION      = 1;
