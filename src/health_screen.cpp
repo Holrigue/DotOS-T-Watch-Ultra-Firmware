@@ -37,6 +37,11 @@ void on_gesture(lv_event_t *e)
     // main.cpp); any other swipe down goes home.
     if (dir == LV_DIR_BOTTOM && !touch_started_at_top_edge())
         clock_screen_show();
+    // Swipe up: re-read the model and repaint at once, so the latest values the
+    // phone has pushed show immediately (the screen also auto-refreshes at 1 Hz).
+    // The watch cannot pull from the phone; the companion app is what sends.
+    else if (dir == LV_DIR_TOP)
+        health_screen_update();
 }
 
 // One metric row: a small gray name on the left, a big value on the right.
