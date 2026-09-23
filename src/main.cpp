@@ -1176,8 +1176,8 @@ static void update_dot_bottom()
 //   off      gray #5C5C5C outline + label, no count
 //   armed    white outline + label, no count (running, nothing seen yet)
 //   hit      red pill, white label, red count beside it (running and count > 0)
-// A tap toggles the detector. Like the Tools grid (gated off in Daily so a glance
-// or confiscation reveals nothing), taps are ignored in Daily mode.
+// A tap toggles the detector, in every mode (Daily included, by the owner's
+// choice: unlike the Tools grid, the badges are not gated).
 struct DotBadgeSpec {
     Detector    det;
     const char *text;
@@ -1200,7 +1200,6 @@ static void update_dot_badges(bool force);
 
 static void on_dot_badge_clicked(lv_event_t *e)
 {
-    if (argus_mode_current() == ArgusMode::Daily) return;   // same gate as Tools
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (i < 0 || i >= DOT_BADGE_N) return;
     Detector d = kDotBadges[i].det;
