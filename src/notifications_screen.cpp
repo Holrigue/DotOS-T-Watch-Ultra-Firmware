@@ -215,9 +215,11 @@ void notifications_screen_create()
 
     // Brightness bar across the top of the shade (replaces the old "Notify"
     // title: the status line below already says what this screen is).
+    // Placed well below the top edge: the panel's rounded corners eat the top
+    // ~40 px at the sides, which clipped the first version of this bar.
     bright_slider = lv_slider_create(screen);
-    lv_obj_set_size(bright_slider, 280, 22);
-    lv_obj_align(bright_slider, LV_ALIGN_TOP_MID, -30, 18);
+    lv_obj_set_size(bright_slider, 220, 22);
+    lv_obj_align(bright_slider, LV_ALIGN_TOP_MID, -30, 60);
     lv_slider_set_range(bright_slider, 1, DEVICE_MAX_BRIGHTNESS_LEVEL);
     lv_obj_set_style_bg_color(bright_slider, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
     lv_obj_set_style_bg_color(bright_slider, lv_color_white(), LV_PART_INDICATOR);
@@ -231,18 +233,18 @@ void notifications_screen_create()
     bright_pct = lv_label_create(screen);
     lv_obj_set_style_text_font(bright_pct, &font_argus_label_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(bright_pct, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_align(bright_pct, LV_ALIGN_TOP_MID, 150, 18);
+    lv_obj_align(bright_pct, LV_ALIGN_TOP_MID, 118, 58);
 
     status_label = lv_label_create(screen);
     lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(status_label, "Notifications off - tap Enable");
-    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 100);
 
     // Platform picker (iPhone / Android). Tap to switch when notifications are off.
     platform_btn = lv_obj_create(screen);
     lv_obj_set_size(platform_btn, 320, 38);
-    lv_obj_align(platform_btn, LV_ALIGN_TOP_MID, 0, 76);
+    lv_obj_align(platform_btn, LV_ALIGN_TOP_MID, 0, 126);
     lv_obj_set_style_bg_color(platform_btn, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
     lv_obj_set_style_border_width(platform_btn, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(platform_btn, 8, LV_PART_MAIN);
@@ -256,7 +258,7 @@ void notifications_screen_create()
 
     toggle_btn = lv_obj_create(screen);
     lv_obj_set_size(toggle_btn, 320, 48);
-    lv_obj_align(toggle_btn, LV_ALIGN_TOP_MID, 0, 120);
+    lv_obj_align(toggle_btn, LV_ALIGN_TOP_MID, 0, 170);
     lv_obj_set_style_bg_color(toggle_btn, lv_color_make(0x00, 0x88, 0xCC), LV_PART_MAIN);
     lv_obj_set_style_border_width(toggle_btn, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(toggle_btn, 8, LV_PART_MAIN);
@@ -269,8 +271,10 @@ void notifications_screen_create()
     lv_obj_center(toggle_label);
 
     list_box = lv_obj_create(screen);
-    lv_obj_set_size(list_box, 404, 258);
-    lv_obj_align(list_box, LV_ALIGN_TOP_MID, 0, 182);
+    // Narrower than the screen and ending above the CLEAR button so the list's
+    // corners stay inside the display's rounded bottom corners.
+    lv_obj_set_size(list_box, 340, 198);
+    lv_obj_align(list_box, LV_ALIGN_TOP_MID, 0, 228);
     lv_obj_set_style_bg_color(list_box, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_border_color(list_box, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
     lv_obj_set_style_border_width(list_box, 1, LV_PART_MAIN);
@@ -285,7 +289,7 @@ void notifications_screen_create()
     // CLEAR button, bottom-centered (kept clear of the display's rounded corners).
     lv_obj_t *clear_btn = lv_obj_create(screen);
     lv_obj_set_size(clear_btn, 220, 42);
-    lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -22);
     lv_obj_set_style_bg_color(clear_btn, lv_color_make(0x55, 0x22, 0x22), LV_PART_MAIN);
     lv_obj_set_style_border_width(clear_btn, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(clear_btn, 8, LV_PART_MAIN);

@@ -32,6 +32,11 @@ void clock_screen_set_show_ampm(bool show);
 void clock_screen_set_show_secs(bool show);
 void clock_screen_set_vibrate(bool enabled);
 void clock_screen_set_motion_wake(bool enabled);
+void clock_screen_set_motion_sensitivity(int level);   // 1 (big movement) .. 5 (small)
+void clock_screen_set_auto_brightness(bool on);        // follow the sun
+void clock_screen_set_battery_saver(bool on);          // screen off 10 s after the dim
+bool clock_screen_has_sun_location();                  // a GPS fix has been saved
+void clock_screen_restore_brightness();                // apply the active brightness now
 void clock_screen_set_manual_override(bool on);
 void clock_screen_apply_manual_time(int year, int mon, int day, int hour, int min);
 void clock_screen_get_local_time(struct tm *out);
@@ -149,6 +154,12 @@ static lv_obj_t *show_date_switch;
 static lv_obj_t *vibrate_switch;
 static lv_obj_t *motion_wake_switch;
 static lv_obj_t *motion_wake_val_label;
+static lv_obj_t *motion_sens_slider;
+static lv_obj_t *motion_sens_val_label;
+static lv_obj_t *auto_bright_switch;
+static lv_obj_t *auto_bright_val_label;
+static lv_obj_t *batt_saver_switch;
+static lv_obj_t *batt_saver_val_label;
 static lv_obj_t *manual_time_switch;
 static lv_obj_t *manual_time_val_label;
 // Screenshot long-press toggle — bottom of the settings list. Disabled
@@ -205,7 +216,13 @@ static lv_obj_t *defpersist_val_label;
 // First Y offset that belongs to the manual-time editor (the hint line).
 // register_shiftable entries with base_y >= this also pick up the
 // MANUAL_HIDDEN_SHIFT when the switch is off.
-#define MANUAL_SECTION_TOP  (900)
+// The three display-power rows (Motion sensitivity, Auto brightness, Battery
+// saver) were inserted under the Motion row after the rest of this list was laid
+// out. Rather than renumber every row below, each row registered AFTER them is
+// pushed down by POWER_ROWS_SHIFT at registration (s_shift_extra), so the
+// literal base Ys below keep their original meaning.
+#define POWER_ROWS_SHIFT    (3 * 48)
+#define MANUAL_SECTION_TOP  (900 + POWER_ROWS_SHIFT)
 // Must exceed the TOTAL number of register_shiftable*() entries created at
 // runtime. Note the 5 manual-time rollers each register twice (header + roller),
 // so the runtime count (~35+) is higher than the call-site count. If this cap is
@@ -219,10 +236,12 @@ static ShiftableRow s_shiftable[MAX_SHIFTABLE];
 static int          s_shiftable_count = 0;
 
 // Most rows are LV_ALIGN_TOP_MID with x=0; the helper defaults to that.
+static int s_shift_extra = 0;   // POWER_ROWS_SHIFT once the power rows exist
+
 static void register_shiftable(lv_obj_t *obj, int base_y)
 {
     if (s_shiftable_count < MAX_SHIFTABLE)
-        s_shiftable[s_shiftable_count++] = { obj, 0, base_y };
+        s_shiftable[s_shiftable_count++] = { obj, 0, base_y + s_shift_extra };
 }
 
 // Variant for objects that were aligned with a non-zero X offset (e.g.
@@ -231,7 +250,7 @@ static void register_shiftable(lv_obj_t *obj, int base_y)
 static void register_shiftable_xy(lv_obj_t *obj, int base_x, int base_y)
 {
     if (s_shiftable_count < MAX_SHIFTABLE)
-        s_shiftable[s_shiftable_count++] = { obj, base_x, base_y };
+        s_shiftable[s_shiftable_count++] = { obj, base_x, base_y + s_shift_extra };
 }
 
 // ---- Manual-time-only registry --------------------------------------------
@@ -392,6 +411,37 @@ static void on_motion_wake_changed(lv_event_t *e)
     settings_save_to_sd();
 }
 
+static void on_motion_sens_changed(lv_event_t *e)
+{
+    int level = lv_slider_get_value(motion_sens_slider);
+    lv_label_set_text_fmt(motion_sens_val_label, "%d", level);
+    clock_screen_set_motion_sensitivity(level);
+    // Save deferred to LV_EVENT_RELEASED (on_slider_released).
+}
+
+static void show_auto_bright_state(bool on)
+{
+    // "No GPS" until the watch has saved one fix: the sun needs a position.
+    lv_label_set_text(auto_bright_val_label,
+                      !on ? "Off" : (clock_screen_has_sun_location() ? "On" : "No GPS"));
+}
+
+static void on_auto_bright_changed(lv_event_t *e)
+{
+    bool on = lv_obj_has_state(auto_bright_switch, LV_STATE_CHECKED);
+    clock_screen_set_auto_brightness(on);
+    show_auto_bright_state(on);
+    settings_save_to_sd();
+}
+
+static void on_batt_saver_changed(lv_event_t *e)
+{
+    bool on = lv_obj_has_state(batt_saver_switch, LV_STATE_CHECKED);
+    lv_label_set_text(batt_saver_val_label, on ? "On" : "Off");
+    clock_screen_set_battery_saver(on);
+    settings_save_to_sd();
+}
+
 static void on_screenshot_changed(lv_event_t *)
 {
     bool on = lv_obj_has_state(screenshot_switch, LV_STATE_CHECKED);
@@ -421,7 +471,7 @@ void settings_set_brightness(int level, bool save)
     if (level < 1) level = 1;
     if (level > DEVICE_MAX_BRIGHTNESS_LEVEL) level = DEVICE_MAX_BRIGHTNESS_LEVEL;
     s_brightness = level;
-    instance.setBrightness((uint8_t)s_brightness);
+    clock_screen_restore_brightness();   // sun-scaled when Auto brightness is on
     if (brightness_slider) lv_slider_set_value(brightness_slider, s_brightness, LV_ANIM_OFF);
     if (brightness_val_label) {
         int pct = (int)s_brightness * 100 / (int)DEVICE_MAX_BRIGHTNESS_LEVEL;
@@ -433,7 +483,7 @@ void settings_set_brightness(int level, bool save)
 static void on_brightness_changed(lv_event_t *e)
 {
     s_brightness = lv_slider_get_value(brightness_slider);
-    instance.setBrightness((uint8_t)s_brightness);
+    clock_screen_restore_brightness();   // sun-scaled when Auto brightness is on
     int pct = (int)s_brightness * 100 / (int)DEVICE_MAX_BRIGHTNESS_LEVEL;
     lv_label_set_text_fmt(brightness_val_label, "%d%%", pct);
     // Save deferred to LV_EVENT_RELEASED — see on_slider_released.
@@ -1049,6 +1099,82 @@ void settings_screen_create()
     lv_obj_add_event_cb(motion_wake_switch, on_motion_wake_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(motion_wake_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
+    // ---- Display-power rows (inserted under Motion; see POWER_ROWS_SHIFT) ----
+    //
+    // Motion sensitivity: how big a wrist movement "Motion brightens screen"
+    // needs, 1 (big, deliberate) to 5 (small). Default 2.
+    lv_obj_t *sens_row = lv_obj_create(settings_screen);
+    lv_obj_set_size(sens_row, 380, 40);
+    lv_obj_set_style_bg_opa(sens_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sens_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(sens_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(sens_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(sens_row, LV_ALIGN_TOP_MID, 0, 826);
+    register_shiftable(sens_row, 826);
+
+    lv_obj_t *sens_lbl = lv_label_create(sens_row);
+    lv_obj_set_style_text_color(sens_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(sens_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text(sens_lbl, "Sensitivity");
+    lv_obj_align(sens_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    motion_sens_slider = lv_slider_create(sens_row);
+    lv_obj_set_size(motion_sens_slider, 150, 16);
+    lv_slider_set_range(motion_sens_slider, 1, 5);
+    lv_slider_set_value(motion_sens_slider, 2, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(motion_sens_slider, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(motion_sens_slider, ARGUS_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(motion_sens_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(motion_sens_slider, 6, LV_PART_KNOB);
+    lv_obj_clear_flag(motion_sens_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(motion_sens_slider, on_motion_sens_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(motion_sens_slider, on_slider_released, LV_EVENT_RELEASED, NULL);
+    lv_obj_align(motion_sens_slider, LV_ALIGN_RIGHT_MID, -12, 0);
+
+    motion_sens_val_label = lv_label_create(sens_row);
+    lv_obj_set_style_text_color(motion_sens_val_label, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(motion_sens_val_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text(motion_sens_val_label, "2");
+    lv_obj_align(motion_sens_val_label, LV_ALIGN_RIGHT_MID, -180, 0);
+
+    // Auto brightness (follows the sun) and Battery saver (screen off 10 s
+    // after the dim) are plain On/Off rows styled like Motion above.
+    struct PowerSwitch { lv_obj_t **sw; lv_obj_t **val; const char *text; int y; lv_event_cb_t cb; };
+    const PowerSwitch rows[] = {
+        { &auto_bright_switch, &auto_bright_val_label, "Auto brightness", 874, on_auto_bright_changed },
+        { &batt_saver_switch,  &batt_saver_val_label,  "Battery saver",   922, on_batt_saver_changed  },
+    };
+    for (const PowerSwitch &r : rows) {
+        lv_obj_t *row = lv_obj_create(settings_screen);
+        lv_obj_set_size(row, 380, 40);
+        lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(row, LV_ALIGN_TOP_MID, 0, r.y);
+        register_shiftable(row, r.y);
+
+        lv_obj_t *lbl = lv_label_create(row);
+        lv_obj_set_style_text_color(lbl, ARGUS_TEXT, LV_PART_MAIN);
+        lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+        lv_label_set_text(lbl, r.text);
+        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+        *r.val = lv_label_create(row);
+        lv_obj_set_style_text_color(*r.val, ARGUS_TEXT, LV_PART_MAIN);
+        lv_obj_set_style_text_font(*r.val, &font_argus_label_20, LV_PART_MAIN);
+        lv_label_set_text(*r.val, "Off");
+        lv_obj_align(*r.val, LV_ALIGN_RIGHT_MID, -80, 0);
+
+        *r.sw = lv_switch_create(row);
+        lv_obj_set_size(*r.sw, 70, 34);
+        lv_obj_set_style_bg_color(*r.sw, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_color(*r.sw, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+        lv_obj_add_event_cb(*r.sw, r.cb, LV_EVENT_VALUE_CHANGED, NULL);
+        lv_obj_align(*r.sw, LV_ALIGN_RIGHT_MID, 0, 0);
+    }
+    s_shift_extra = POWER_ROWS_SHIFT;   // every row registered from here on sits lower
+
     // ---- Manual Time section ------------------------------------------------
     // Lets the user set the clock by hand; doing so overrides the automatic
     // GPS time sync until the override switch is turned back off.
@@ -1550,6 +1676,7 @@ void settings_screen_show()
     lv_roller_set_selected(hour_roller,   (uint32_t)now.tm_hour,   LV_ANIM_OFF);
     lv_roller_set_selected(minute_roller, (uint32_t)now.tm_min,    LV_ANIM_OFF);
 
+    show_auto_bright_state(lv_obj_has_state(auto_bright_switch, LV_STATE_CHECKED));
     lv_scr_load(settings_screen);
 }
 
@@ -1580,6 +1707,9 @@ static void settings_save_to_sd()
     f.printf("dim_timeout_idx=%lu\n",(unsigned long)lv_dropdown_get_selected(dim_dropdown));
     f.printf("dim_brightness=%d\n",  (int)s_dim_brightness);
     f.printf("motion_wake=%d\n",     lv_obj_has_state(motion_wake_switch, LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("motion_sens=%d\n",     (int)lv_slider_get_value(motion_sens_slider));
+    f.printf("auto_bright=%d\n",     lv_obj_has_state(auto_bright_switch, LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("batt_saver=%d\n",      lv_obj_has_state(batt_saver_switch,  LV_STATE_CHECKED) ? 1 : 0);
     f.printf("manual_time=%d\n",     lv_obj_has_state(manual_time_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("screenshot=%d\n",      lv_obj_has_state(screenshot_switch,  LV_STATE_CHECKED) ? 1 : 0);
     f.close();
@@ -1676,6 +1806,19 @@ void settings_screen_load()
             clock_screen_set_dim_brightness((uint8_t)v);
             int pct = (int)v * 100 / (int)DEVICE_MAX_BRIGHTNESS_LEVEL;
             lv_label_set_text_fmt(dim_brightness_val_label, "%d%%", pct);
+        } else if (key == "motion_sens") {
+            int level = (v < 1) ? 1 : (v > 5 ? 5 : (int)v);
+            lv_slider_set_value(motion_sens_slider, level, LV_ANIM_OFF);
+            lv_label_set_text_fmt(motion_sens_val_label, "%d", level);
+            clock_screen_set_motion_sensitivity(level);
+        } else if (key == "auto_bright") {
+            apply_switch(auto_bright_switch, b);
+            clock_screen_set_auto_brightness(b);
+            show_auto_bright_state(b);
+        } else if (key == "batt_saver") {
+            apply_switch(batt_saver_switch, b);
+            lv_label_set_text(batt_saver_val_label, b ? "On" : "Off");
+            clock_screen_set_battery_saver(b);
         } else if (key == "motion_wake") {
             apply_switch(motion_wake_switch, b);
             lv_label_set_text(motion_wake_val_label, b ? "On" : "Off");

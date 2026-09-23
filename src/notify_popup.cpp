@@ -8,23 +8,25 @@
 
 #include <LilyGoLib.h>
 
-// Defined in main.cpp: back to the dim level or the Settings brightness.
-void clock_screen_restore_brightness();
+// Defined in main.cpp.
+void clock_screen_restore_brightness();   // back to the dim level or the active brightness
+int  clock_screen_active_brightness();    // Settings level, sun-scaled when Auto brightness is on
+void ui_reset_dim_activity();             // wake a dimmed / switched-off screen
 
 static lv_obj_t   *s_banner        = nullptr;
 static lv_timer_t *s_dismiss_timer = nullptr;
 static bool        s_boosted       = false;   // brightness raised for the banner
 
 static constexpr uint32_t POPUP_MS = 6000;   // auto-dismiss after 6s
-// While a banner is up the panel runs 15% (of full scale) above the user's
-// normal brightness, so the message is readable at a glance even from a dim
-// screen; it drops back as soon as the banner goes away.
+// While a banner is up the panel runs 15% (of full scale) above the active
+// brightness, so the message is readable at a glance; an arrival also wakes a
+// dimmed or switched-off screen, and the boost drops back as the banner goes.
 static constexpr int BOOST = DEVICE_MAX_BRIGHTNESS_LEVEL * 15 / 100;
 
 static void boost_brightness()
 {
     if (s_boosted) return;   // a newer arrival replacing a banner: already up
-    int level = settings_get_brightness() + BOOST;
+    int level = clock_screen_active_brightness() + BOOST;
     if (level > DEVICE_MAX_BRIGHTNESS_LEVEL) level = DEVICE_MAX_BRIGHTNESS_LEVEL;
     instance.setBrightness((uint8_t)level);
     s_boosted = true;
@@ -67,6 +69,7 @@ static void show_banner(const notify::Notification &n)
 {
     NLOG("[popup] show_banner: \"%s\"\n", n.title);
     delete_banner();    // one banner at a time; a newer arrival replaces the old
+    ui_reset_dim_activity();   // a notification wakes a dimmed or switched-off screen
     boost_brightness();
 
     // Parent on the TOP layer so it floats above the clock and every screen and

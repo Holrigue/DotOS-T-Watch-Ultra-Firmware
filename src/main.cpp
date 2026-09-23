@@ -31,6 +31,8 @@
 #include "timezone.h"
 #include "clock_time.h"
 #include "dot_font_5x7.h"   // ARGUS-Design-OS "Dot" face 5x7 dot-matrix digits
+#include "sun_elevation.h" // solar elevation for automatic day/night brightness
+#include <Preferences.h>
 #include "detector_toggle.h" // shared detector on/off + NVS persistence (Dot badges, Tools)
 #include "tpms.h"
 #include "pager_screen.h"
@@ -2003,15 +2005,164 @@ static uint32_t s_dim_timeout_ms   = 0;   // 0 = disabled
 static uint8_t  s_dim_brightness   = DEVICE_MAX_BRIGHTNESS_LEVEL / 4;
 static uint32_t s_last_activity_ms = 0;
 static bool     s_is_dimmed        = false;
+static uint32_t s_dimmed_at_ms     = 0;   // when the dim timer last fired
+
+// ---- Automatic brightness from the sun ---------------------------------------
+//
+// Optional (Settings > Auto brightness). The active brightness follows the sun
+// at the watch's position: the user's Settings level in daylight, a straight
+// ramp through civil twilight (sun 0 to 6 degrees below the horizon), and
+// AUTO_NIGHT_FACTOR of it once it is dark outside. The season comes for free
+// with the date, so in Quebec in late September it dims from ~18:50 and is at
+// the night level by ~19:20.
+//
+// The position is the last GPS fix, saved to NVS (namespace "argusloc") so it
+// survives reboots and GPS-off days; the watch needs ONE fix ever for this to
+// work. Until then the factor stays 1 (plain Settings brightness).
+static constexpr float    AUTO_NIGHT_FACTOR = 0.35f;
+static constexpr uint32_t AUTO_TICK_MS      = 60000;   // sun moves slowly
+static bool   s_auto_bright   = false;
+static bool   s_loc_valid     = false;
+static float  s_loc_lat       = 0.0f, s_loc_lon = 0.0f;
+static float  s_sun_factor    = 1.0f;
+static uint32_t s_sun_last_ms = 0;
+
+static void sun_location_load()
+{
+    Preferences p;
+    if (!p.begin("argusloc", true)) return;
+    s_loc_valid = p.getBool("valid", false);
+    s_loc_lat   = p.getFloat("lat", 0.0f);
+    s_loc_lon   = p.getFloat("lon", 0.0f);
+    p.end();
+}
+
+// Remember a GPS fix for the sun calculation. Writes NVS only for a first fix
+// or a move of ~10 km or more, so a GPS left on never wears the flash.
+static void sun_location_note_fix()
+{
+    if (!gps_screen_is_powered() || !instance.gps.location.isValid()) return;
+    float lat = (float)instance.gps.location.lat();
+    float lon = (float)instance.gps.location.lng();
+    if (s_loc_valid && fabsf(lat - s_loc_lat) < 0.1f && fabsf(lon - s_loc_lon) < 0.1f) return;
+    s_loc_valid = true; s_loc_lat = lat; s_loc_lon = lon;
+    Preferences p;
+    if (!p.begin("argusloc", false)) return;
+    p.putBool("valid", true);
+    p.putFloat("lat", lat);
+    p.putFloat("lon", lon);
+    p.end();
+}
+
+static void sun_factor_update()
+{
+    if (!s_auto_bright || !s_loc_valid) { s_sun_factor = 1.0f; return; }
+    struct tm t;
+    instance.rtc.getDateTime(&t);   // RTC holds UTC
+    t.tm_isdst = 0;                 // UTC: no DST (mktime reads this field)
+    time_t epoch = mktime(&t);      // normalise to fill tm_yday
+    struct tm u;
+    gmtime_r(&epoch, &u);
+    double elev = sun_elevation_deg(s_loc_lat, s_loc_lon, u.tm_year + 1900, u.tm_yday,
+                                    u.tm_hour, u.tm_min, u.tm_sec);
+    s_sun_factor = sun_brightness_factor(elev, AUTO_NIGHT_FACTOR);
+}
+
+// The brightness the panel should show while awake and undimmed: the Settings
+// level, scaled by the sun when Auto brightness is on.
+static uint8_t active_brightness()
+{
+    int level = (int)(settings_get_brightness() * s_sun_factor + 0.5f);
+    if (level < 1) level = 1;
+    if (level > DEVICE_MAX_BRIGHTNESS_LEVEL) level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+    return (uint8_t)level;
+}
+
+int clock_screen_active_brightness() { return active_brightness(); }
+
+bool clock_screen_has_sun_location() { return s_loc_valid; }
+
+// ---- Battery saver: screen fully off after the dim --------------------------
+//
+// Optional (Settings > Battery saver). SAVER_OFF_AFTER_MS after the dim timer
+// fires, the panel is put to sleep (power cut, ~10 mA saved per the LilyGo
+// docs) and LVGL stops rendering. A touch, a button press, wrist motion (when
+// Motion brightens screen is on) or an incoming notification wakes it. The
+// waking touch lands on a full-screen blocker on the top layer so it can never
+// click whatever sits under the finger on a screen the user cannot see.
+static constexpr uint32_t SAVER_OFF_AFTER_MS = 10000;
+static bool      s_batt_saver   = false;
+static bool      s_display_off  = false;
+static lv_obj_t *s_wake_blocker = nullptr;
+
+static bool touch_is_down()
+{
+    for (lv_indev_t *i = lv_indev_get_next(NULL); i; i = lv_indev_get_next(i))
+        if (lv_indev_get_type(i) == LV_INDEV_TYPE_POINTER &&
+            lv_indev_get_state(i) == LV_INDEV_STATE_PRESSED) return true;
+    return false;
+}
+
+static void drop_wake_blocker()
+{
+    if (s_wake_blocker) { lv_obj_delete_async(s_wake_blocker); s_wake_blocker = nullptr; }
+}
+
+static void on_wake_blocker_up(lv_event_t *) { drop_wake_blocker(); }
+
+static void display_off()
+{
+    if (s_display_off) return;
+    s_display_off = true;
+    s_wake_blocker = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_wake_blocker);
+    lv_obj_set_size(s_wake_blocker, LV_PCT(100), LV_PCT(100));
+    lv_obj_add_flag(s_wake_blocker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_wake_blocker, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(s_wake_blocker, on_wake_blocker_up, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(s_wake_blocker, on_wake_blocker_up, LV_EVENT_PRESS_LOST, NULL);
+    lv_timer_pause(lv_display_get_refr_timer(lv_display_get_default()));
+    instance.sleepDisplay();
+}
+
+static void display_on()
+{
+    if (!s_display_off) return;
+    s_display_off = false;
+    instance.wakeupDisplay();
+    lv_timer_resume(lv_display_get_refr_timer(lv_display_get_default()));
+    // A touch that is still down keeps the blocker until it lifts; any other
+    // wake source (button, motion, notification) drops it right away.
+    if (!touch_is_down()) drop_wake_blocker();
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(NULL);
+}
+
+bool clock_screen_display_is_off() { return s_display_off; }
+
+void clock_screen_set_battery_saver(bool on)
+{
+    s_batt_saver = on;
+    if (!on) display_on();
+}
+
+void clock_screen_set_auto_brightness(bool on)
+{
+    s_auto_bright = on;
+    sun_factor_update();
+    s_sun_last_ms = millis();
+    if (!s_is_dimmed && !s_display_off) instance.setBrightness(active_brightness());
+}
 
 void clock_screen_set_dim_timeout(uint32_t ms)
 {
     s_dim_timeout_ms = ms;
     // Reset activity timer and restore brightness when timeout changes
     s_last_activity_ms = millis();
+    display_on();
     if (s_is_dimmed) {
         s_is_dimmed = false;
-        instance.setBrightness((uint8_t)settings_get_brightness());
+        instance.setBrightness(active_brightness());
     }
 }
 
@@ -2019,37 +2170,56 @@ void clock_screen_set_dim_brightness(uint8_t level)
 {
     s_dim_brightness = level;
     // If already dimmed, apply new level immediately
-    if (s_is_dimmed) instance.setBrightness(s_dim_brightness);
+    if (s_is_dimmed && !s_display_off) instance.setBrightness(s_dim_brightness);
 }
 
 static void dim_reset_activity()
 {
     s_last_activity_ms = millis();
+    display_on();
     if (s_is_dimmed) {
         s_is_dimmed = false;
-        // Wake to the brightness the user chose in Settings, not the
-        // hardware maximum.
-        instance.setBrightness((uint8_t)settings_get_brightness());
+        // Wake to the active brightness (Settings level, sun-scaled when Auto
+        // brightness is on), not the hardware maximum.
+        instance.setBrightness(active_brightness());
     }
 }
 
 // Put the panel back to whatever it should show right now: the dim level while
-// dimmed, otherwise the user's Settings brightness. Used after a temporary
-// override (the notification banner's brightness boost) ends.
+// dimmed, otherwise the active brightness. Used after a temporary override (the
+// notification banner's brightness boost) ends.
 void clock_screen_restore_brightness()
 {
-    instance.setBrightness(s_is_dimmed ? s_dim_brightness
-                                       : (uint8_t)settings_get_brightness());
+    if (s_display_off) return;
+    instance.setBrightness(s_is_dimmed ? s_dim_brightness : active_brightness());
+}
+
+// 1 Hz: follow the sun, remember GPS fixes, and let the battery saver switch
+// the screen off once it has been dimmed long enough.
+static void display_power_tick()
+{
+    sun_location_note_fix();
+    if (s_auto_bright && millis() - s_sun_last_ms >= AUTO_TICK_MS) {
+        s_sun_last_ms = millis();
+        float before = s_sun_factor;
+        sun_factor_update();
+        if (s_sun_factor != before && !s_is_dimmed && !s_display_off && !notify_popup_is_showing())
+            instance.setBrightness(active_brightness());
+    }
+    if (s_batt_saver && s_is_dimmed && !s_display_off && !notify_popup_is_showing() &&
+        millis() - s_dimmed_at_ms >= SAVER_OFF_AFTER_MS)
+        display_off();
 }
 
 // Public hook so full-screen utility screens (e.g. the Flashlight) can keep the
-// display awake at active brightness for as long as they are shown.
+// display awake at active brightness for as long as they are shown. Also used
+// by the notification banner to wake a dimmed or switched-off screen.
 void ui_reset_dim_activity() { dim_reset_activity(); }
 
 // ---- Motion-wake ----------------------------------------------------------
 //
 // When enabled, the BHI260AP accelerometer is streamed at a low rate and any
-// jump in magnitude greater than MOTION_DELTA_G is treated like a tap: the
+// jump in magnitude greater than s_motion_delta_g is treated like a tap: the
 // dim timer is reset and (if currently dimmed) the screen is brought back to
 // full brightness. Default ON to match smartwatch wrist-raise behaviour;
 // settings can switch it off if the user wants the dim timer to run even
@@ -2062,10 +2232,20 @@ static float     s_motion_last_mag        = 0.0f;
 // fuses its own samples internally and only fires its interrupt when a
 // sample is ready.
 #define MOTION_SAMPLE_RATE_HZ   10.0f
-// Threshold in g for "this counts as motion". Stationary sample-to-sample
-// noise is well under 0.05 g; any noticeable wrist movement easily exceeds
-// 0.2 g.
-#define MOTION_DELTA_G          0.20f
+// Threshold in g for "this counts as motion", set by Settings > Motion
+// sensitivity (1 = needs a big, deliberate movement ... 5 = reacts to small
+// ones). Stationary sample-to-sample noise is well under 0.05 g. The old fixed
+// 0.20 g (now level 5) woke the screen on almost any wrist twitch, so the
+// default is level 2.
+static const float kMotionDeltaG[5] = { 0.70f, 0.55f, 0.40f, 0.30f, 0.20f };
+static float s_motion_delta_g = kMotionDeltaG[1];   // level 2
+
+void clock_screen_set_motion_sensitivity(int level)
+{
+    if (level < 1) level = 1;
+    if (level > 5) level = 5;
+    s_motion_delta_g = kMotionDeltaG[level - 1];
+}
 
 void clock_screen_set_motion_wake(bool enabled)
 {
@@ -2107,7 +2287,7 @@ static void motion_wake_poll()
 
     float delta = fabsf(mag - s_motion_last_mag);
     s_motion_last_mag = mag;
-    if (delta >= MOTION_DELTA_G) {
+    if (delta >= s_motion_delta_g) {
         dim_reset_activity();
     }
 }
@@ -2887,6 +3067,7 @@ void setup()
     // clock_screen child; hidden until the Dot face is selected.
     build_dot_face(clock_screen);
     clock_screen_set_face(FACE_DOT);   // default face; a saved choice overrides it in settings_screen_load()
+    sun_location_load();               // last GPS fix, for Auto brightness (before settings load)
     lv_obj_add_event_cb(clock_screen, on_clock_gesture, LV_EVENT_GESTURE, NULL);
     watch_touch_pulls();   // top-edge pull-down -> notification shade, from any screen
     // Hold the boot splash to a minimum ~1.5 s, then reveal the clock.
@@ -2916,7 +3097,10 @@ void setup()
     //   - settings -> clock
     instance.onEvent([](DeviceEvent_t event, void *params, void *user_data) {
         if (instance.getPMUEventType(params) == PMU_EVENT_KEY_CLICKED) {
+            // With the screen switched off (battery saver) a press only wakes it.
+            bool was_off = clock_screen_display_is_off();
             dim_reset_activity();
+            if (was_off) return;
             if (clock_vibrate) instance.vibrator();
             if (lv_screen_active() == clock_screen)
                 gps_screen_show();
@@ -3443,6 +3627,10 @@ static void boot_knock_feed(BootPress p, uint32_t press_down_ms, uint32_t releas
 // real press timestamps for knock-gap timing (equal for a synthesized tap).
 static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
 {
+    if (clock_screen_display_is_off()) {   // battery saver: a press only wakes the screen
+        dim_reset_activity();
+        return;
+    }
     dim_reset_activity();
     main_loop_request_lvgl_priority(20);
     bool armed = (argus_mode_current() != ArgusMode::Offense)
@@ -3622,7 +3810,8 @@ void loop()
     // message is readable, and dims back on its own once it is dismissed.
     if (s_dim_timeout_ms > 0 && !s_is_dimmed && !notify_popup_is_showing()) {
         if (millis() - s_last_activity_ms >= s_dim_timeout_ms) {
-            s_is_dimmed = true;
+            s_is_dimmed    = true;
+            s_dimmed_at_ms = millis();
             instance.setBrightness(s_dim_brightness);
         }
     }
@@ -3649,6 +3838,7 @@ void loop()
             wardriver_bg_tick();
         update_wardriver_indicator();
         dot_face_tick();   // refresh the Dot face's own status row when active
+        display_power_tick();   // auto brightness from the sun + battery saver
         if (wardriver_screen_is_active())
             wardriver_screen_update();
         if (configuration_screen_is_active())
