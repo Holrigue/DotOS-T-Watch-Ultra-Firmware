@@ -43,8 +43,11 @@ Boitier : squircle (rectangle tres arrondi, `rx=150 ry=170`), pas un cercle.
    deux-points `x=197.84` (r=4.42, y=218 et y=246), D3 `x=220.24`,
    D4 `x=289.68`. Rendu par canvas LVGL (vrais points ronds).
 
-4. **Ligne d'accent (y=300)** : trait rouge plein `x=50 w=245 h=3` opacite 0.9.
-   La variante "progression de pas" est reportee (voir note "Pas" ci-dessous).
+4. **Ligne d'accent (y=300)** : barre de progression de pas `x=50 w=245 h=3`.
+   Rail rouge plein ; remplissage blanc de gauche a droite proportionnel a
+   pas / objectif (tout rouge a 0 %, tout blanc a l'objectif). Alimentee par les
+   donnees de pas de la Phase 2.2 (voir `docs/health/`). Sans objectif ou avant
+   toute donnee : rail rouge plein.
 
 5. **Date (y=338)** : reutilise `date_label`, `x=50`, `#9a9a9a`.
 

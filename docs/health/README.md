@@ -51,11 +51,31 @@ santé ; le relais côté téléphone (Tasker d'abord, app compagnon si besoin) 
 écrit un petit paquet binaire. Le firmware est alors complet et testable
 indépendamment du choix final côté téléphone.
 
-## Contrat proposé : caractéristique GATT d'entrée santé
+## Caractéristique GATT d'entrée santé (implémentée)
 
-À ajouter au serveur GATT déjà actif dans `src/ans.cpp` (pas de second service à
-annoncer, pas de contention radio supplémentaire). UUID vendeur 128 bits, une
-caractéristique **write** unique. Paquet compact, `little-endian`, extensible :
+Ajoutée au serveur GATT déjà actif dans `src/ans.cpp` : un service vendeur
+128 bits avec une caractéristique **write** unique. Les octets reçus sont copiés
+dans une mailbox depuis la tâche BLE, puis appliqués au modèle par la boucle
+(`health_ingest_packet` → `health_tick_1hz`), donc le modèle reste mono-thread.
+
+- Service : `a2470001-5a4b-4d55-9a3e-1c2d3e4f5a6b`
+- Écriture santé : `a2470002-5a4b-4d55-9a3e-1c2d3e4f5a6b`
+
+### CAVEAT à valider sur la montre (modèle de connexion)
+
+La montre est déjà un périphérique BLE **connecté à Gadgetbridge** (vue comme une
+InfiniTime). Pour que le relais (Tasker/app compagnon) atteigne la
+caractéristique santé, il doit se connecter comme **second central** pendant que
+Gadgetbridge tient déjà la connexion. Selon la config Bluedroid (nombre de
+connexions ACL) et la reprise d'annonce après connexion, ce second central peut
+être refusé. À vérifier sur matériel quand tu montes le relais : si ça bloque, on
+ajoutera la reprise d'annonce sur `onConnect` (multi-central) ou on connectera le
+relais quand Gadgetbridge est déconnecté. La caractéristique est posée de façon
+**additive** : elle ne touche pas le chemin notifications éprouvé.
+
+### Format du paquet
+
+Paquet compact, `little-endian`, extensible :
 
 ```
 octet 0      : version du format (= 1)
@@ -93,26 +113,34 @@ moyenne 2 min elle-même (déjà implémenté).
 Le temps est injecté (ms) à chaque appel : logique déterministe, testable, et
 correcte au débordement de `millis()`.
 
-## Ce qu'il reste (prochaine session)
+## Décisions actées (réponses utilisateur)
 
-1. **Transport** (après décision utilisateur) : ajouter la caractéristique GATT
-   d'entrée à `src/ans.cpp`, parser le paquet, alimenter `HealthData`.
-2. **Persistance** : fine couche device (`Preferences`, namespace `argushealth`)
-   qui sérialise/désérialise le `Snapshot` au boot et périodiquement.
-3. **Tick** : appeler `health_tick()` dans le bloc 1 Hz de `main.cpp`.
-4. **UI** : où afficher ? À décider (voir questions). Le rendu réutilisera la
-   palette Dot (blanc actif, gris repos, rouge accents).
+1. **Transport** : caractéristique GATT custom, alimentée par Tasker / app
+   compagnon lisant Gadgetbridge. Fait.
+2. **Champs Gadgetbridge** : confirmé (sommeil + stress + cardio disponibles).
+3. **Affichage** : nouvel écran « Santé » dédié (swipe haut depuis Time). Fait.
+   De plus, la ligne d'accent sous l'heure du cadran Dot devient une **barre de
+   progression de pas** : rail **rouge** plein, remplissage **blanc** qui grandit
+   avec les pas ; tout rouge à 0 %, tout blanc à l'objectif. Fait.
+4. **Objectif de pas** : valeur fixe dans les Settings (défaut 10000). Fait. Le
+   `BIT_GOAL` du paquet est donc ignoré (les Settings font foi).
 
-## Questions ouvertes pour l'utilisateur
+## État de l'implémentation
 
-1. **Transport** : on part sur l'option 1 (Tasker/compagnon → caractéristique
-   GATT custom) ? Sinon laquelle ?
-2. **Champs Gadgetbridge** : peux-tu confirmer que Gadgetbridge expose bien, pour
-   ton Helio, le score de sommeil, le stress et le cardio (et pas seulement les
-   pas) via broadcast/DB accessible à Tasker ? Ça décide si l'option 1 suffit.
-3. **Affichage** : où veux-tu voir ces métriques ?
-   - un nouvel écran « Santé » (swipe dédié), ou
-   - intégrées au cadran Dot (ex. sous la date), ou
-   - une tuile dans Tools ?
-4. **Objectif de pas** : valeur fixe (ex. 10000) réglée dans les Settings, ou
-   poussée par le relais depuis Gadgetbridge ?
+- Cœur `health_data` (pur, testé) : fait.
+- Runtime `health_state` (singleton, NVS `argushealth`, tick 1 Hz, mailbox
+  BLE→boucle, objectif de pas) : fait.
+- Barre de progression de pas sur le cadran Dot : fait.
+- Réglage objectif de pas (slider Settings) : fait.
+- Écran « Santé » (sommeil, pas + objectif, stress, cardio) : fait.
+- Caractéristique GATT d'entrée + parsing du paquet : fait.
+
+## Ce qu'il reste (validation matérielle + téléphone)
+
+1. **Relais côté téléphone** : monter Tasker (ou l'app compagnon) qui lit
+   Gadgetbridge et écrit le paquet dans la caractéristique santé.
+2. **Modèle de connexion** : valider le second central (voir le CAVEAT plus
+   haut). Ajuster si nécessaire.
+3. **Format cardio** : confirmer si le relais envoie une moyenne (`BIT_HR_AVG`)
+   ou des échantillons bruts (`BIT_HR_SAMPLE`, la montre compile alors la
+   moyenne 2 min).
