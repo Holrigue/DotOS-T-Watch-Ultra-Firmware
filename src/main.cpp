@@ -24,6 +24,8 @@
 #include "tools_screen.h"
 #include "notifications_screen.h"
 #include "notify_popup.h"
+#include "notify/notify_center.h"   // notify::center().count() for the unread badge
+#include "haptic.h"                 // global vibration intensity
 #include "device_mode.h"
 #include "pet_screen.h"
 #include "handshake.h"
@@ -899,14 +901,16 @@ static void build_dot_status_row(lv_obj_t *parent)
     lv_label_set_text(dot_nfc_label, "NFC");
     lv_obj_align(dot_nfc_label, LV_ALIGN_TOP_MID, 146 - 205, 50);
 
-    // Meshtastic unread badge: red pill + white count, hidden while unread == 0.
-    // Sits just right of the far-left heart (which took the x=55 corner), still
-    // immediately left of the LoRa icon.
+    // Consolidated unread-notifications badge: a red circle with a white count,
+    // sitting in the empty space to the right of the clock digits (which end near
+    // x=351) and bottom-aligned with them (digits' bottom ~y=279). It counts
+    // phone notifications plus Meshtastic unread, and is hidden while the total is
+    // 0. Driven by update_dot_status().
     dot_mesh_pill = lv_obj_create(parent);
     lv_obj_remove_style_all(dot_mesh_pill);
-    lv_obj_set_size(dot_mesh_pill, 22, 18);
-    lv_obj_set_pos(dot_mesh_pill, 80, 49);
-    lv_obj_set_style_radius(dot_mesh_pill, 9, LV_PART_MAIN);
+    lv_obj_set_size(dot_mesh_pill, 30, 30);
+    lv_obj_set_pos(dot_mesh_pill, 360, 249);
+    lv_obj_set_style_radius(dot_mesh_pill, 15, LV_PART_MAIN);
     lv_obj_set_style_bg_color(dot_mesh_pill, dot_red(), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(dot_mesh_pill, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_SCROLLABLE);
@@ -935,7 +939,9 @@ static void update_dot_status()
     bool wd   = wardriver_is_running();
     bool gps  = gps_screen_is_powered();
     bool hlth = health_data_fresh();
-    int  unread = meshtastic_get_unread();
+    // Consolidated unread: phone notifications + Meshtastic unread.
+    int  unread = meshtastic_get_unread() + (int)notify::center().count();
+    if (unread < 0) unread = 0;
 
     uint32_t state = (uint32_t)lora | (uint32_t)bt << 1 | (uint32_t)wifi << 2
                    | (uint32_t)sd << 3 | (uint32_t)nfc << 4 | (uint32_t)wd << 5
@@ -961,7 +967,8 @@ static void update_dot_status()
     lv_obj_set_style_text_color(dot_nfc_label, nfc ? dot_white() : dot_gray(), LV_PART_MAIN);
 
     if (unread > 0) {
-        lv_label_set_text_fmt(dot_mesh_count, "%d", unread);
+        if (unread > 99) lv_label_set_text(dot_mesh_count, "99+");
+        else             lv_label_set_text_fmt(dot_mesh_count, "%d", unread);
         lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
@@ -3397,6 +3404,7 @@ void setup()
     // Restore the cached health snapshot + the fixed step goal (shown as stale
     // until the phone relay refreshes them).
     health_boot_restore();
+    haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
     coex_log_heap("setup-done");
 }
 

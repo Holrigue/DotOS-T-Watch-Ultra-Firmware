@@ -32,10 +32,11 @@ static constexpr uint32_t HR_COMPILE_MS = 120000;   // 2 min
 // comfortable margin - long enough not to flicker between normal updates, short
 // enough to notice the phone relay has stopped. Sleep is a once-a-day score, so
 // its window spans a full day plus slack.
-static constexpr uint32_t HR_STALE_MS     = 360000;    // 6 min  (>2 windows)
-static constexpr uint32_t STRESS_STALE_MS = 900000;    // 15 min
-static constexpr uint32_t STEPS_STALE_MS  = 1800000;   // 30 min
-static constexpr uint32_t SLEEP_STALE_MS  = 93600000;  // 26 h
+static constexpr uint32_t HR_STALE_MS       = 360000;    // 6 min  (>2 windows)
+static constexpr uint32_t HR_RANGE_STALE_MS = 1800000;   // 30 min (pushed each sync)
+static constexpr uint32_t STRESS_STALE_MS   = 900000;    // 15 min
+static constexpr uint32_t STEPS_STALE_MS    = 1800000;   // 30 min
+static constexpr uint32_t SLEEP_STALE_MS    = 93600000;  // 26 h
 
 class HealthData {
 public:
@@ -56,6 +57,12 @@ public:
     //  - set_hr_avg(): a value the phone side already averaged; published at once.
     void add_hr_sample(uint16_t bpm, uint32_t now_ms);
     void set_hr_avg(uint16_t bpm, uint32_t now_ms);
+
+    // Heart-rate range: the lowest and highest bpm the phone saw over a recent
+    // window (it computes them from Health Connect samples). Shown instead of an
+    // average - a low/high pair reads better than one number. lo/hi are clamped
+    // into order if the caller swaps them.
+    void set_hr_range(uint16_t lo, uint16_t hi, uint32_t now_ms);
 
     // Drive the 2-minute HR compile. Call at ~1 Hz. Cheap and idempotent between
     // boundaries; publishes the window mean and resets the accumulator when the
@@ -79,11 +86,16 @@ public:
     bool     has_hr()          const { return hr_valid_; }
     uint16_t hr()              const { return hr_bpm_; }
 
+    bool     has_hr_range()    const { return hr_range_valid_; }
+    uint16_t hr_low()          const { return hr_low_; }
+    uint16_t hr_high()         const { return hr_high_; }
+
     // Staleness: true when the value exists but is older than its window.
     bool sleep_stale(uint32_t now_ms)  const;
     bool steps_stale(uint32_t now_ms)  const;
     bool stress_stale(uint32_t now_ms) const;
     bool hr_stale(uint32_t now_ms)     const;
+    bool hr_range_stale(uint32_t now_ms) const;
 
     // ---- Persistence snapshot ------------------------------------------------
     // The device side caches this in NVS so a reboot shows the last known values
@@ -127,6 +139,11 @@ private:
     bool     hr_valid_ = false;
     uint16_t hr_bpm_   = 0;
     uint32_t hr_ms_    = 0;
+
+    bool     hr_range_valid_ = false;
+    uint16_t hr_low_         = 0;
+    uint16_t hr_high_        = 0;
+    uint32_t hr_range_ms_    = 0;
 
     // Heart-rate compile window (raw-sample feed only).
     uint32_t hr_sum_          = 0;

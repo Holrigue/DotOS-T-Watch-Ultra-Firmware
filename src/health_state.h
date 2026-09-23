@@ -63,5 +63,7 @@ constexpr uint8_t BIT_GOAL     = 1 << 2;
 constexpr uint8_t BIT_STRESS   = 1 << 3;
 constexpr uint8_t BIT_HR_AVG   = 1 << 4;
 constexpr uint8_t BIT_HR_SAMPLE = 1 << 5;
+constexpr uint8_t BIT_HR_MIN   = 1 << 6;   // lowest bpm over a recent window (u16)
+constexpr uint8_t BIT_HR_MAX   = 1 << 7;   // highest bpm over a recent window (u16)
 constexpr size_t  MAX_LEN      = 32;
 }  // namespace health_packet

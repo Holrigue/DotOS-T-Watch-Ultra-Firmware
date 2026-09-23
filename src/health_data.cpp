@@ -60,6 +60,16 @@ void HealthData::set_hr_avg(uint16_t bpm, uint32_t now_ms)
     hr_count_       = 0;
 }
 
+void HealthData::set_hr_range(uint16_t lo, uint16_t hi, uint32_t now_ms)
+{
+    if (lo == 0 && hi == 0) return;
+    if (lo > hi) { uint16_t t = lo; lo = hi; hi = t; }   // tolerate a swapped pair
+    hr_low_          = lo;
+    hr_high_         = hi;
+    hr_range_ms_     = now_ms;
+    hr_range_valid_  = true;
+}
+
 void HealthData::tick(uint32_t now_ms)
 {
     if (hr_window_open_ && age(now_ms, hr_window_start_) >= HR_COMPILE_MS) {
@@ -101,6 +111,10 @@ bool HealthData::stress_stale(uint32_t now_ms) const
 bool HealthData::hr_stale(uint32_t now_ms) const
 {
     return hr_valid_ && age(now_ms, hr_ms_) >= HR_STALE_MS;
+}
+bool HealthData::hr_range_stale(uint32_t now_ms) const
+{
+    return hr_range_valid_ && age(now_ms, hr_range_ms_) >= HR_RANGE_STALE_MS;
 }
 
 HealthData::Snapshot HealthData::snapshot(uint32_t now_ms) const

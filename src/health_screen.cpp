@@ -284,7 +284,7 @@ void health_screen_create()
     s_sleep_val  = make_row(106, "Sleep score");
     s_steps_val  = make_row(178, "Step goal");
     s_stress_val = make_row(250, "Stress level");
-    s_hr_val     = make_row(322, "Avg Heartrate (2min)");
+    s_hr_val     = make_row(322, "BPM (highest/lowest)");
 
     // Overlays last so they sit on top of the rows.
     build_overlays();
@@ -309,8 +309,11 @@ void health_screen_update()
     snprintf(buf, sizeof(buf), "%d / 100", h.stress());
     set_val(s_stress_val, h.has_stress(), h.stress_stale(now), buf);
 
-    snprintf(buf, sizeof(buf), "%u BPM", (unsigned)h.hr());
-    set_val(s_hr_val, h.has_hr(), h.hr_stale(now), buf);
+    // Heart rate as highest / lowest over the recent window the phone sent.
+    if (h.has_hr_range()) {
+        snprintf(buf, sizeof(buf), "%u / %u", (unsigned)h.hr_high(), (unsigned)h.hr_low());
+    }
+    set_val(s_hr_val, h.has_hr_range(), h.hr_range_stale(now), buf);
 
     // "Last sync" age (session only; a restored NVS snapshot reads as no sync).
     if (s_sync_lbl) {

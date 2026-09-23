@@ -58,6 +58,13 @@ void apply_packet(const uint8_t *d, size_t len, uint32_t now)
     if (mask & BIT_STRESS) { if (i + 1 > len) return; s_model.set_stress(d[i], now); i += 1; }
     if (mask & BIT_HR_AVG) { if (i + 2 > len) return; s_model.set_hr_avg(rd_u16(d + i), now); i += 2; }
     if (mask & BIT_HR_SAMPLE) { if (i + 2 > len) return; s_model.add_hr_sample(rd_u16(d + i), now); i += 2; }
+    // Recent low/high pair. Fields follow the mask in bit order (min before max);
+    // both are needed to set the range.
+    bool     have_lo = false, have_hi = false;
+    uint16_t lo = 0, hi = 0;
+    if (mask & BIT_HR_MIN) { if (i + 2 > len) return; lo = rd_u16(d + i); i += 2; have_lo = true; }
+    if (mask & BIT_HR_MAX) { if (i + 2 > len) return; hi = rd_u16(d + i); i += 2; have_hi = true; }
+    if (have_lo && have_hi) s_model.set_hr_range(lo, hi, now);
 }
 
 void persist_now()
