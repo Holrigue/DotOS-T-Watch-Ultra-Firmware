@@ -652,7 +652,7 @@ static void build_dot_accent_date(lv_obj_t *parent)
     lv_obj_clear_flag(dot_accent_fill, LV_OBJ_FLAG_CLICKABLE);
 
     dot_date_label = lv_label_create(parent);
-    lv_obj_set_style_text_font(dot_date_label, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dot_date_label, &font_argus_label_20, LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_date_label, lv_color_hex(0x9A9A9A), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(dot_date_label, 3, LV_PART_MAIN);
     lv_label_set_text(dot_date_label, "");
@@ -1167,12 +1167,12 @@ static void build_dot_bottom(lv_obj_t *parent)
 
     // Right-anchored percentage: a fixed-width box whose right edge is x=351.
     dot_bat_pct = lv_label_create(parent);
-    lv_obj_set_width(dot_bat_pct, 64);
+    lv_obj_set_width(dot_bat_pct, 84);   // wider box: Orbitron "100%" is wider than VT323
     lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(dot_bat_pct, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dot_bat_pct, &font_argus_label_20, LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_bat_pct, lv_color_hex(0x8A8A8A), LV_PART_MAIN);
     lv_label_set_text(dot_bat_pct, "");
-    lv_obj_set_pos(dot_bat_pct, 351 - 64, 430);
+    lv_obj_set_pos(dot_bat_pct, 351 - 84, 428);   // keep the right edge anchored at x=351
 }
 
 // 1 Hz: redraw the icons / segments / percentage only when something changed.
@@ -1544,8 +1544,9 @@ static void update_charge_bolt()
 {
     if (!bat_bolt) return;
 
-    ChargeState st = bat_charge.update(instance.pmu.isVbusIn(),
-                                       instance.pmu.isCharging());
+    // bat_charge is advanced once per 1 Hz tick by charge_state_tick() (which
+    // runs on every face, including Dot); here we only read the settled state.
+    ChargeState st = bat_charge.state();
 
     // Only touch the hidden flag on an actual edge. lv_obj_add_flag()
     // invalidates whenever LV_OBJ_FLAG_HIDDEN is in the set, so re-asserting
@@ -2307,6 +2308,29 @@ static void display_power_tick()
 // display awake at active brightness for as long as they are shown. Also used
 // by the notification banner to wake a dimmed or switched-off screen.
 void ui_reset_dim_activity() { dim_reset_activity(); }
+
+// ---- Charge-state feed + wake ----------------------------------------------
+//
+// Advance the shared bat_charge debouncer once per 1 Hz tick, on EVERY face
+// (the Dot USB indicator and the classic charge bolt both read bat_charge, but
+// only the classic update runs update_charge_bolt(), so the debouncer must be
+// fed here or the Dot face never sees the charger). When the charger is first
+// recognised, wake the screen out of dim/off for at least CHARGE_WAKE_MS so it
+// is obvious the watch is charging.
+static constexpr uint32_t CHARGE_WAKE_MS = 5000;
+static uint32_t s_charge_wake_until_ms = 0;
+
+static void charge_state_tick()
+{
+    static bool was_charging = false;
+    bat_charge.update(instance.pmu.isVbusIn(), instance.pmu.isCharging());
+    bool charging = bat_charge.state() != ChargeState::Discharging;
+    if (charging && !was_charging) {
+        s_charge_wake_until_ms = millis() + CHARGE_WAKE_MS;
+        ui_reset_dim_activity();   // wake from dim / battery-saver-off
+    }
+    was_charging = charging;
+}
 
 // ---- Motion-wake ----------------------------------------------------------
 //
@@ -3905,7 +3929,10 @@ void loop()
     // Dim timer: check every loop iteration for low latency
     // Never dim under a notification banner: it is boosted on purpose so the
     // message is readable, and dims back on its own once it is dismissed.
-    if (s_dim_timeout_ms > 0 && !s_is_dimmed && !notify_popup_is_showing()) {
+    // Also hold off dimming briefly after the charger is plugged in, so the
+    // charge indicator is visible for at least CHARGE_WAKE_MS.
+    if (s_dim_timeout_ms > 0 && !s_is_dimmed && !notify_popup_is_showing() &&
+        millis() >= s_charge_wake_until_ms) {
         if (millis() - s_last_activity_ms >= s_dim_timeout_ms) {
             s_is_dimmed    = true;
             s_dimmed_at_ms = millis();
@@ -3923,6 +3950,7 @@ void loop()
         update_clock();
         argus_mode_indicator_refresh();   // Offense border flips to threat-red live
         alarm_tick();              // fires the alarm at the set time
+        charge_state_tick();       // feed bat_charge on every face + wake on plug-in
         // The classic analog/digital face's status icons and battery widget are
         // only on screen when that face is showing on the (awake) clock screen.
         // Under the Dot face they sit hidden beneath dot_container, and on any

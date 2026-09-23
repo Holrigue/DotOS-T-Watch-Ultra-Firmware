@@ -97,7 +97,7 @@ void health_screen_create()
     lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, c_white(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(title, 4, LV_PART_MAIN);
-    lv_label_set_text(title, "SANTE");
+    lv_label_set_text(title, "HEALTH");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 40);
 
     lv_obj_t *rule = lv_obj_create(s_screen);
@@ -107,10 +107,10 @@ void health_screen_create()
     lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_align(rule, LV_ALIGN_TOP_MID, 0, 80);
 
-    s_sleep_val  = make_row(120, "SOMMEIL");
-    s_steps_val  = make_row(210, "PAS");
+    s_sleep_val  = make_row(120, "SLEEP");
+    s_steps_val  = make_row(210, "STEPS");
     s_stress_val = make_row(300, "STRESS");
-    s_hr_val     = make_row(390, "CARDIO");
+    s_hr_val     = make_row(390, "HEART");
 }
 
 void health_screen_update()

@@ -763,35 +763,45 @@ static void draw_notify_icon(lv_obj_t *tile)
 
 // Simple heart: a 45-rotated square makes the bottom point, two circles the top
 // lobes. Drawn in the Dot red so it reads as the health tile at a glance.
+// A clean solid heart matching the supplied SVG: two overlapping top lobes and
+// a 45-rotated square for the bottom point. The square is rotated about its OWN
+// centre (pivot set explicitly - the earlier version left the pivot at the
+// corner, which threw the point off and looked broken) and sized so its top
+// vertex meets the dip between the lobes seamlessly. Colour is the SVG's red.
 static void draw_health_icon(lv_obj_t *tile)
 {
     tile = icon_layer(tile);
-    lv_color_t red = lv_color_make(0xE0, 0x20, 0x20);
-    int cx = 90;
+    lv_color_t red = lv_color_make(0xE5, 0x39, 0x35);
+    const int cx = 90;
 
-    // Bottom point (square rotated 45; its lower half is the heart tip).
+    // Bottom point: 46 px square, centre at (cx, 71), rotated 45 about centre.
+    // Half-diagonal = 32.5, so the top vertex lands at y=38.5 (the lobe dip).
+    const int s = 46;
     lv_obj_t *pt = lv_obj_create(tile);
-    lv_obj_set_size(pt, 52, 52);
+    lv_obj_set_size(pt, s, s);
     lv_obj_set_style_bg_color(pt, red, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(pt, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(pt, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(pt, 4, LV_PART_MAIN);
     lv_obj_set_style_pad_all(pt, 0, LV_PART_MAIN);
     lv_obj_clear_flag(pt, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_transform_pivot_x(pt, s / 2, LV_PART_MAIN);
+    lv_obj_set_style_transform_pivot_y(pt, s / 2, LV_PART_MAIN);
     lv_obj_set_style_transform_rotation(pt, 450, LV_PART_MAIN);   // 45.0 deg
-    lv_obj_set_pos(pt, cx - 26, 46);
+    lv_obj_set_pos(pt, cx - s / 2, 71 - s / 2);                    // centre (cx, 71)
 
-    // Two top lobes, drawn over the square's upper corner to round the humps.
+    // Two top lobes (46 px circles), centres (cx-20, 50) and (cx+20, 50); drawn
+    // AFTER the square so they cover its upper half and round the humps.
     for (int side = -1; side <= 1; side += 2) {
         lv_obj_t *lobe = lv_obj_create(tile);
-        lv_obj_set_size(lobe, 42, 42);
+        lv_obj_set_size(lobe, 46, 46);
         lv_obj_set_style_radius(lobe, LV_RADIUS_CIRCLE, LV_PART_MAIN);
         lv_obj_set_style_bg_color(lobe, red, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(lobe, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_border_width(lobe, 0, LV_PART_MAIN);
         lv_obj_set_style_pad_all(lobe, 0, LV_PART_MAIN);
         lv_obj_clear_flag(lobe, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_pos(lobe, cx + side * 20 - 21, 38);
+        lv_obj_set_pos(lobe, cx + side * 20 - 23, 27);   // centre (cx±20, 50)
     }
 }
 
