@@ -9,6 +9,7 @@
 #include "charge_state.h"
 #include "detect_log_sd.h"
 #include "detect/log_retention.h"   // kMaxAgeDays, for the readout
+#include "health_state.h"           // daily step goal (Dot progress bar + Health screen)
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
@@ -156,6 +157,8 @@ static lv_obj_t *motion_wake_switch;
 static lv_obj_t *motion_wake_val_label;
 static lv_obj_t *motion_sens_slider;
 static lv_obj_t *motion_sens_val_label;
+static lv_obj_t *step_goal_slider;
+static lv_obj_t *step_goal_val_label;
 static lv_obj_t *auto_bright_switch;
 static lv_obj_t *auto_bright_val_label;
 static lv_obj_t *batt_saver_switch;
@@ -216,12 +219,12 @@ static lv_obj_t *defpersist_val_label;
 // First Y offset that belongs to the manual-time editor (the hint line).
 // register_shiftable entries with base_y >= this also pick up the
 // MANUAL_HIDDEN_SHIFT when the switch is off.
-// The three display-power rows (Motion sensitivity, Auto brightness, Battery
-// saver) were inserted under the Motion row after the rest of this list was laid
-// out. Rather than renumber every row below, each row registered AFTER them is
-// pushed down by POWER_ROWS_SHIFT at registration (s_shift_extra), so the
-// literal base Ys below keep their original meaning.
-#define POWER_ROWS_SHIFT    (3 * 48)
+// The four display-power rows (Motion sensitivity, Auto brightness, Battery
+// saver, Step goal) were inserted under the Motion row after the rest of this
+// list was laid out. Rather than renumber every row below, each row registered
+// AFTER them is pushed down by POWER_ROWS_SHIFT at registration (s_shift_extra),
+// so the literal base Ys below keep their original meaning.
+#define POWER_ROWS_SHIFT    (4 * 48)
 #define MANUAL_SECTION_TOP  (900 + POWER_ROWS_SHIFT)
 // Must exceed the TOTAL number of register_shiftable*() entries created at
 // runtime. Note the 5 manual-time rollers each register twice (header + roller),
@@ -417,6 +420,18 @@ static void on_motion_sens_changed(lv_event_t *e)
     lv_label_set_text_fmt(motion_sens_val_label, "%d", level);
     clock_screen_set_motion_sensitivity(level);
     // Save deferred to LV_EVENT_RELEASED (on_slider_released).
+}
+
+// Daily step goal for the Dot face's progress bar and the Health screen. Rounded
+// to the nearest 500 for a tidy value; persisted immediately to health NVS.
+static void on_step_goal_changed(lv_event_t *e)
+{
+    (void)e;
+    int v = lv_slider_get_value(step_goal_slider);
+    v = ((v + 250) / 500) * 500;          // snap to 500
+    if (v < 1000) v = 1000;
+    lv_label_set_text_fmt(step_goal_val_label, "%d", v);
+    health_set_step_goal((uint32_t)v);
 }
 
 static void show_auto_bright_state(bool on)
@@ -1173,6 +1188,45 @@ void settings_screen_create()
         lv_obj_add_event_cb(*r.sw, r.cb, LV_EVENT_VALUE_CHANGED, NULL);
         lv_obj_align(*r.sw, LV_ALIGN_RIGHT_MID, 0, 0);
     }
+    // Daily step goal (fixed value; feeds the Dot progress bar + Health screen).
+    // Slider 1000..30000, snapped to 500 in the handler. Initialised from the
+    // health NVS goal restored at boot (default 10000 when unset).
+    lv_obj_t *goal_row = lv_obj_create(settings_screen);
+    lv_obj_set_size(goal_row, 380, 40);
+    lv_obj_set_style_bg_opa(goal_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(goal_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(goal_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(goal_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(goal_row, LV_ALIGN_TOP_MID, 0, 970);
+    register_shiftable(goal_row, 970);
+
+    lv_obj_t *goal_lbl = lv_label_create(goal_row);
+    lv_obj_set_style_text_color(goal_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(goal_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text(goal_lbl, "Step goal");
+    lv_obj_align(goal_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    uint32_t goal_now = health_get_step_goal();
+    if (goal_now < 1000) goal_now = 10000;   // sensible default when unset
+
+    step_goal_slider = lv_slider_create(goal_row);
+    lv_obj_set_size(step_goal_slider, 150, 16);
+    lv_slider_set_range(step_goal_slider, 1000, 30000);
+    lv_slider_set_value(step_goal_slider, (int)goal_now, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(step_goal_slider, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(step_goal_slider, ARGUS_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(step_goal_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(step_goal_slider, 6, LV_PART_KNOB);
+    lv_obj_clear_flag(step_goal_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(step_goal_slider, on_step_goal_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_align(step_goal_slider, LV_ALIGN_RIGHT_MID, -12, 0);
+
+    step_goal_val_label = lv_label_create(goal_row);
+    lv_obj_set_style_text_color(step_goal_val_label, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(step_goal_val_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text_fmt(step_goal_val_label, "%d", (int)goal_now);
+    lv_obj_align(step_goal_val_label, LV_ALIGN_RIGHT_MID, -180, 0);
+
     s_shift_extra = POWER_ROWS_SHIFT;   // every row registered from here on sits lower
 
     // ---- Manual Time section ------------------------------------------------

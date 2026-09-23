@@ -34,6 +34,7 @@
 #include "sun_elevation.h" // solar elevation for automatic day/night brightness
 #include <Preferences.h>
 #include "detector_toggle.h" // shared detector on/off + NVS persistence (Dot badges, Tools)
+#include "health_state.h"    // wearer health metrics (mirrored from Gadgetbridge)
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -615,24 +616,39 @@ static void dot_fill_tri(uint32_t *buf, int w, int h,
 
 // ---- Accent line + date --------------------------------------------------------
 //
-// Accent: solid red rule under the time (x=50 y=300, 245x3, 90% opacity). The
-// step-progress variant is out of scope (no step source in this firmware).
+// Accent: a daily-step progress bar under the time (x=50 y=300, 245x3). The rail
+// is a full-width red line; a white fill grows over it left-to-right in
+// proportion to steps / goal, so more steps = more white and a reached goal
+// paints the whole line white. With no goal set (or no step data yet) it stays
+// plain red. Driven by update_dot_accent() from the 1 Hz Dot tick.
 //
 // Date: same logic as the stock date_label (honours Show day / Show date), in
 // the Dot face's compact single-line form, e.g. "THUR 15/02" (DD/MM), gray
 // #9A9A9A monospace at x=50, baseline y=338.
-static lv_obj_t *dot_accent     = nullptr;
-static lv_obj_t *dot_date_label = nullptr;
+static constexpr int DOT_ACCENT_W = 245;
+static lv_obj_t *dot_accent      = nullptr;   // red rail (full width)
+static lv_obj_t *dot_accent_fill = nullptr;   // white step-progress fill
+static lv_obj_t *dot_date_label  = nullptr;
 
 static void build_dot_accent_date(lv_obj_t *parent)
 {
     dot_accent = lv_obj_create(parent);
     lv_obj_remove_style_all(dot_accent);
-    lv_obj_set_size(dot_accent, 245, 3);
+    lv_obj_set_size(dot_accent, DOT_ACCENT_W, 3);
     lv_obj_set_pos(dot_accent, 50, 300);
     lv_obj_set_style_bg_color(dot_accent, dot_red(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(dot_accent, LV_OPA_90, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_accent, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(dot_accent, LV_OBJ_FLAG_CLICKABLE);
+
+    // White fill on top of the red rail, same origin; width set from progress.
+    dot_accent_fill = lv_obj_create(parent);
+    lv_obj_remove_style_all(dot_accent_fill);
+    lv_obj_set_size(dot_accent_fill, 0, 3);
+    lv_obj_set_pos(dot_accent_fill, 50, 300);
+    lv_obj_set_style_bg_color(dot_accent_fill, dot_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_accent_fill, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_add_flag(dot_accent_fill, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(dot_accent_fill, LV_OBJ_FLAG_CLICKABLE);
 
     dot_date_label = lv_label_create(parent);
     lv_obj_set_style_text_font(dot_date_label, &font_argus_mono_16, LV_PART_MAIN);
@@ -662,6 +678,29 @@ static void update_dot_date(const struct tm *t)
     if (strcmp(buf, last) == 0) return;
     strncpy(last, buf, sizeof(last) - 1);
     lv_label_set_text(dot_date_label, buf);
+}
+
+// Paint the red step-progress fill over the white accent rail. Width tracks
+// steps / daily goal (0..100%); a reached goal fills the whole rail. Cheap and
+// only repaints when the pixel width actually changes.
+static void update_dot_accent()
+{
+    if (!dot_accent_fill) return;
+    int pct = (int)health().step_progress_pct();   // 0 when no goal / no steps
+    int w   = DOT_ACCENT_W * pct / 100;
+    if (w < 0) w = 0;
+    if (w > DOT_ACCENT_W) w = DOT_ACCENT_W;
+
+    static int last_w = -1;
+    if (w == last_w) return;
+    last_w = w;
+
+    if (w <= 0) {
+        lv_obj_add_flag(dot_accent_fill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(dot_accent_fill, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(dot_accent_fill, w);
+    }
 }
 
 // Builds the Dot face layer, hidden. Populated incrementally (status row, USB
@@ -1300,6 +1339,7 @@ static void dot_face_tick()
     update_dot_usb();
     update_dot_bottom();
     update_dot_badges(false);
+    update_dot_accent();   // step-progress fill on the accent rail
 }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
@@ -3305,6 +3345,10 @@ void setup()
     // radios and notifications, so a detector whose radio is taken just stays
     // off this boot and keeps its saved choice.
     detector_restore_on_boot();
+
+    // Restore the cached health snapshot + the fixed step goal (shown as stale
+    // until the phone relay refreshes them).
+    health_boot_restore();
     coex_log_heap("setup-done");
 }
 
@@ -3902,6 +3946,7 @@ void loop()
             update_wardriver_indicator();
         dot_face_tick();   // refresh the Dot face's own status row when active
         display_power_tick();   // auto brightness from the sun + battery saver
+        health_tick_1hz();      // drain BLE health packets + 2-min HR compile
         if (wardriver_screen_is_active())
             wardriver_screen_update();
         if (configuration_screen_is_active())
