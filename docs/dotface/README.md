@@ -16,7 +16,7 @@ de reference de conception.
 | Actif | `#FFFFFF` |
 | Inactif / repos | `#5C5C5C` (segments vides : `#3A3A3A`) |
 | Notifications et detections | `#E02020` |
-| Fond | `#0A0A0A` (bordure `#050505`, lisere externe `#1a1a1a`) |
+| Fond | `#000000` sur la montre (le mockup dit `#0A0A0A` ; sur AMOLED, seul le noir pur eteint les pixels : sinon lueur rouge fonce dans le noir et batterie consommee). Bordure `#050505`, lisere externe `#1a1a1a` |
 
 Boitier : squircle (rectangle tres arrondi, `rx=150 ry=170`), pas un cercle.
 

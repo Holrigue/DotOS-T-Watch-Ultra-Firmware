@@ -495,7 +495,11 @@ static void update_analog_clock(const struct tm *t)
 static inline lv_color_t dot_white()     { return lv_color_hex(0xFFFFFF); }
 static inline lv_color_t dot_gray()      { return lv_color_hex(0x5C5C5C); }
 static inline lv_color_t dot_red()       { return lv_color_hex(0xE02020); }
-static inline lv_color_t dot_bg()        { return lv_color_hex(0x0A0A0A); }
+// True black, not the mockup's #0A0A0A: on this AMOLED any non-zero value keeps
+// every background pixel faintly lit, which reads as a dark red cast in the dark
+// (the red subpixels lead at the lowest levels) and costs battery. 0x000000
+// switches those pixels fully off.
+static inline lv_color_t dot_bg()        { return lv_color_hex(0x000000); }
 static inline lv_color_t dot_seg_empty() { return lv_color_hex(0x3A3A3A); }
 
 // Dot-matrix time raster geometry, in the native 410x502 face space straight
