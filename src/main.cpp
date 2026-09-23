@@ -800,7 +800,7 @@ static void update_dot_face(const struct tm *t)
 // predicates the stock status icons already read.
 static constexpr int DOT_STAT_X = 96;
 static constexpr int DOT_STAT_Y = 44;
-static constexpr int DOT_STAT_W = 252;   // covers x 96..348
+static constexpr int DOT_STAT_W = 288;   // covers x 96..384 (room for the heart at cx=360)
 static constexpr int DOT_STAT_H = 32;    // covers y 44..76
 
 static void dot_draw_lora(uint32_t *b, int w, int h, uint32_t c)
@@ -856,6 +856,18 @@ static void dot_draw_gps(uint32_t *b, int w, int h, uint32_t c)
     dot_plot_disc(b, w, h, cx, cy - 2, 7.0f, c);                                 // bulb
     dot_fill_tri (b, w, h, cx - 6.0f, cy - 1.0f, cx + 6.0f, cy - 1.0f, cx, cy + 9.0f, c); // point
     dot_plot_disc(b, w, h, cx, cy - 2, 2.2f, 0x00000000u);                       // hole
+}
+
+// Rightmost status icon: a small filled heart at cx=360 that lights when the
+// phone relay is actively feeding health data (red = live, gray = idle). Two
+// round lobes plus a downward point, the classic silhouette.
+static void dot_draw_heart(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float cx = 360 - ox, cy = 59 - oy;
+    dot_plot_disc(b, w, h, cx - 3.0f, cy - 2.0f, 3.4f, c);                        // left lobe
+    dot_plot_disc(b, w, h, cx + 3.0f, cy - 2.0f, 3.4f, c);                        // right lobe
+    dot_fill_tri (b, w, h, cx - 6.2f, cy - 1.0f, cx + 6.2f, cy - 1.0f, cx, cy + 7.0f, c); // point
 }
 
 // Creates the status-row widgets, hidden state driven later by update_dot_status().
@@ -918,11 +930,13 @@ static void update_dot_status()
     bool nfc  = instance.pmu.isEnableDLDO1();
     bool wd   = wardriver_is_running();
     bool gps  = gps_screen_is_powered();
+    bool hlth = health_data_fresh();
     int  unread = meshtastic_get_unread();
 
     uint32_t state = (uint32_t)lora | (uint32_t)bt << 1 | (uint32_t)wifi << 2
                    | (uint32_t)sd << 3 | (uint32_t)nfc << 4 | (uint32_t)wd << 5
-                   | (uint32_t)gps << 6 | ((uint32_t)(unread & 0x3FF)) << 7;
+                   | (uint32_t)gps << 6 | ((uint32_t)(unread & 0x3FF)) << 7
+                   | (uint32_t)hlth << 17;
     static uint32_t last_state = 0xFFFFFFFFu;
     if (state == last_state) return;
     last_state = state;
@@ -935,6 +949,7 @@ static void update_dot_status()
     dot_draw_wifi (dot_status_buf, DOT_STAT_W, DOT_STAT_H, wifi ? W : G);
     dot_draw_radar(dot_status_buf, DOT_STAT_W, DOT_STAT_H, wd   ? W : G);
     dot_draw_gps  (dot_status_buf, DOT_STAT_W, DOT_STAT_H, gps  ? W : G);
+    dot_draw_heart(dot_status_buf, DOT_STAT_W, DOT_STAT_H, hlth ? 0xFFE53935u : G);   // red when live
     lv_image_set_src(dot_status_img, NULL);
     lv_image_set_src(dot_status_img, &dot_status_dsc);
     lv_obj_invalidate(dot_status_img);
@@ -1093,7 +1108,7 @@ static constexpr int DOT_BOT_X = 52;
 static constexpr int DOT_BOT_Y = 424;
 static constexpr int DOT_BOT_W = 78;    // covers x 52..130
 static constexpr int DOT_BOT_H = 26;    // covers y 424..450
-static constexpr int DOT_BAT_SEGS = 13;
+static constexpr int DOT_BAT_SEGS = 12;   // 12 (was 13): one fewer frees room for the % text
 
 static lv_obj_t *dot_bot_img = nullptr;
 static uint32_t *dot_bot_buf = nullptr;
@@ -1165,14 +1180,17 @@ static void build_dot_bottom(lv_obj_t *parent)
         dot_bat_seg[i] = s;
     }
 
-    // Right-anchored percentage: a fixed-width box whose right edge is x=351.
+    // Percentage centered in the gap to the right of the 12-segment bar (which
+    // ends at x=305). A center-aligned box over x 306..356 keeps "9%" and "100%"
+    // alike balanced in that gap instead of drifting against the bar, and its y
+    // lines the text up with the bar row (bar center y=438).
     dot_bat_pct = lv_label_create(parent);
-    lv_obj_set_width(dot_bat_pct, 84);   // wider box: Orbitron "100%" is wider than VT323
-    lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+    lv_obj_set_width(dot_bat_pct, 50);
+    lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(dot_bat_pct, &font_argus_label_20, LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_bat_pct, lv_color_hex(0x8A8A8A), LV_PART_MAIN);
     lv_label_set_text(dot_bat_pct, "");
-    lv_obj_set_pos(dot_bat_pct, 351 - 84, 428);   // keep the right edge anchored at x=351
+    lv_obj_set_pos(dot_bat_pct, 306, 427);
 }
 
 // 1 Hz: redraw the icons / segments / percentage only when something changed.
@@ -1201,7 +1219,7 @@ static void update_dot_bottom()
         lv_obj_invalidate(dot_bot_img);
     }
 
-    int filled = (pct * DOT_BAT_SEGS + 50) / 100;   // 67% -> 9 of 13
+    int filled = (pct * DOT_BAT_SEGS + 50) / 100;   // 67% -> 8 of 12
     for (int i = 0; i < DOT_BAT_SEGS; i++)
         lv_obj_set_style_bg_color(dot_bat_seg[i], i < filled ? dot_white() : dot_seg_empty(), LV_PART_MAIN);
 

@@ -155,6 +155,14 @@ void health_set_step_goal(uint32_t goal)
 
 uint32_t health_get_step_goal() { return s_model.step_goal(); }
 
+bool health_data_fresh()
+{
+    uint32_t now = millis();
+    return (s_model.has_hr()     && !s_model.hr_stale(now))
+        || (s_model.has_steps()  && !s_model.steps_stale(now))
+        || (s_model.has_stress() && !s_model.stress_stale(now));
+}
+
 void health_ingest_packet(const uint8_t *data, size_t len)
 {
     if (!data || len == 0) return;

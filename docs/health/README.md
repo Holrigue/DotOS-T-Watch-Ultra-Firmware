@@ -53,13 +53,23 @@ indépendamment du choix final côté téléphone.
 
 ## Caractéristique GATT d'entrée santé (implémentée)
 
-Ajoutée au serveur GATT déjà actif dans `src/ans.cpp` : un service vendeur
-128 bits avec une caractéristique **write** unique. Les octets reçus sont copiés
-dans une mailbox depuis la tâche BLE, puis appliqués au modèle par la boucle
-(`health_ingest_packet` → `health_tick_1hz`), donc le modèle reste mono-thread.
+Ajoutée au serveur GATT déjà actif dans `src/ans.cpp` : une caractéristique
+**write** unique posée **sur le service Alert Notification déjà exposé**
+(`0x1811`). Les octets reçus sont copiés dans une mailbox depuis la tâche BLE,
+puis appliqués au modèle par la boucle (`health_ingest_packet` →
+`health_tick_1hz`), donc le modèle reste mono-thread.
 
-- Service : `a2470001-5a4b-4d55-9a3e-1c2d3e4f5a6b`
+- Service : `00001811-0000-1000-8000-00805f9b34fb` (Alert Notification, déjà annoncé)
 - Écriture santé : `a2470002-5a4b-4d55-9a3e-1c2d3e4f5a6b`
+
+> **Pourquoi sur `0x1811` et non un 3ᵉ service dédié.** Un troisième service
+> GATT vendeur (`a2470001-…`) ne s'enregistrait pas de façon fiable sur cette
+> pile BLE (Bluedroid Arduino) : l'app compagnon ne trouvait alors « aucun
+> service santé ». En repliant la caractéristique sur le service ANS — toujours
+> annoncé et découvert avec les notifications — elle est systématiquement
+> visible. Gadgetbridge ignore cette caractéristique additionnelle ; seule l'app
+> compagnon y écrit. L'app cherche d'abord la caractéristique sous `0x1811`, avec
+> repli sur l'ancien service `a2470001-…` pour un firmware plus ancien.
 
 ### CAVEAT à valider sur la montre (modèle de connexion)
 

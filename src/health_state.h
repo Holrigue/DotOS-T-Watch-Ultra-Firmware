@@ -32,6 +32,13 @@ void health_tick_1hz();
 void health_set_step_goal(uint32_t goal);
 uint32_t health_get_step_goal();
 
+// True while the phone relay is actively feeding us: at least one of the fast
+// metrics (heart rate, steps, stress) is present and inside its stale window.
+// Drives the status-row heart icon (red when live, gray when not). Sleep is a
+// once-a-day score with a 26 h window, so it is deliberately excluded - it would
+// read "live" long after the relay stopped.
+bool health_data_fresh();
+
 // Called from the BLE task with a received health packet (see docs/health).
 // Copies the bytes into the mailbox and returns; the loop applies them.
 void health_ingest_packet(const uint8_t *data, size_t len);

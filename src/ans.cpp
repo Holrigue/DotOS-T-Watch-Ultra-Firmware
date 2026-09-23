@@ -23,12 +23,12 @@ constexpr uint16_t UUID_SUP_NEW_CAT  = 0x2A47;   // read: supported categories
 constexpr uint16_t UUID_DIS          = 0x180A;   // Device Information Service
 constexpr uint16_t UUID_FW_REV       = 0x2A26;   // Firmware Revision String
 
-// Vendor health-input service (Phase 2.2). A phone-side relay (Tasker or a
-// companion app reading Gadgetbridge's Amazfit data) writes a compact health
-// packet here; see docs/health/README.md for the wire format. 128-bit custom
-// UUIDs so they never collide with an assigned number.
-constexpr char UUID_HEALTH_SVC[]  = "a2470001-5a4b-4d55-9a3e-1c2d3e4f5a6b";
-constexpr char UUID_HEALTH_IN[]   = "a2470002-5a4b-4d55-9a3e-1c2d3e4f5a6b";
+// Vendor health-input characteristic (Phase 2.2). A phone-side companion app
+// reading Gadgetbridge's Amazfit data writes a compact health packet here; see
+// docs/health/README.md for the wire format. It sits on the ANS service (0x1811)
+// so it is always discovered alongside notifications. 128-bit custom UUID so it
+// never collides with an assigned number.
+constexpr char UUID_HEALTH_IN[] = "a2470002-5a4b-4d55-9a3e-1c2d3e4f5a6b";
 
 bool                s_running   = false;
 volatile bool       s_connected = false;
@@ -149,6 +149,16 @@ bool start()
         BLEUUID(UUID_SUP_NEW_CAT), BLECharacteristic::PROPERTY_READ);
     uint8_t all_cats[2] = { 0xFF, 0x03 };   // all defined categories supported
     sup->setValue(all_cats, sizeof(all_cats));
+
+    // Health-input characteristic (Phase 2.2): the phone relay writes health
+    // packets here. It lives ON the ANS service rather than a separate 3rd
+    // service - adding a third GATT service did not register reliably on this
+    // BLE stack, so the app found no health service. Gadgetbridge ignores this
+    // extra characteristic; only our companion app writes to it.
+    BLECharacteristic *health_in = ans->createCharacteristic(
+        BLEUUID(UUID_HEALTH_IN),
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+    health_in->setCallbacks(&s_health_in_cb);
     ans->start();
 
     // Minimal Device Information Service; Gadgetbridge's InfiniTime coordinator
@@ -158,18 +168,6 @@ bool start()
         BLEUUID(UUID_FW_REV), BLECharacteristic::PROPERTY_READ);
     fw->setValue("1.7.0");
     dis->start();
-
-    // Vendor health-input service: one write characteristic the phone relay
-    // pushes health packets to. Additive - it does not touch the notification
-    // path above. NOTE: reaching it while Gadgetbridge holds the connection
-    // depends on the peripheral accepting a second central; that is validated
-    // on-device when the relay is set up (see docs/health/README.md).
-    BLEService *health = s_server->createService(BLEUUID(UUID_HEALTH_SVC));
-    BLECharacteristic *health_in = health->createCharacteristic(
-        BLEUUID(UUID_HEALTH_IN),
-        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
-    health_in->setCallbacks(&s_health_in_cb);
-    health->start();
 
     // Just-works bonded pairing, same posture as the HID mouse.
     BLESecurity security;
