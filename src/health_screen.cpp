@@ -50,8 +50,8 @@ lv_obj_t *make_row(int y, const char *name)
 {
     lv_obj_t *row = lv_obj_create(s_screen);
     lv_obj_remove_style_all(row);
-    lv_obj_set_size(row, 360, 78);
-    lv_obj_set_pos(row, 25, y);
+    lv_obj_set_size(row, 350, 70);
+    lv_obj_set_pos(row, 30, y);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *lbl = lv_label_create(row);
@@ -70,7 +70,7 @@ lv_obj_t *make_row(int y, const char *name)
     // Thin gray separator under the row.
     lv_obj_t *sep = lv_obj_create(row);
     lv_obj_remove_style_all(sep);
-    lv_obj_set_size(sep, 360, 1);
+    lv_obj_set_size(sep, 350, 1);
     lv_obj_set_style_bg_color(sep, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_align(sep, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -112,10 +112,13 @@ void health_screen_create()
     lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_align(rule, LV_ALIGN_TOP_MID, 0, 80);
 
-    s_sleep_val  = make_row(120, "SLEEP");
-    s_steps_val  = make_row(210, "STEPS");
-    s_stress_val = make_row(300, "STRESS");
-    s_hr_val     = make_row(390, "HEART");
+    // Rows compressed and raised so the last one (HEART) never lands in the
+    // display's rounded bottom corner, which was clipping the value (a "68" read
+    // as "58"). Block spans y 106..392, centered vertically on the round face.
+    s_sleep_val  = make_row(106, "SLEEP");
+    s_steps_val  = make_row(178, "STEPS");
+    s_stress_val = make_row(250, "STRESS");
+    s_hr_val     = make_row(322, "HEART");
 }
 
 void health_screen_update()
