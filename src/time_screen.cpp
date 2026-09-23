@@ -12,6 +12,7 @@
 #include "meshtastic_screen.h"
 #include "settings_screen.h"
 #include "notifications_screen.h"
+#include "health_screen.h"
 #include <math.h>
 #include <LilyGoLib.h>
 
@@ -43,6 +44,8 @@ static void on_gesture(lv_event_t *e)
     // screen instead (handled in main.cpp); any other swipe down goes home.
     if (dir == LV_DIR_BOTTOM && !touch_started_at_top_edge())
         clock_screen_show();
+    else if (dir == LV_DIR_TOP)
+        health_screen_show();   // swipe up again -> Sante (daily health glance)
 }
 
 // ---- Tile helper -----------------------------------------------------------

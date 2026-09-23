@@ -20,6 +20,12 @@
 // so there is nothing to remember: a no-op keeps the link whole.
 void detector_remember(Detector, bool) {}
 
+// ---- Sante screen -----------------------------------------------------------
+// time_screen.cpp (built here) jumps to the health screen on swipe-up. The
+// screen itself pulls in health_state (Arduino/Preferences), so it is not built
+// in the sim; a no-op keeps the link whole and swipe-up simply does nothing.
+void health_screen_show() {}
+
 // ---- top-edge pull ------------------------------------------------------------
 // main.cpp (not built here) tracks where each touch starts so a pull from the top
 // edge opens the notification shade instead of the Tools jump gesture. The sim

@@ -64,6 +64,7 @@
 #include "world_clock_screen.h"
 #include "sun_moon_screen.h"
 #include "time_screen.h"
+#include "health_screen.h"
 #include "flashlight_screen.h"
 #include "argus_mode.h"
 #include "spycam_screen.h"
@@ -3152,6 +3153,7 @@ void setup()
     probe_sniffer_screen_create();
     offense_wipe_register();   // arm the duress-shred Tier-1 wipe hook
     time_screen_create();
+    health_screen_create();
     flashlight_screen_create();
     wardriver_screen_create();
     // Dot face layer, created last so its opaque panel sits above every other
@@ -3949,6 +3951,8 @@ void loop()
         health_tick_1hz();      // drain BLE health packets + 2-min HR compile
         if (wardriver_screen_is_active())
             wardriver_screen_update();
+        if (health_screen_is_active())
+            health_screen_update();
         if (configuration_screen_is_active())
             configuration_screen_update();
         low_mem_check();   // warn (once/min) if internal RAM is running low
