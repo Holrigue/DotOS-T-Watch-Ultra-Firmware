@@ -798,9 +798,9 @@ static void update_dot_face(const struct tm *t)
 // values from dotface_final.svg; each icon draws at its absolute position minus
 // the sprite origin. Colours: white = active, gray = idle, per the same state
 // predicates the stock status icons already read.
-static constexpr int DOT_STAT_X = 96;
+static constexpr int DOT_STAT_X = 44;    // extended left (was 96) so the heart fills the far-left corner
 static constexpr int DOT_STAT_Y = 44;
-static constexpr int DOT_STAT_W = 288;   // covers x 96..384 (room for the heart at cx=360)
+static constexpr int DOT_STAT_W = 304;   // covers x 44..348
 static constexpr int DOT_STAT_H = 32;    // covers y 44..76
 
 static void dot_draw_lora(uint32_t *b, int w, int h, uint32_t c)
@@ -858,13 +858,15 @@ static void dot_draw_gps(uint32_t *b, int w, int h, uint32_t c)
     dot_plot_disc(b, w, h, cx, cy - 2, 2.2f, 0x00000000u);                       // hole
 }
 
-// Rightmost status icon: a small filled heart at cx=360 that lights when the
-// phone relay is actively feeding health data (red = live, gray = idle). Two
-// round lobes plus a downward point, the classic silhouette.
+// Leftmost status icon: a small filled heart at cx=63 that lights when the
+// phone relay is actively feeding health data (red = live, gray = idle). It
+// fills the far-left corner of the status row; the Meshtastic unread pill sits
+// just to its right. Two round lobes plus a downward point, the classic
+// silhouette.
 static void dot_draw_heart(uint32_t *b, int w, int h, uint32_t c)
 {
     const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
-    const float cx = 360 - ox, cy = 59 - oy;
+    const float cx = 63 - ox, cy = 59 - oy;
     dot_plot_disc(b, w, h, cx - 3.0f, cy - 2.0f, 3.4f, c);                        // left lobe
     dot_plot_disc(b, w, h, cx + 3.0f, cy - 2.0f, 3.4f, c);                        // right lobe
     dot_fill_tri (b, w, h, cx - 6.2f, cy - 1.0f, cx + 6.2f, cy - 1.0f, cx, cy + 7.0f, c); // point
@@ -898,10 +900,12 @@ static void build_dot_status_row(lv_obj_t *parent)
     lv_obj_align(dot_nfc_label, LV_ALIGN_TOP_MID, 146 - 205, 50);
 
     // Meshtastic unread badge: red pill + white count, hidden while unread == 0.
+    // Sits just right of the far-left heart (which took the x=55 corner), still
+    // immediately left of the LoRa icon.
     dot_mesh_pill = lv_obj_create(parent);
     lv_obj_remove_style_all(dot_mesh_pill);
     lv_obj_set_size(dot_mesh_pill, 22, 18);
-    lv_obj_set_pos(dot_mesh_pill, 55, 49);
+    lv_obj_set_pos(dot_mesh_pill, 80, 49);
     lv_obj_set_style_radius(dot_mesh_pill, 9, LV_PART_MAIN);
     lv_obj_set_style_bg_color(dot_mesh_pill, dot_red(), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(dot_mesh_pill, LV_OPA_COVER, LV_PART_MAIN);
