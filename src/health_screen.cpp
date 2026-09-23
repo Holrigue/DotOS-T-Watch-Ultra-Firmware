@@ -117,7 +117,7 @@ void health_screen_update()
 {
     if (!s_screen) return;
     uint32_t now = millis();
-    health::HealthData &h = health();
+    health::HealthData &h = health_model();
     char buf[32];
 
     snprintf(buf, sizeof(buf), "%d / 100", h.sleep_score());

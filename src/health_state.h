@@ -6,18 +6,18 @@
 // last known numbers (as stale) instead of blanks, drives the 2-minute
 // heart-rate compile on the 1 Hz tick, and owns the fixed daily step goal set in
 // Settings. The BLE transport (ans.cpp) hands raw packets to
-// health_ingest_packet(); everything else reads through health().
+// health_ingest_packet(); everything else reads through health_model().
 //
 // THREADING. BLE write callbacks run in the Bluetooth host task, not the Arduino
 // loop. To keep the model single-threaded, health_ingest_packet() only copies the
 // bytes into a small mailbox from the BLE task; the loop drains and applies them
-// in health_tick_1hz(). So health() itself is only ever touched from the loop.
+// in health_tick_1hz(). So health_model() itself is only touched from the loop.
 #include "health_data.h"
 #include <cstddef>
 #include <cstdint>
 
 // The process-wide model. Read from the loop only (UI, accent bar, Santé screen).
-health::HealthData &health();
+health::HealthData &health_model();
 
 // Load the cached snapshot + the stored step goal from NVS. Call once at boot,
 // after Preferences is usable. Restored values read as stale until the relay

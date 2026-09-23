@@ -78,7 +78,7 @@ void persist_now()
 
 }  // namespace
 
-HealthData &health() { return s_model; }
+HealthData &health_model() { return s_model; }
 
 void health_boot_restore()
 {

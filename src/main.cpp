@@ -687,7 +687,7 @@ static void update_dot_date(const struct tm *t)
 static void update_dot_accent()
 {
     if (!dot_accent_fill) return;
-    int pct = (int)health().step_progress_pct();   // 0 when no goal / no steps
+    int pct = (int)health_model().step_progress_pct();   // 0 when no goal / no steps
     int w   = DOT_ACCENT_W * pct / 100;
     if (w < 0) w = 0;
     if (w > DOT_ACCENT_W) w = DOT_ACCENT_W;
