@@ -28,8 +28,11 @@
 #include "aprs_screen.h"
 #include "wifi_screen.h"
 #include "notifications_screen.h"
+#include "face_watch_screen.h"
+#include "find_screen.h"
 #include "analyze_screen.h"
 #include "ble_scan_manager.h"
+#include "detector_toggle.h"   // persist detector on/off (shared with the Dot face badges)
 #include <LilyGoLib.h>
 #include <SD.h>
 
@@ -88,7 +91,9 @@ static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_TOP)
+    // Reached from the watch face by a right-to-left swipe, so the reverse
+    // swipe (left-to-right) goes home; swipe up still does too.
+    if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT)
         clock_screen_show();
 }
 
@@ -120,6 +125,7 @@ static void on_airtag_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
         set_airtag_tile_running(ok);   // stays gray if it couldn't start
     }
+    detector_remember(Detector::AirTag, airtag_is_running());
 }
 
 static void set_trackers_tile_running(bool running)
@@ -162,6 +168,7 @@ static void on_flipper_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
         set_flipper_tile_running(ok);   // stays gray if it couldn't start
     }
+    detector_remember(Detector::Flipper, flipper_is_running());
 }
 
 static void set_skimmer_tile_running(bool running)
@@ -182,6 +189,7 @@ static void on_skimmer_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
         set_skimmer_tile_running(ok);   // stays gray if it couldn't start
     }
+    detector_remember(Detector::Skimmer, skimmer_is_running());
 }
 
 static void set_eviltwin_tile_running(bool running)
@@ -202,6 +210,7 @@ static void on_eviltwin_clicked(lv_event_t *e)
         if (!ok) show_radio_conflict_dialog(false);  // WiFi feature blocked by BT
         set_eviltwin_tile_running(ok);
     }
+    detector_remember(Detector::EvilTwin, evil_twin_is_running());
 }
 
 static void set_flock_tile_running(bool running)
@@ -252,6 +261,7 @@ static void on_flock_clicked(lv_event_t *e)
         }
         set_flock_tile_running(ok);
     }
+    detector_remember(Detector::Flock, flock_is_running());
 }
 
 // Tile container — 180x180 button-like card with a label at the bottom.
@@ -1792,7 +1802,7 @@ void tools_screen_create()
     tools_title = lv_label_create(tools_screen);
     lv_obj_set_style_text_color(tools_title, argus_base_accent(), LV_PART_MAIN);
     lv_obj_set_style_text_font(tools_title, &font_argus_label_28, LV_PART_MAIN);
-    lv_label_set_text(tools_title, "TOOLS");
+    lv_label_set_text(tools_title, "RECON");
     lv_obj_align(tools_title, LV_ALIGN_TOP_MID, 0, 8);
 
     // Three-column flex grid. ROW_WRAP gives us 3 tiles per row: three 118px
@@ -1857,6 +1867,8 @@ void tools_screen_create()
     lv_obj_t *t_rogueap = make_tile(grid, "Rogue AP");
     lv_obj_t *t_probes  = make_tile(grid, "Probes");
     lv_obj_t *t_notify  = make_tile(grid, "Notify");
+    lv_obj_t *t_face    = make_tile(grid, "Face");
+    lv_obj_t *t_find    = make_tile(grid, "Find");
     lv_obj_t *t_pager   = make_tile(grid, "Pager");
     lv_obj_t *t_aprs    = make_tile(grid, "LoRa APRS");
     lv_obj_t *t_pet     = make_tile(grid, "HexHound");
@@ -1955,6 +1967,8 @@ void tools_screen_create()
         { t_rogueap,  "rogueap"   },
         { t_probes,   "probes"    },
         { t_notify,   "notify"    },
+        { t_face,     "facewatch" },
+        { t_find,     "find"      },
     };
     for (auto &tk : tile_keys) {
         lv_obj_set_user_data(tk.tile, (void *)tk.key);
@@ -1965,6 +1979,12 @@ void tools_screen_create()
         lv_obj_add_event_cb(tk.tile, tile_released,     LV_EVENT_RELEASED,     NULL);
         lv_obj_add_event_cb(tk.tile, tile_press_lost,   LV_EVENT_PRESS_LOST,   NULL);
     }
+
+    // Face tile opens the Dot watchface customization screen.
+    lv_obj_add_event_cb(t_face, [](lv_event_t *) { face_watch_screen_show(); }, LV_EVENT_CLICKED, NULL);
+
+    // Find tile opens the companion-app "find my device" screen.
+    lv_obj_add_event_cb(t_find, [](lv_event_t *) { find_screen_show(); }, LV_EVENT_CLICKED, NULL);
 
     // Tesla CP tile opens the 315 MHz charge-port-open transmit screen.
     lv_obj_add_event_cb(t_tesla, [](lv_event_t *) { if (argus_mode_current() != ArgusMode::Offense) return; tesla_cp_screen_show(); }, LV_EVENT_CLICKED, NULL);
@@ -2090,7 +2110,8 @@ static ArgusMode tile_mode(const char *key)
         !strcmp(key, "beaconspam") || !strcmp(key, "deauthatk") ||
         !strcmp(key, "rogueap") || !strcmp(key, "probes"))
         return ArgusMode::Offense;
-    if (!strcmp(key, "notify") || !strcmp(key, "aprs") || !strcmp(key, "usbsd"))
+    if (!strcmp(key, "notify") || !strcmp(key, "aprs") || !strcmp(key, "usbsd") ||
+        !strcmp(key, "find"))
         return ArgusMode::Daily;
     return ArgusMode::Defense;
 }
@@ -2124,8 +2145,11 @@ void tools_apply_mode()
 // Mirrors the clock's swipe-down->Tools and is gated to Defense/Offense (Daily
 // hides Tools). Screens with vertically-scrolling content still scroll; the
 // gesture only fires when the scroll doesn't consume the swipe.
+bool touch_started_at_top_edge();   // main.cpp: a pull from the top edge opens the shade
+
 static void tools_jump_gesture_cb(lv_event_t *e)
 {
+    if (touch_started_at_top_edge()) return;   // that pull belongs to the notification shade
     lv_indev_t *indev = lv_event_get_indev(e);
     if (lv_indev_get_gesture_dir(indev) == LV_DIR_BOTTOM &&
         argus_mode_current() != ArgusMode::Daily)
@@ -2141,6 +2165,14 @@ void tools_screen_show()
 {
     main_loop_request_lvgl_priority(12);
     tools_apply_mode();   // reflect the current mode before the screen paints
+    // The detectors can also be toggled from the Dot face's badges (and restored
+    // at boot), so re-read their live state here rather than trusting the colour
+    // the tiles were given when this screen was built.
+    set_airtag_tile_running(airtag_is_running());
+    set_flipper_tile_running(flipper_is_running());
+    set_skimmer_tile_running(skimmer_is_running());
+    set_eviltwin_tile_running(evil_twin_is_running());
+    set_flock_tile_running(flock_is_running());
     // Repaint the title with the MODE accent on entry: red-team red in Offense,
     // calm steel-blue in Daily/Defense. Deliberately argus_base_accent(), not
     // argus_accent(): a live threat must not turn Defense-side headings red.

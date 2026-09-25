@@ -3,6 +3,8 @@
 #include "meshtastic.h"
 #include "nodes_screen.h"
 #include "send_message_screen.h"
+#include "wardriver_screen.h"
+#include "argus_mode.h"
 #include <LilyGoLib.h>
 #include <math.h>
 #include <stdio.h>
@@ -38,10 +40,15 @@ static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_LEFT)
-        clock_screen_show();
-    else if (dir == LV_DIR_RIGHT)
+    // Left-to-right chain from the watch face: face -> Wardriver -> Meshtastic
+    // -> Nodes. Swiping back steps to the Wardriver, or straight home in Daily,
+    // where the Wardriver is gated.
+    if (dir == LV_DIR_LEFT) {
+        if (argus_mode_current() == ArgusMode::Daily) clock_screen_show();
+        else                                          wardriver_screen_show();
+    } else if (dir == LV_DIR_RIGHT) {
         nodes_screen_show();
+    }
 }
 
 // Tap the "Clear All" link - wipes the in-memory ring. SD archive at

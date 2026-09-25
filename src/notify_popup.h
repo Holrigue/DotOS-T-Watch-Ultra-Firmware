@@ -9,3 +9,7 @@
 
 // Start the UI-thread poll timer. Call once from setup(), after LVGL is up.
 void notify_popup_init();
+
+// True while a notification banner is on screen (its brightness boost is live).
+// The dim timer checks this so it never dims the screen under a banner.
+bool notify_popup_is_showing();

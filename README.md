@@ -1,14 +1,24 @@
-# ARGUS
+# DotOS
 
-<p align="center"><img src="img/argus/clock.png" width="230" alt="ARGUS watch face"></p>
+<p align="center"><img src="img/argus/demo.gif" width="480" alt="DotOS demo: the watch faces and screens"><br><sub>Rendered by the in-repo simulator (<code>sim/</code>) from current source, not from device captures.</sub></p>
 
-<p align="center"><img src="img/argus/demo.gif" width="480" alt="ARGUS demo: Daily, Defense and Offense modes, then the watch screens"><br><sub>Rendered by the in-repo simulator (<code>sim/</code>) from current source, not from device captures.</sub></p>
+**DotOS** is a [Nothing OS](https://nothing.tech/)–inspired firmware for the LILYGO T-Watch Ultra: an ESP32-S3 smartwatch (AMOLED display, LoRa, GNSS, NFC, full sensor suite) reskinned around a monochrome-with-red **dot-matrix watchface**, a customizable glanceable dashboard, and a phone **health bridge** — all riding on the complete ARGUS security / RF toolkit and Meshtastic client underneath. It is a real daily-wear smartwatch (clock, alarms, calendar, phone **and watch-generated** notifications, health metrics) that keeps the full anti-surveillance / wireless-analysis suite one swipe away.
 
-**ARGUS** is the ARGUS Project's security firmware for the LILYGO T-Watch Ultra: an ESP32-S3 smartwatch (AMOLED display, LoRa, GNSS, NFC, full sensor suite) turned into an anti-surveillance field tool and daily-wear companion. It is a full smartwatch (clock, alarms, calendar, phone notifications, Meshtastic comms) plus a suite of RF/wireless detection and analysis tools, with the defensive, anti-stalking features front and centre.
-
-> **ARGUS is a fork of the phenomenal [`13:37` firmware by r3dfish](https://github.com/r3dfish/13-37).** That project is the foundation this is built on, the entire smartwatch core, the Meshtastic client, and most of the RF toolkit are r3dfish's excellent work. ARGUS rebrands it and adds an anti-surveillance / daily-wear layer on top. Full credit and huge thanks to r3dfish, please go star the original: **<https://github.com/r3dfish/13-37>**. See [Credits](#credits--acknowledgments).
+> **DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), which is itself a fork of the phenomenal [`13:37` firmware by r3dfish](https://github.com/r3dfish/13-37).** The entire smartwatch core, the Meshtastic client, and the RF toolkit are their work; DotOS layers on the **Dot (Nothing-OS) watchface**, a **companion health app**, and a batch of daily-wear, notification and power refinements. Full credit and thanks to both — please star the originals ([ARGUS](https://github.com/h4d35x0/argus), [`13:37`](https://github.com/r3dfish/13-37)). See [Credits](#credits--acknowledgments).
 
 ## Highlights
+
+**The DotOS layer**
+
+- **Dot watchface** — a Nothing-OS-style dot-matrix face (5×7 rasterised hours) alongside the classic Analog / Digital faces: red accent rail, compact date, live status glyphs, and interactive detection badges.
+- **Customizable data tiles** — two glanceable slots on the Dot face you pick yourself (sleep score, step goal, daily steps, BPM high/low, or a one-tap Meshtastic shortcut); they take over the row whenever the watch is off the charger.
+- **Tools ▸ Face** — live watchface customization: hour/date fonts, accent colour (Nothing palette), wallpaper, 12/24-hour, and date order, all persisted.
+- **Health bridge** — mirror sleep / steps / heart-rate from your phone (Health Connect) to the wrist over BLE via the [companion Android app](#companion-app), with opt-in background auto-sync.
+- **Nothing-OS notifications** — the notification UI restyled to the white / red / black / grey face palette, unrenderable emoji stripped, plus **watch-generated system alerts** (battery saver on, battery critical, battery full).
+- **Battery-smart** — adaptive idle sleep + dim-time downclock, an AXP2101 charge policy (VINDPM brown-out guard, deep-discharge protection), and an opt-in **battery-longevity** charge target.
+- **Refined wake** — swipe-up-to-wake that arms 15 s after dimming, with a frosted "glass" hint; hardware buttons wake instantly.
+
+**Inherited from ARGUS / `13:37`**
 
 - **Threat Radar** anti-stalking: correlates tracker / AP sightings against your GPS movement to score whether a device may be *following you*, with haptic + on-face alerts and a hashed warning broadcast to your Meshtastic group.
 - **Phone notifications** on your wrist from **iPhone (ANCS)** and **Android (Gadgetbridge)**, with a pop-up banner over the watch face. No companion app on iOS.
@@ -16,6 +26,54 @@
 - **RF toolkit**: WiFi survey + port scan, WiFi/BLE/LoRa spectrum analyzers, TPMS, POCSAG/FLEX pager, LoRa APRS, wardriving, WPA handshake capture, NFC read/write.
 - **Meshtastic** LoRa client: map, nodes, DMs, traceroute, channels.
 - **HexHound**, a gamified recon "pet" fed by your detectors.
+
+## What DotOS adds
+
+DotOS keeps everything ARGUS / `13:37` do and adds a Nothing-OS-flavoured daily-wear layer on top.
+
+### Dot watchface
+
+- A third watchface (Settings ▸ face, or **Tools ▸ Face**), next to Analog and Digital. Hours render as a 5×7 dot-matrix raster (ARGB8888 in PSRAM) — the signature "Ndot" look — with a red accent rail that doubles as a step-goal progress bar, a compact date line, rasterised status glyphs (LoRa / SD / BT / WiFi / Wardriver / GPS), and the interactive detection badges.
+- **Customizable data tiles** — when the watch is unplugged, the idle USB dot line becomes two slots you choose: **Sleep score**, **Step goal**, **Daily steps**, **BPM (high/low)**, or a **Meshtastic** shortcut button. Tap an empty slot to pick, long-press to change; a choice can occupy only one slot. Persisted in NVS. Plugged back in, the charge/data wave reclaims the row.
+- **Consolidated unread badge** — a single red pill by the clock digits shows the combined phone + Meshtastic unread count.
+
+### Tools ▸ Face — live customization
+
+Pick and preview instantly: **hour font** (Dots / Montserrat), **date font** (Orbitron / Mono), **accent colour** (Red / White / Grey / Amber / Steel-blue), **wallpaper**, **time** (12/24-hour), and **date order** (DD/MM · MM/DD · YYYY-MM-DD · DD Mon). Everything persists across reboots.
+
+### Health
+
+The **Health** screen shows sleep score, step goal, stress, and heart-rate (highest / lowest over a recent window), with a "last sync" age and a swipe-up refresh. Values are pushed from the phone by the [companion app](#companion-app); a restored snapshot shows the last-known numbers (greyed as stale) until the next sync.
+
+### Notifications, the Nothing way
+
+The notification banner, list, and toggles are restyled to the face palette (white / red / black / grey — no steel-blue / green / orange), and incoming text is sanitised so emoji / unsupported glyphs no longer render as "tofu" boxes. The watch also raises **its own** notifications through the same pipeline — **Battery saver on** (≤ 20 %), **Battery critical** (≤ 5 %), **Battery full** — each edge-triggered so it fires once.
+
+### Power & battery
+
+- **Adaptive idle sleep** — when the UI is static the loop sleeps instead of spinning at 240 MHz; the core also drops to 80 MHz while dimmed (not just when the screen is off), restoring full clock the instant it wakes.
+- **AXP2101 charge policy** — a VINDPM input-voltage limit so a weak charger / thin cable throttles instead of browning out ("any charger, any wattage"), a sane input-current ceiling, and a system power-down threshold that protects the cell from deep discharge.
+- **Battery longevity** (Settings) — charge to 4.1 V for roughly double the cycle life instead of 4.2 V, at ~10 % less runtime.
+- **Milder haptics + refined wake** — a global vibration-intensity slider (default ~50 % of stock), and a swipe-up-to-wake gate that arms 15 s after the screen dims (a frosted "glass" hint; hardware buttons wake instantly).
+
+### Companion app
+
+[**ARGD-OS Dashboard**](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-) (Android, Kotlin / Compose) reads sleep / steps / heart-rate from **Health Connect** and pushes them to the watch over BLE — manually or on a background schedule (default every 15 min). iOS needs no app for phone notifications (ANCS); the health bridge is Android-only for now.
+
+**What it syncs:** sleep score, step count, and heart-rate high/low, written to the watch's **Health** screen. Nothing leaves the phone except to the watch over a direct BLE link — there is no cloud account and no server.
+
+**Install:** grab `app-debug.apk` from the app repo's [latest CI build](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-/actions) (Actions ▸ newest run ▸ **argd-os-dashboard-debug** artifact), or a tagged [Release](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-/releases) when one is published, then side-load it (enable "install unknown apps" for your browser/file manager). On first launch, grant **Nearby devices / Bluetooth** and the **Health Connect** read permissions it requests.
+
+**Pair & sync:**
+1. On the watch, open **Notify** and Enable a mode (this puts the watch in BLE-first Daily-wear mode and advertises the health service). The app can only discover the watch once a Notify mode is enabled — that is what advertises the BLE service.
+2. In the app, tap **Scan** — the watch shows up as **ARGUS Watch** (recognised by its service UUID, so it's found even when Android reports its name as "unknown"). Tap it to connect; the status reads **Ready** once the health characteristic is found. If the scan list is crowded or the watch is already OS-connected, tap **Reconnect saved watch** to connect straight to it by its saved address, no scan.
+3. Tap **Sync now** to push immediately, or leave **background auto-sync** on to push every 15 min via WorkManager.
+
+**Notify survives reboots automatically.** The enabled Notify mode and platform are saved to NVS and re-armed on boot ([src/device_mode.cpp](src/device_mode.cpp) `device_mode_restore_boot`), retrying for ~2 minutes so it wins even if the radio is briefly busy at startup. So a normal power-cycle needs no re-enabling.
+
+**Reconnecting after a re-flash:** a full-erase flash wipes NVS, so the saved Notify state is gone and the watch boots with notifications **off** — until you enable a mode again it does not advertise, and the app finds nothing. On a fresh install the watch shows a one-time **"Connect your phone"** system notification pointing you to Tools ▸ Notify. To avoid this entirely, flash the firmware **without erasing the NVS partition** and all settings (Notify, watchface, power) carry over. A re-flash also clears the BLE bond and can shift the GATT layout; the app refreshes Android's cached GATT table on every connect and **retries the first reconnect once automatically**, and if it still won't connect, **forget "ARGUS Watch"** in the phone's Bluetooth settings and Scan again — no app reinstall is needed, and the watch health interface is unchanged.
+
+> **Screenshots:** the images below are current sim-rendered captures of the shared UI. Fresh **Dot-face / Tools ▸ Face** captures are regenerated from source through the `sim/` pipeline (same as the existing shots) — those are pending.
 
 ## Purchase
 
@@ -36,9 +94,9 @@ Screens are reached by swipe gestures, the power/back buttons, and the on-screen
 
 ### Watch Face & System
 
-- **Clock** — analog or digital watch face with date, day, and battery; a status bar shows live LoRa, Bluetooth, WiFi, SD, and NFC indicators. A small red pill with the unread Meshtastic-message count sits to the immediate left of the LoRa icon whenever there are unread messages, so traffic is glanceable from the home screen. The digital readout uses a custom 96-px Montserrat subset font ([src/lv_font_montserrat_clock_96.c](src/lv_font_montserrat_clock_96.c), generated by [tools/gen_clock_font.py](tools/gen_clock_font.py)) so the digits stay sharp at the large size the round face uses, instead of being transform-scaled from the built-in 48-px font. While the watch is on USB power a white lightning bolt appears inside the battery outline: it breathes slowly while the cell is actually charging and holds steady once the charger has topped off, so "on the dock" and "on the cell" are never ambiguous. Three small status-indicator icons (alarm bell / running-stopwatch / running-timer) pack right-to-left in the bottom row next to the battery whenever the corresponding feature is active. A second row of scan-detector badges sits across the bottom of the disc — left to right: **Flock** (warning triangle), **Evil-Twin** (`ET`), **AirTag** (white disc), **Flipper** (orange dolphin pill), **Skimmer** (`SK`) — each appears only while its detector count is greater than zero, and hidden slots collapse so the row stays packed.
+- **Clock** — analog, digital, or the Nothing-OS **Dot** watch face (see [What DotOS adds](#what-dotos-adds)) with date, day, and battery; a status bar shows live LoRa, Bluetooth, WiFi, SD, and NFC indicators. A small red pill with the unread Meshtastic-message count sits to the immediate left of the LoRa icon whenever there are unread messages, so traffic is glanceable from the home screen. The digital readout uses a custom 96-px Montserrat subset font ([src/lv_font_montserrat_clock_96.c](src/lv_font_montserrat_clock_96.c), generated by [tools/gen_clock_font.py](tools/gen_clock_font.py)) so the digits stay sharp at the large size the round face uses, instead of being transform-scaled from the built-in 48-px font. While the watch is on USB power a white lightning bolt appears inside the battery outline: it breathes slowly while the cell is actually charging and holds steady once the charger has topped off, so "on the dock" and "on the cell" are never ambiguous. Three small status-indicator icons (alarm bell / running-stopwatch / running-timer) pack right-to-left in the bottom row next to the battery whenever the corresponding feature is active. A second row of scan-detector badges sits across the bottom of the disc — left to right: **Flock** (warning triangle), **Evil-Twin** (`ET`), **AirTag** (white disc), **Flipper** (orange dolphin pill), **Skimmer** (`SK`) — each appears only while its detector count is greater than zero, and hidden slots collapse so the row stays packed.
 - **Matrix background** — optional animated "digital rain" wallpaper. The bright head still slides through the tiled text without disturbing the chars.
-- **Settings** — brightness, analog/digital face, 12/24-hour, screen-dim timeout and dim level, day/date/AM-PM/seconds toggles, haptic feedback, motion-wake (wrist-raise brightens the screen), a **Screenshot long press** toggle (see below), a **USB SD card reader** entry that mounts the card to a host over USB (the same screen the Tools grid reaches, but available in **every mode** including Daily, where the Tools grid is deliberately hidden), and a manual date/time picker that overrides automatic GPS/WiFi time sync. Persisted to `/Settings/settings.txt` on SD so the watch boots back into the same configuration. (The auto-detected timezone offset persists separately in `/Settings/timezone.txt` and survives reboots — see **GPS** below.)
+- **Settings** — brightness, analog / digital / Dot face, 12/24-hour, screen-dim timeout and dim level, vibration intensity, battery-longevity charge target, day/date/AM-PM/seconds toggles, haptic feedback, motion-wake (wrist-raise brightens the screen), a **Screenshot long press** toggle (see below), a **USB SD card reader** entry that mounts the card to a host over USB (the same screen the Tools grid reaches, but available in **every mode** including Daily, where the Tools grid is deliberately hidden), and a manual date/time picker that overrides automatic GPS/WiFi time sync. Persisted to `/Settings/settings.txt` on SD so the watch boots back into the same configuration. (The auto-detected timezone offset persists separately in `/Settings/timezone.txt` and survives reboots — see **GPS** below.)
 
 ### Phone Notifications
 
@@ -593,6 +651,8 @@ To add another LilyGoLib define patch, append a `(filename, define, value)` tupl
 
 ## Credits & Acknowledgments
 
+**DotOS** is a fork of **[ARGUS](https://github.com/h4d35x0/argus)**, which is itself a fork of **[`13:37`](https://github.com/r3dfish/13-37)** by **[r3dfish](https://github.com/r3dfish)**. DotOS adds the Nothing-OS Dot watchface, the companion health app, and the daily-wear / notification / power refinements described above — the smartwatch core, the Meshtastic client, and the RF toolkit come from ARGUS and, beneath it, r3dfish's `13:37`. Please support both upstreams: **[ARGUS](https://github.com/h4d35x0/argus)** and **[`13:37`](https://github.com/r3dfish/13-37)**.
+
 ARGUS exists because of **[r3dfish](https://github.com/r3dfish)** and the **[`13:37`](https://github.com/r3dfish/13-37)** firmware. That build is a genuinely phenomenal piece of open-source work: it turned the LILYGO T-Watch Ultra into a real, polished daily-driver smartwatch *and* a serious RF/wireless toolkit, with a full Meshtastic client, spectrum analyzers, TPMS/pager/APRS decoders, NFC read/write, wardriving, and a clean, thoughtful UI. The vast majority of what ARGUS can do, it can do because r3dfish built it first and shared it.
 
 ARGUS is a respectful fork: it rebrands the UI and layers on an anti-surveillance / daily-wear focus (Threat Radar, phone notifications, the detector suite, HexHound). **The core is theirs.** If you find this project useful, please go support the original:
@@ -605,7 +665,7 @@ Thanks also to LILYGO for the hardware, the [Meshtastic](https://meshtastic.org/
 
 This firmware — everything under `src/`, `scripts/`, and the project configuration — is released under the **MIT License** (see [LICENSE](LICENSE)).
 
-ARGUS is a fork of [`13:37` by r3dfish](https://github.com/r3dfish/13-37); the upstream project's license and copyright are retained where its code is used.
+DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), itself a fork of [`13:37` by r3dfish](https://github.com/r3dfish/13-37); the upstream projects' licenses and copyright are retained where their code is used.
 
 ### Third-party licenses
 

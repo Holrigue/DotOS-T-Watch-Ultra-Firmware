@@ -8,12 +8,21 @@
 #include "theme.h"
 #include "device_mode.h"
 #include "ancs.h"
+#include "ans.h"
 #include "notify/notify_center.h"
+#include "settings_screen.h"
 
 #include <LilyGoLib.h>
 
 // Defined in main.cpp.
-void tools_screen_show();
+void screen_return_to(lv_obj_t *scr);
+
+// Nothing-OS palette, matching the Dot watchface: pure white, neutral greys,
+// black, and a single red accent. Kept local so this shade reads like the face
+// (no steel-blue/green/orange), independent of the warmer ARGUS theme tokens.
+static const lv_color_t NOTHING_WHITE   = lv_color_hex(0xFFFFFF);
+static const lv_color_t NOTHING_GREY    = lv_color_hex(0x9A9A9A);   // secondary text
+static const lv_color_t NOTHING_RED     = lv_color_hex(0xE02020);   // destructive / warning (face red)
 
 static lv_obj_t *screen;
 static lv_obj_t *status_label;
@@ -23,15 +32,39 @@ static lv_obj_t *toggle_btn;
 static lv_obj_t *toggle_label;
 static lv_obj_t *list_box;
 static lv_timer_t *refresh_timer;
+static lv_obj_t *bright_slider;
+static lv_obj_t *bright_pct;
+static lv_obj_t *s_return = nullptr;   // screen to go back to when the shade closes
 
 static int s_shown_count = -1;   // last rendered store count, so we rebuild lazily
 
 // ---- back gesture ----------------------------------------------------------
+// This screen doubles as the pull-down shade, so it closes like one: swipe up
+// (or right, the usual back swipe) returns to whatever screen it was opened
+// over - the watch face, the Tools grid, or any other screen.
 static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
-    if (lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT)
-        tools_screen_show();
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT)
+        screen_return_to(s_return);
+}
+
+// ---- brightness ------------------------------------------------------------
+// Same setting as Settings > Brightness (kept in sync both ways), applied live
+// while dragging and saved once on release.
+static void show_brightness(int level)
+{
+    lv_slider_set_value(bright_slider, level, LV_ANIM_OFF);
+    lv_label_set_text_fmt(bright_pct, "%d%%", level * 100 / DEVICE_MAX_BRIGHTNESS_LEVEL);
+}
+
+static void on_brightness(lv_event_t *e)
+{
+    int level = lv_slider_get_value(bright_slider);
+    bool release = lv_event_get_code(e) == LV_EVENT_RELEASED;
+    settings_set_brightness(level, release);
+    show_brightness(level);
 }
 
 // ---- status + toggle label -------------------------------------------------
@@ -41,12 +74,13 @@ static void update_status()
     lv_color_t col = ARGUS_TEXT_DIM;
     if (!device_mode_is_daily_wear()) {
         txt = "Notifications off - tap Enable";
-    } else if (ancs::is_connected()) {
+    } else if (device_mode_platform() == NotifyPlatform::iOS ? ancs::is_connected()
+                                                             : ans::is_connected()) {
         txt = "Phone connected";
-        col = lv_color_make(0x33, 0xCC, 0x66);
+        col = NOTHING_WHITE;
     } else {
         txt = "Waiting for phone to pair...";
-        col = argus_base_accent();
+        col = NOTHING_GREY;
     }
     lv_label_set_text(status_label, txt);
     lv_obj_set_style_text_color(status_label, col, LV_PART_MAIN);
@@ -64,13 +98,13 @@ static void update_status()
         locked ? lv_color_make(0x22, 0x22, 0x22) : lv_color_make(0x33, 0x33, 0x33),
         LV_PART_MAIN);
     lv_obj_set_style_text_color(platform_label,
-        locked ? ARGUS_TEXT_DIM : ARGUS_TEXT, LV_PART_MAIN);
+        locked ? NOTHING_GREY : NOTHING_WHITE, LV_PART_MAIN);
 }
 
 // ---- notification list -----------------------------------------------------
-static void add_card(const notify::Notification *n)
+void notifications_add_card(lv_obj_t *parent, const notify::Notification *n)
 {
-    lv_obj_t *card = lv_obj_create(list_box);
+    lv_obj_t *card = lv_obj_create(parent);
     lv_obj_set_width(card, LV_PCT(100));
     lv_obj_set_height(card, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_color(card, lv_color_make(0x14, 0x14, 0x14), LV_PART_MAIN);
@@ -86,19 +120,19 @@ static void add_card(const notify::Notification *n)
     if (n->app[0]) {
         lv_obj_t *app = lv_label_create(card);
         lv_obj_set_style_text_font(app, &font_argus_label_14, LV_PART_MAIN);
-        lv_obj_set_style_text_color(app, argus_base_accent(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(app, NOTHING_GREY, LV_PART_MAIN);
         lv_label_set_text(app, n->app);
     }
     if (n->title[0]) {
         lv_obj_t *title = lv_label_create(card);
         lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
-        lv_obj_set_style_text_color(title, ARGUS_TEXT, LV_PART_MAIN);
+        lv_obj_set_style_text_color(title, NOTHING_WHITE, LV_PART_MAIN);
         lv_label_set_text(title, n->title);
     }
     if (n->body[0]) {
         lv_obj_t *body = lv_label_create(card);
         lv_obj_set_style_text_font(body, &font_argus_label_14, LV_PART_MAIN);
-        lv_obj_set_style_text_color(body, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_color(body, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
         lv_label_set_text(body, n->body);
@@ -111,7 +145,7 @@ static void rebuild_list()
     int n = notify::center().count();
     if (n == 0) {
         lv_obj_t *ph = lv_label_create(list_box);
-        lv_obj_set_style_text_color(ph, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_color(ph, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_style_text_font(ph, &font_argus_label_16, LV_PART_MAIN);
         lv_label_set_text(ph, device_mode_is_daily_wear()
                               ? "No notifications yet"
@@ -121,7 +155,7 @@ static void rebuild_list()
     } else {
         for (int i = 0; i < n; i++) {
             const notify::Notification *item = notify::center().get(i);
-            if (item) add_card(item);
+            if (item) notifications_add_card(list_box, item);
         }
     }
     s_shown_count = n;
@@ -163,8 +197,7 @@ static void on_toggle(lv_event_t *)
     ModeAction acted = device_mode_set(want);
     if (acted == ModeAction::BlockedWifiActive) {
         lv_label_set_text(status_label, "Turn WiFi off first - radios can't share");
-        lv_obj_set_style_text_color(status_label, lv_color_make(0xCC, 0x66, 0x00),
-                                    LV_PART_MAIN);
+        lv_obj_set_style_text_color(status_label, NOTHING_RED, LV_PART_MAIN);
     } else {
         update_status();
     }
@@ -186,22 +219,38 @@ void notifications_screen_create()
     lv_obj_set_style_bg_color(screen, lv_color_black(), LV_PART_MAIN);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *title = lv_label_create(screen);
-    lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
-    lv_label_set_text(title, "Notify");
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    // Brightness bar across the top of the shade (replaces the old "Notify"
+    // title: the status line below already says what this screen is).
+    // Placed well below the top edge: the panel's rounded corners eat the top
+    // ~40 px at the sides, which clipped the first version of this bar.
+    bright_slider = lv_slider_create(screen);
+    lv_obj_set_size(bright_slider, 220, 22);
+    lv_obj_align(bright_slider, LV_ALIGN_TOP_MID, -30, 60);
+    lv_slider_set_range(bright_slider, 1, DEVICE_MAX_BRIGHTNESS_LEVEL);
+    lv_obj_set_style_bg_color(bright_slider, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bright_slider, lv_color_white(), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(bright_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(bright_slider, 6, LV_PART_KNOB);
+    // A horizontal drag on the slider must not also count as a back swipe.
+    lv_obj_clear_flag(bright_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(bright_slider, on_brightness, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(bright_slider, on_brightness, LV_EVENT_RELEASED, NULL);
+
+    bright_pct = lv_label_create(screen);
+    lv_obj_set_style_text_font(bright_pct, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(bright_pct, NOTHING_WHITE, LV_PART_MAIN);
+    lv_obj_align(bright_pct, LV_ALIGN_TOP_MID, 118, 58);
 
     status_label = lv_label_create(screen);
     lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(status_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
+    lv_obj_set_style_text_color(status_label, NOTHING_GREY, LV_PART_MAIN);
     lv_label_set_text(status_label, "Notifications off - tap Enable");
-    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 52);
+    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 100);
 
     // Platform picker (iPhone / Android). Tap to switch when notifications are off.
     platform_btn = lv_obj_create(screen);
     lv_obj_set_size(platform_btn, 320, 38);
-    lv_obj_align(platform_btn, LV_ALIGN_TOP_MID, 0, 76);
+    lv_obj_align(platform_btn, LV_ALIGN_TOP_MID, 0, 126);
     lv_obj_set_style_bg_color(platform_btn, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
     lv_obj_set_style_border_width(platform_btn, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(platform_btn, 8, LV_PART_MAIN);
@@ -209,27 +258,30 @@ void notifications_screen_create()
     lv_obj_add_event_cb(platform_btn, on_platform, LV_EVENT_CLICKED, NULL);
     platform_label = lv_label_create(platform_btn);
     lv_obj_set_style_text_font(platform_label, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(platform_label, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_color(platform_label, NOTHING_WHITE, LV_PART_MAIN);
     lv_label_set_text(platform_label, "Apple (ANCS)");
     lv_obj_center(platform_label);
 
     toggle_btn = lv_obj_create(screen);
     lv_obj_set_size(toggle_btn, 320, 48);
-    lv_obj_align(toggle_btn, LV_ALIGN_TOP_MID, 0, 120);
-    lv_obj_set_style_bg_color(toggle_btn, lv_color_make(0x00, 0x88, 0xCC), LV_PART_MAIN);
+    lv_obj_align(toggle_btn, LV_ALIGN_TOP_MID, 0, 170);
+    // Primary action: solid white with black text (Nothing-OS style).
+    lv_obj_set_style_bg_color(toggle_btn, NOTHING_WHITE, LV_PART_MAIN);
     lv_obj_set_style_border_width(toggle_btn, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(toggle_btn, 8, LV_PART_MAIN);
     lv_obj_clear_flag(toggle_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(toggle_btn, on_toggle, LV_EVENT_CLICKED, NULL);
     toggle_label = lv_label_create(toggle_btn);
     lv_obj_set_style_text_font(toggle_label, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(toggle_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(toggle_label, lv_color_black(), LV_PART_MAIN);
     lv_label_set_text(toggle_label, "ENABLE NOTIFICATIONS");
     lv_obj_center(toggle_label);
 
     list_box = lv_obj_create(screen);
-    lv_obj_set_size(list_box, 404, 258);
-    lv_obj_align(list_box, LV_ALIGN_TOP_MID, 0, 182);
+    // Narrower than the screen and ending above the CLEAR button so the list's
+    // corners stay inside the display's rounded bottom corners.
+    lv_obj_set_size(list_box, 340, 198);
+    lv_obj_align(list_box, LV_ALIGN_TOP_MID, 0, 228);
     lv_obj_set_style_bg_color(list_box, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_border_color(list_box, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
     lv_obj_set_style_border_width(list_box, 1, LV_PART_MAIN);
@@ -244,15 +296,17 @@ void notifications_screen_create()
     // CLEAR button, bottom-centered (kept clear of the display's rounded corners).
     lv_obj_t *clear_btn = lv_obj_create(screen);
     lv_obj_set_size(clear_btn, 220, 42);
-    lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_set_style_bg_color(clear_btn, lv_color_make(0x55, 0x22, 0x22), LV_PART_MAIN);
-    lv_obj_set_style_border_width(clear_btn, 0, LV_PART_MAIN);
+    lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -22);
+    // Destructive action: black with a red outline + red text (Nothing-OS style).
+    lv_obj_set_style_bg_color(clear_btn, lv_color_hex(0x140808), LV_PART_MAIN);
+    lv_obj_set_style_border_color(clear_btn, NOTHING_RED, LV_PART_MAIN);
+    lv_obj_set_style_border_width(clear_btn, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(clear_btn, 8, LV_PART_MAIN);
     lv_obj_clear_flag(clear_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(clear_btn, on_clear, LV_EVENT_CLICKED, NULL);
     lv_obj_t *clear_lbl = lv_label_create(clear_btn);
     lv_obj_set_style_text_font(clear_lbl, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(clear_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_color(clear_lbl, NOTHING_RED, LV_PART_MAIN);
     lv_label_set_text(clear_lbl, "CLEAR");
     lv_obj_center(clear_lbl);
 
@@ -263,7 +317,12 @@ void notifications_screen_create()
 
 void notifications_screen_show()
 {
+    lv_obj_t *from = lv_screen_active();
+    if (from != screen) s_return = from;   // where swipe-up / back returns to
+    show_brightness(settings_get_brightness());
     update_status();
     rebuild_list();
     lv_scr_load(screen);
 }
+
+bool notifications_screen_is_active() { return lv_screen_active() == screen; }

@@ -3,33 +3,79 @@
 #include "notify/notify_center.h"
 #include "notify/notify_log.h"
 #include "notifications_screen.h"
+#include "settings_screen.h"
 #include "theme.h"
 
 #include <LilyGoLib.h>
 
+// Defined in main.cpp.
+void clock_screen_restore_brightness();   // back to the dim level or the active brightness
+int  clock_screen_active_brightness();    // Settings level, sun-scaled when Auto brightness is on
+void ui_reset_dim_activity();             // wake a dimmed / switched-off screen
+
+// Nothing-OS palette (matches the Dot watchface): white / grey / black / red.
+static const lv_color_t NOTHING_WHITE = lv_color_hex(0xFFFFFF);
+static const lv_color_t NOTHING_GREY  = lv_color_hex(0x9A9A9A);
+static const lv_color_t NOTHING_RED   = lv_color_hex(0xE02020);   // face red
+
 static lv_obj_t   *s_banner        = nullptr;
 static lv_timer_t *s_dismiss_timer = nullptr;
+static bool        s_boosted       = false;   // brightness raised for the banner
 
 static constexpr uint32_t POPUP_MS = 6000;   // auto-dismiss after 6s
+// While a banner is up the panel runs 15% (of full scale) above the active
+// brightness, so the message is readable at a glance; an arrival also wakes a
+// dimmed or switched-off screen, and the boost drops back as the banner goes.
+static constexpr int BOOST = DEVICE_MAX_BRIGHTNESS_LEVEL * 15 / 100;
 
-static void destroy_banner()
+static void boost_brightness()
+{
+    if (s_boosted) return;   // a newer arrival replacing a banner: already up
+    int level = clock_screen_active_brightness() + BOOST;
+    if (level > DEVICE_MAX_BRIGHTNESS_LEVEL) level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+    instance.setBrightness((uint8_t)level);
+    s_boosted = true;
+}
+
+static void delete_banner()
 {
     if (s_dismiss_timer) { lv_timer_del(s_dismiss_timer); s_dismiss_timer = nullptr; }
     if (s_banner)        { lv_obj_del(s_banner);          s_banner        = nullptr; }
 }
 
-static void on_dismiss_timer(lv_timer_t *) { destroy_banner(); }
+// The banner is gone for good (timeout or tap): drop the brightness boost and
+// repaint the WHOLE screen underneath. With the panel's partial refresh, only
+// the banner's own rect used to be redrawn, which left its shadow and edges
+// smeared over the face until another full redraw (e.g. going back home).
+static void dismiss_banner(bool repaint)
+{
+    delete_banner();
+    if (s_boosted) {
+        clock_screen_restore_brightness();
+        s_boosted = false;
+    }
+    if (repaint) {
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(NULL);
+    }
+}
+
+static void on_dismiss_timer(lv_timer_t *) { dismiss_banner(true); }
 
 static void on_banner_click(lv_event_t *)
 {
-    destroy_banner();
+    dismiss_banner(false);          // the screen load below repaints everything
     notifications_screen_show();   // tap the banner -> open the full list
 }
+
+bool notify_popup_is_showing() { return s_banner != nullptr; }
 
 static void show_banner(const notify::Notification &n)
 {
     NLOG("[popup] show_banner: \"%s\"\n", n.title);
-    destroy_banner();   // one banner at a time; a newer arrival replaces the old
+    delete_banner();    // one banner at a time; a newer arrival replaces the old
+    ui_reset_dim_activity();   // a notification wakes a dimmed or switched-off screen
+    boost_brightness();
 
     // Parent on the TOP layer so it floats above the clock and every screen and
     // survives screen loads. We own its lifetime (auto-dismiss / tap).
@@ -39,10 +85,10 @@ static void show_banner(const notify::Notification &n)
     // Sit below the display's top curve / status area rather than jammed against
     // the top edge, so the whole card is readable.
     lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, 72);
-    lv_obj_set_style_bg_color(s_banner, lv_color_make(0x1A, 0x1A, 0x1E), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_banner, lv_color_hex(0x141414), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_banner, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(s_banner, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_banner, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_banner, NOTHING_RED, LV_PART_MAIN);   // single red accent
+    lv_obj_set_style_border_width(s_banner, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(s_banner, 12, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_banner, 10, LV_PART_MAIN);
     lv_obj_set_style_pad_row(s_banner, 3, LV_PART_MAIN);
@@ -58,13 +104,13 @@ static void show_banner(const notify::Notification &n)
     // Header: bell + app/source name in the accent colour.
     lv_obj_t *app = lv_label_create(s_banner);
     lv_obj_set_style_text_font(app, &font_argus_label_14, LV_PART_MAIN);
-    lv_obj_set_style_text_color(app, argus_base_accent(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(app, NOTHING_GREY, LV_PART_MAIN);
     lv_label_set_text_fmt(app, LV_SYMBOL_BELL "  %s", n.app[0] ? n.app : "Notification");
 
     if (n.title[0]) {
         lv_obj_t *title = lv_label_create(s_banner);
         lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
-        lv_obj_set_style_text_color(title, ARGUS_TEXT, LV_PART_MAIN);
+        lv_obj_set_style_text_color(title, NOTHING_WHITE, LV_PART_MAIN);
         lv_obj_set_width(title, LV_PCT(100));
         lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);   // one-line, ellipsized
         lv_label_set_text(title, n.title);
@@ -72,7 +118,7 @@ static void show_banner(const notify::Notification &n)
     if (n.body[0]) {
         lv_obj_t *body = lv_label_create(s_banner);
         lv_obj_set_style_text_font(body, &font_argus_label_14, LV_PART_MAIN);
-        lv_obj_set_style_text_color(body, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_color(body, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
         lv_label_set_text(body, n.body);

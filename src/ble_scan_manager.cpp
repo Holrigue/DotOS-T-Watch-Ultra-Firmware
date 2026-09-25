@@ -20,6 +20,35 @@ static bool wifi_is_active()
     return WiFi.getMode() != WIFI_MODE_NULL;
 }
 
+// Scan duty cycle. Units are 0.625 ms. Normal = window 30 ms / interval 50 ms
+// (~60% on-air, the responsive default for foreground detection). Low = window
+// 30 ms / interval 200 ms (~15% on-air): the radio still catches advertising
+// packets but spends four times longer asleep between windows, cutting the BLE
+// receiver's average current while the watch screen is off. The window is kept
+// the same so a single 30 ms listen still spans a full advertising burst; only
+// the gap between listens grows.
+static constexpr uint16_t kScanIntervalNormal = 0x50;   // 50 ms
+static constexpr uint16_t kScanWindowNormal   = 0x30;   // 30 ms
+static constexpr uint16_t kScanIntervalLow    = 0x140;  // 200 ms
+static constexpr uint16_t kScanWindowLow      = 0x30;   // 30 ms
+static bool s_low_duty = false;
+
+static void apply_scan_params()
+{
+    esp_ble_scan_params_t scan_params = {
+        BLE_SCAN_TYPE_PASSIVE,
+        BLE_ADDR_TYPE_PUBLIC,
+        BLE_SCAN_FILTER_ALLOW_ALL,
+        s_low_duty ? kScanIntervalLow : kScanIntervalNormal,
+        s_low_duty ? kScanWindowLow   : kScanWindowNormal,
+        BLE_SCAN_DUPLICATE_DISABLE
+    };
+    // esp_ble_gap_set_scan_params triggers SCAN_PARAM_SET_COMPLETE_EVT, which
+    // gap_cb turns into a start_scanning call — so setting params both (re)arms
+    // the scan and applies the new duty in one step.
+    esp_ble_gap_set_scan_params(&scan_params);
+}
+
 static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     // Re-arm the scan after the controller acknowledges our params. If every
@@ -64,17 +93,9 @@ static bool bring_up_controller()
 
     esp_ble_gap_register_callback(gap_cb);
 
-    esp_ble_scan_params_t scan_params = {
-        BLE_SCAN_TYPE_PASSIVE,
-        BLE_ADDR_TYPE_PUBLIC,
-        BLE_SCAN_FILTER_ALLOW_ALL,
-        0x50,
-        0x30,
-        BLE_SCAN_DUPLICATE_DISABLE
-    };
-    // esp_ble_gap_set_scan_params will trigger SCAN_PARAM_SET_COMPLETE_EVT,
-    // which gap_cb above turns into a start_scanning call.
-    esp_ble_gap_set_scan_params(&scan_params);
+    // Bring the scan up at whatever duty is currently selected (low if the
+    // screen is already off at first detector start).
+    apply_scan_params();
     return true;
 }
 
@@ -153,6 +174,20 @@ bool ble_scan_active()
 int ble_scan_consumer_count()
 {
     return s_consumer_count;
+}
+
+void ble_scan_set_low_duty(bool low)
+{
+    if (low == s_low_duty) return;
+    s_low_duty = low;
+    // Only reprogram a live scan. If no consumer is running the new duty is
+    // stored and picked up by the next bring_up_controller(). Never touch the
+    // controller while WiFi holds the radio (coexistence guard).
+    if (s_consumer_count > 0 && !wifi_is_active() &&
+        esp_bluedroid_get_status() == ESP_BLUEDROID_STATUS_ENABLED) {
+        esp_ble_gap_stop_scanning();
+        apply_scan_params();   // re-arms with the new interval/window
+    }
 }
 
 // Permanent keep-alive consumer: registered once at boot and never removed, so

@@ -16,6 +16,8 @@ void clock_screen_get_local_time(struct tm *out);
 #include "skimmer.h"
 #include "evil_twin.h"
 #include "counter_tail.h"
+#include "meshtastic.h"
+#include "meshtastic_screen.h"
 
 // Generic modal dialog (message + OK button), defined in main.cpp. Named for the
 // low-mem warning it was first written for, but it takes an arbitrary message, so
@@ -587,11 +589,18 @@ static void on_start_stop(lv_event_t *) {
 }
 
 // ─── Gesture ───────────────────────────────────────────────────
+// The Wardriver is the first stop of the left-to-right chain from the watch
+// face (face -> Wardriver -> Meshtastic -> Nodes): the same swipe continues to
+// Meshtastic, the reverse swipe goes back home.
 static void on_gesture(lv_event_t *e) {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_RIGHT)
+    if (dir == LV_DIR_LEFT) {
         clock_screen_show();
+    } else if (dir == LV_DIR_RIGHT) {
+        meshtastic_mark_read();
+        meshtastic_screen_show();
+    }
 }
 
 // ─── UI helpers ────────────────────────────────────────────────

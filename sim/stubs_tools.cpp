@@ -12,6 +12,25 @@
 // to detect anything.
 #include "Arduino.h"
 #include "threat_radar.h"
+#include "detector_toggle.h"
+
+// ---- detector persistence ----------------------------------------------------
+// The Tools tiles persist each detector's on/off to NVS via detector_remember().
+// There is no NVS in the simulator and every detector reads back "not running",
+// so there is nothing to remember: a no-op keeps the link whole.
+void detector_remember(Detector, bool) {}
+
+// ---- Sante screen -----------------------------------------------------------
+// time_screen.cpp (built here) jumps to the health screen on swipe-up. The
+// screen itself pulls in health_state (Arduino/Preferences), so it is not built
+// in the sim; a no-op keeps the link whole and swipe-up simply does nothing.
+void health_screen_show() {}
+
+// ---- top-edge pull ------------------------------------------------------------
+// main.cpp (not built here) tracks where each touch starts so a pull from the top
+// edge opens the notification shade instead of the Tools jump gesture. The sim
+// has no shade: report "not from the top edge" so swipe-down keeps its old role.
+bool touch_started_at_top_edge() { return false; }
 
 // ---- detector run-state ----------------------------------------------------
 // All report "not running". Toggling a tile in a live sim window will call
@@ -98,6 +117,8 @@ void probe_sniffer_screen_show(void)    {}
 void rogue_ap_screen_show(void)         {}
 void spycam_screen_show(void)           {}
 void tesla_cp_screen_show(void)         {}
+void face_watch_screen_show(void)       {}
+void find_screen_show(void)             {}
 void tpms_screen_show(void)             {}
 void tracker_timeline_screen_show(void) {}
 void usb_sd_screen_show(void)           {}

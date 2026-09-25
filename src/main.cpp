@@ -24,12 +24,23 @@
 #include "tools_screen.h"
 #include "notifications_screen.h"
 #include "notify_popup.h"
+#include "notify/notify_center.h"   // notify::center().count() for the unread badge
+#include "haptic.h"                 // global vibration intensity
 #include "device_mode.h"
+#include "ans.h"   // find channel (Find-My-Watch / Find-My-Phone)
 #include "pet_screen.h"
 #include "handshake.h"
 #include "tpms_screen.h"
 #include "timezone.h"
 #include "clock_time.h"
+#include "dot_font_5x7.h"   // ARGUS-Design-OS "Dot" face 5x7 dot-matrix digits
+#include "sun_elevation.h" // solar elevation for automatic day/night brightness
+#include <Preferences.h>
+#include "detector_toggle.h" // shared detector on/off + NVS persistence (Dot badges, Tools)
+#include "health_state.h"    // wearer health metrics (mirrored from Gadgetbridge)
+#include "dot_tiles.h"       // two user-selectable data slots on the Dot face
+#include "power_mgmt.h"      // PMU charge policy + battery longevity setting
+#include "face_watch.h"      // Dot watchface customization (Tools > Face)
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -59,6 +70,7 @@
 #include "world_clock_screen.h"
 #include "sun_moon_screen.h"
 #include "time_screen.h"
+#include "health_screen.h"
 #include "flashlight_screen.h"
 #include "argus_mode.h"
 #include "spycam_screen.h"
@@ -143,6 +155,23 @@ static inline void coex_log_heap(const char *) {}
 // from setup()'s boot-radio block above it, so it needs an early prototype.
 void low_mem_show_dialog(const char *msg);
 
+// Early prototypes so the face-switch plumbing (defined up here) can drive a
+// full refresh of whichever face is active without depending on definition order.
+static void update_clock();
+static void update_dot_face(const struct tm *t);
+static void build_dot_status_row(lv_obj_t *parent);
+static void build_dot_usb(lv_obj_t *parent);
+static void build_dot_tiles(lv_obj_t *parent);
+static void update_dot_tiles(bool usb_present);
+static const lv_font_t *dot_date_lvfont();
+void clock_screen_apply_face_custom();   // re-apply Face-watch look (fonts/accent/order)
+static void build_dot_bottom(lv_obj_t *parent);
+static void build_dot_badges(lv_obj_t *parent);
+static void update_dot_status();
+static void dot_face_tick();
+void main_loop_request_lvgl_priority(int cycles);   // defined with the main loop below
+void clock_screen_show();                           // defined further down
+
 
 static lv_obj_t *clock_screen;
 static lv_obj_t *time_label;
@@ -167,7 +196,31 @@ static lv_obj_t *analog_container;
 static lv_obj_t *hand_hour;
 static lv_obj_t *hand_min;
 static lv_obj_t *hand_sec;
-static bool      analog_face = false;
+static lv_obj_t *dot_container = nullptr;   // ARGUS-Design-OS "Dot" face; built hidden
+static lv_obj_t *dot_time_img  = nullptr;   // dot-matrix time raster (lv_image)
+static uint32_t *dot_time_buf  = nullptr;   // ARGB8888 pixels in PSRAM
+static lv_image_dsc_t dot_time_dsc;         // descriptor pointing at dot_time_buf
+static lv_obj_t *dot_time_label = nullptr;  // font-mode hour (shown instead of the raster)
+
+// Large Montserrat clock font used for the font-mode hour (also the digital
+// face's base). Declared here so the Dot builder can reference it; the full set
+// is externed again lower down next to the digital face.
+extern "C" const lv_font_t lv_font_montserrat_clock_96;
+// Status row: the six line-art icons are rasterised into one ARGB8888 sprite;
+// NFC and the Meshtastic unread count stay LVGL labels, the mesh badge a pill.
+static lv_obj_t *dot_status_img = nullptr;
+static uint32_t *dot_status_buf = nullptr;
+static lv_image_dsc_t dot_status_dsc;
+static lv_obj_t *dot_nfc_label  = nullptr;
+static lv_obj_t *dot_mesh_pill  = nullptr;
+static lv_obj_t *dot_mesh_count = nullptr;
+
+// Watch face selection. Digital and Analog are the stock faces; Dot is the
+// ARGUS-Design-OS dot-matrix face added alongside them. Persisted in
+// /Settings/settings.txt as clock_face=0|1|2 (legacy analog_face=0|1 still read
+// for back-compat on cards written by older builds).
+enum ClockFace { FACE_DIGITAL = 0, FACE_ANALOG = 1, FACE_DOT = 2 };
+static ClockFace clock_face = FACE_DIGITAL;
 static uint32_t last_update_ms   = 0;
 static int      clock_utc_offset = -4; // hours; default US Eastern (EDT).
                                        // The RTC ALWAYS holds UTC; this shifts it
@@ -447,6 +500,1302 @@ static void update_analog_clock(const struct tm *t)
     lv_obj_set_style_transform_rotation(hand_sec,  s, LV_PART_MAIN);
 }
 
+// ---------------------------------------------------------------------------
+// ARGUS-Design-OS "Dot" watch face
+//
+// A self-contained dot-matrix face rendered on its own opaque layer
+// (dot_container) that covers the normal clock background when active. Built
+// hidden; clock_screen_set_face() shows it. All coordinates are the native
+// 410x502 portrait space, straight from docs/dotface/dotface_final.svg.
+//
+// Strict palette: white = active, gray = idle, red = notifications/detections,
+// near-black background. Kept as helpers so every Dot widget draws from one
+// source of truth.
+// ---------------------------------------------------------------------------
+static inline lv_color_t dot_white()     { return lv_color_hex(0xFFFFFF); }
+static inline lv_color_t dot_gray()      { return lv_color_hex(0x5C5C5C); }
+static inline lv_color_t dot_red()       { return lv_color_hex(0xE02020); }
+// True black, not the mockup's #0A0A0A: on this AMOLED any non-zero value keeps
+// every background pixel faintly lit, which reads as a dark red cast in the dark
+// (the red subpixels lead at the lowest levels) and costs battery. 0x000000
+// switches those pixels fully off.
+static inline lv_color_t dot_bg()        { return lv_color_hex(0x000000); }
+static inline lv_color_t dot_seg_empty() { return lv_color_hex(0x3A3A3A); }
+
+// Dot-matrix time raster geometry, in the native 410x502 face space straight
+// from docs/dotface/dotface_final.svg. The raster is an ARGB8888 image (exact
+// colours, no RGB565 byte-swap surprises on the strict palette) that covers the
+// HH:MM block; only lit dots are opaque, the rest stays transparent so the face
+// background shows through.
+static constexpr int   DOT_TIME_X    = 44;      // raster origin on the face
+static constexpr int   DOT_TIME_Y    = 184;
+static constexpr int   DOT_TIME_W    = 308;     // covers x 44..352
+static constexpr int   DOT_TIME_H    = 96;      // covers y 184..280
+static constexpr int   DOT_CELL      = 14;      // grid pitch
+static constexpr int   DOT_ROW_Y0    = 190;     // top-row centre y
+static constexpr float DOT_DIGIT_X[4] = { 50.0f, 119.44f, 220.24f, 289.68f };
+static constexpr float DOT_COLON_X   = 197.84f;
+static constexpr int   DOT_COLON_Y0  = 218;
+static constexpr int   DOT_COLON_Y1  = 246;
+static constexpr float DOT_R         = 5.2f;    // digit dot radius
+static constexpr float DOT_COLON_R   = 4.42f;   // colon dot radius
+
+// Stamp one filled anti-aliasing-free disc into an ARGB8888 buffer. Centre is
+// in raster-local pixels; out-of-range pixels are skipped.
+static void dot_plot_disc(uint32_t *buf, int w, int h,
+                          float cx, float cy, float r, uint32_t argb)
+{
+    int x0 = (int)floorf(cx - r), x1 = (int)ceilf(cx + r);
+    int y0 = (int)floorf(cy - r), y1 = (int)ceilf(cy + r);
+    float r2 = r * r;
+    for (int y = y0; y <= y1; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = x0; x <= x1; x++) {
+            if (x < 0 || x >= w) continue;
+            float dx = (float)x + 0.5f - cx;
+            float dy = (float)y + 0.5f - cy;
+            if (dx * dx + dy * dy <= r2) buf[y * w + x] = argb;
+        }
+    }
+}
+
+// Stamp a thick line segment (rounded caps) into an ARGB8888 buffer, by the
+// distance from each pixel to the segment. Coordinates are raster-local.
+static void dot_plot_seg(uint32_t *buf, int w, int h,
+                         float x0, float y0, float x1, float y1,
+                         float width, uint32_t argb)
+{
+    float hw = width * 0.5f;
+    int minx = (int)floorf(fminf(x0, x1) - hw - 1), maxx = (int)ceilf(fmaxf(x0, x1) + hw + 1);
+    int miny = (int)floorf(fminf(y0, y1) - hw - 1), maxy = (int)ceilf(fmaxf(y0, y1) + hw + 1);
+    float dx = x1 - x0, dy = y1 - y0;
+    float len2 = dx * dx + dy * dy;
+    for (int y = miny; y <= maxy; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = minx; x <= maxx; x++) {
+            if (x < 0 || x >= w) continue;
+            float px = (float)x + 0.5f - x0, py = (float)y + 0.5f - y0;
+            float t = len2 > 0 ? (px * dx + py * dy) / len2 : 0.0f;
+            if (t < 0) t = 0; if (t > 1) t = 1;
+            float cx = px - t * dx, cy = py - t * dy;
+            if (cx * cx + cy * cy <= hw * hw) buf[y * w + x] = argb;
+        }
+    }
+}
+
+// Stamp a stroked circular arc, centre (cx,cy) radius r, spanning [a0,a1]
+// degrees measured clockwise from +x in this y-down raster (so 180..360 is the
+// top half, matching the SVG arcs). Coordinates are raster-local.
+static void dot_plot_arc(uint32_t *buf, int w, int h,
+                         float cx, float cy, float r, float a0, float a1,
+                         float width, uint32_t argb)
+{
+    float hw = width * 0.5f;
+    int minx = (int)floorf(cx - r - hw - 1), maxx = (int)ceilf(cx + r + hw + 1);
+    int miny = (int)floorf(cy - r - hw - 1), maxy = (int)ceilf(cy + r + hw + 1);
+    for (int y = miny; y <= maxy; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = minx; x <= maxx; x++) {
+            if (x < 0 || x >= w) continue;
+            float dx = (float)x + 0.5f - cx, dy = (float)y + 0.5f - cy;
+            float dist = sqrtf(dx * dx + dy * dy);
+            if (fabsf(dist - r) > hw) continue;
+            float ang = atan2f(dy, dx) * 57.29578f;
+            if (ang < 0) ang += 360.0f;
+            bool in = (a0 <= a1) ? (ang >= a0 && ang <= a1) : (ang >= a0 || ang <= a1);
+            if (in) buf[y * w + x] = argb;
+        }
+    }
+}
+
+// Fill a triangle (used for the GPS pin's tapered point). Coordinates are
+// raster-local; a pixel is inside when it sits on the same side of all edges.
+static void dot_fill_tri(uint32_t *buf, int w, int h,
+                         float ax, float ay, float bx, float by,
+                         float ccx, float ccy, uint32_t argb)
+{
+    int minx = (int)floorf(fminf(ax, fminf(bx, ccx))), maxx = (int)ceilf(fmaxf(ax, fmaxf(bx, ccx)));
+    int miny = (int)floorf(fminf(ay, fminf(by, ccy))), maxy = (int)ceilf(fmaxf(ay, fmaxf(by, ccy)));
+    for (int y = miny; y <= maxy; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = minx; x <= maxx; x++) {
+            if (x < 0 || x >= w) continue;
+            float px = (float)x + 0.5f, py = (float)y + 0.5f;
+            float d1 = (px - bx) * (ay - by) - (ax - bx) * (py - by);
+            float d2 = (px - ccx) * (by - ccy) - (bx - ccx) * (py - ccy);
+            float d3 = (px - ax) * (ccy - ay) - (ccx - ax) * (py - ay);
+            bool neg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+            bool pos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+            if (!(neg && pos)) buf[y * w + x] = argb;
+        }
+    }
+}
+
+// ---- Accent line + date --------------------------------------------------------
+//
+// Accent: a daily-step progress bar under the time (x=50 y=300, 245x3). The rail
+// is a full-width red line; a white fill grows over it left-to-right in
+// proportion to steps / goal, so more steps = more white and a reached goal
+// paints the whole line white. With no goal set (or no step data yet) it stays
+// plain red. Driven by update_dot_accent() from the 1 Hz Dot tick.
+//
+// Date: same logic as the stock date_label (honours Show day / Show date), in
+// the Dot face's compact single-line form, e.g. "THUR 15/02" (DD/MM), gray
+// #9A9A9A monospace at x=50, baseline y=338.
+static constexpr int DOT_ACCENT_W = 245;
+static lv_obj_t *dot_accent      = nullptr;   // red rail (full width)
+static lv_obj_t *dot_accent_fill = nullptr;   // white step-progress fill
+static lv_obj_t *dot_date_label  = nullptr;
+
+static void build_dot_accent_date(lv_obj_t *parent)
+{
+    dot_accent = lv_obj_create(parent);
+    lv_obj_remove_style_all(dot_accent);
+    lv_obj_set_size(dot_accent, DOT_ACCENT_W, 3);
+    lv_obj_set_pos(dot_accent, 50, 300);
+    lv_obj_set_style_bg_color(dot_accent, dot_red(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_accent, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_accent, LV_OBJ_FLAG_CLICKABLE);
+
+    // White fill on top of the red rail, same origin; width set from progress.
+    dot_accent_fill = lv_obj_create(parent);
+    lv_obj_remove_style_all(dot_accent_fill);
+    lv_obj_set_size(dot_accent_fill, 0, 3);
+    lv_obj_set_pos(dot_accent_fill, 50, 300);
+    lv_obj_set_style_bg_color(dot_accent_fill, dot_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_accent_fill, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_add_flag(dot_accent_fill, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(dot_accent_fill, LV_OBJ_FLAG_CLICKABLE);
+
+    dot_date_label = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_date_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_date_label, lv_color_hex(0x9A9A9A), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(dot_date_label, 3, LV_PART_MAIN);
+    lv_label_set_text(dot_date_label, "");
+    lv_obj_set_pos(dot_date_label, 50, 324);
+}
+
+// Last painted date string, file-scope so clock_screen_apply_face_custom() can
+// force a repaint when the date order changes.
+static char s_dot_date_last[24] = { '\x01', '\0' };
+
+static void update_dot_date(const struct tm *t)
+{
+    if (!dot_date_label) return;
+    static const char *const kDay[7]  = { "SUN", "MON", "TUES", "WED", "THUR", "FRI", "SAT" };
+    static const char *const kMon[12] = { "JAN","FEB","MAR","APR","MAY","JUN",
+                                          "JUL","AUG","SEP","OCT","NOV","DEC" };
+    int wd = (t->tm_wday >= 0 && t->tm_wday < 7)  ? t->tm_wday : 0;
+    int mo = (t->tm_mon  >= 0 && t->tm_mon  < 12) ? t->tm_mon  : 0;
+
+    // Date part per the chosen order (Tools > Face).
+    char datepart[16] = "";
+    if (clock_show_date) {
+        int d = t->tm_mday, m = mo + 1, y = t->tm_year + 1900;
+        switch (face_date_order()) {
+            case FACE_ORDER_MDY:  snprintf(datepart, sizeof datepart, "%02d/%02d", m, d);       break;
+            case FACE_ORDER_ISO:  snprintf(datepart, sizeof datepart, "%04d-%02d-%02d", y, m, d); break;
+            case FACE_ORDER_DMON: snprintf(datepart, sizeof datepart, "%02d %s", d, kMon[mo]);   break;
+            case FACE_ORDER_DMY:
+            default:              snprintf(datepart, sizeof datepart, "%02d/%02d", d, m);        break;
+        }
+    }
+
+    char buf[24];
+    if (clock_show_day && clock_show_date) snprintf(buf, sizeof(buf), "%s %s", kDay[wd], datepart);
+    else if (clock_show_day)               snprintf(buf, sizeof(buf), "%s", kDay[wd]);
+    else if (clock_show_date)              snprintf(buf, sizeof(buf), "%s", datepart);
+    else                                   buf[0] = '\0';
+
+    // Only touch the label when the text actually changes (this runs at 1 Hz).
+    if (strcmp(buf, s_dot_date_last) == 0) return;
+    strncpy(s_dot_date_last, buf, sizeof(s_dot_date_last) - 1);
+    s_dot_date_last[sizeof(s_dot_date_last) - 1] = '\0';
+    lv_label_set_text(dot_date_label, buf);
+}
+
+// Paint the red step-progress fill over the white accent rail. Width tracks
+// steps / daily goal (0..100%); a reached goal fills the whole rail. Cheap and
+// only repaints when the pixel width actually changes.
+static void update_dot_accent()
+{
+    if (!dot_accent_fill) return;
+    int pct = (int)health_model().step_progress_pct();   // 0 when no goal / no steps
+    int w   = DOT_ACCENT_W * pct / 100;
+    if (w < 0) w = 0;
+    if (w > DOT_ACCENT_W) w = DOT_ACCENT_W;
+
+    static int last_w = -1;
+    if (w == last_w) return;
+    last_w = w;
+
+    if (w <= 0) {
+        lv_obj_add_flag(dot_accent_fill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(dot_accent_fill, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(dot_accent_fill, w);
+    }
+}
+
+// Builds the Dot face layer, hidden. Populated incrementally (status row, USB
+// indicator, accent, date, detection badges, bottom row); for now it carries
+// the opaque background panel and the dot-matrix time raster.
+static void build_dot_face(lv_obj_t *screen)
+{
+    dot_container = lv_obj_create(screen);
+    lv_obj_remove_style_all(dot_container);
+    lv_obj_set_size(dot_container, 410, 502);
+    lv_obj_set_pos(dot_container, 0, 0);
+    lv_obj_set_style_bg_color(dot_container, dot_bg(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_container, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_container, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(dot_container, LV_OBJ_FLAG_HIDDEN);   // shown by set_face()
+
+    // Time raster: ARGB8888 in PSRAM, refreshed each minute (same PSRAM
+    // image-descriptor pattern as background.cpp's wallpaper rasters).
+    size_t px = (size_t)DOT_TIME_W * (size_t)DOT_TIME_H;
+    dot_time_buf = (uint32_t *)heap_caps_malloc(px * 4u, MALLOC_CAP_SPIRAM);
+    if (dot_time_buf) {
+        memset(dot_time_buf, 0, px * 4u);
+        dot_time_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        dot_time_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+        dot_time_dsc.header.flags  = 0;
+        dot_time_dsc.header.w      = DOT_TIME_W;
+        dot_time_dsc.header.h      = DOT_TIME_H;
+        dot_time_dsc.header.stride = DOT_TIME_W * 4;
+        dot_time_dsc.data_size     = (uint32_t)(px * 4u);
+        dot_time_dsc.data          = (const uint8_t *)dot_time_buf;
+
+        dot_time_img = lv_image_create(dot_container);
+        lv_image_set_src(dot_time_img, &dot_time_dsc);
+        lv_obj_set_pos(dot_time_img, DOT_TIME_X, DOT_TIME_Y);
+    }
+
+    // Font-mode hour: a big Montserrat clock label occupying the same time band,
+    // hidden unless the user picks a regular hour font (Tools > Face). Centred
+    // horizontally; the raster and the label are never shown at once.
+    dot_time_label = lv_label_create(dot_container);
+    lv_obj_set_style_text_font(dot_time_label, &lv_font_montserrat_clock_96, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_time_label, dot_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_align(dot_time_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_width(dot_time_label, DOT_TIME_W);
+    lv_obj_set_pos(dot_time_label, DOT_TIME_X, DOT_TIME_Y);
+    lv_label_set_text(dot_time_label, "");
+    lv_obj_add_flag(dot_time_label, LV_OBJ_FLAG_HIDDEN);
+
+    build_dot_status_row(dot_container);
+    build_dot_usb(dot_container);
+    build_dot_tiles(dot_container);
+    build_dot_accent_date(dot_container);
+    build_dot_bottom(dot_container);
+    build_dot_badges(dot_container);
+
+    clock_screen_apply_face_custom();   // accent colour + date font from saved state
+}
+
+// Minute+mode key of the last painted time, file-scope so a live font switch
+// (clock_screen_apply_face_custom) can force the next tick to repaint.
+static int s_dot_time_key = -1;
+
+// Refreshes the Dot face for the given local time. Renders HH:MM as white dots
+// on the 5x7 custom grid (or a regular font label); honours the 12h/24h setting.
+static void update_dot_face(const struct tm *t)
+{
+    update_dot_date(t);   // cheap, and must follow the show-day/date settings live
+
+    int hh = t->tm_hour;
+    if (clock_12h) { hh %= 12; if (hh == 0) hh = 12; }
+    int mm = t->tm_min;
+
+    // Hour digits: the dot-matrix raster (Nothing look, default) or a regular
+    // Montserrat clock label. Only one is ever shown; the other is hidden.
+    bool font_mode = (face_hour_font() != FACE_HOUR_DOTS);
+    if (dot_time_img) {
+        if (font_mode) lv_obj_add_flag(dot_time_img, LV_OBJ_FLAG_HIDDEN);
+        else           lv_obj_clear_flag(dot_time_img, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (dot_time_label) {
+        if (font_mode) lv_obj_clear_flag(dot_time_label, LV_OBJ_FLAG_HIDDEN);
+        else           lv_obj_add_flag(dot_time_label, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Repaint only on a change; the key folds in the render mode so a live font
+    // switch repaints at once (clock_screen_apply_face_custom() also resets it).
+    // s_dot_time_key is file-scope for that reset.
+    int key = (font_mode ? 100000 : 0) + hh * 100 + mm;
+    if (key == s_dot_time_key) return;
+    s_dot_time_key = key;
+
+    if (font_mode) {
+        if (dot_time_label) lv_label_set_text_fmt(dot_time_label, "%02d:%02d", hh, mm);
+        return;
+    }
+
+    if (!dot_time_buf || !dot_time_img) return;
+    int digits[4] = { hh / 10, hh % 10, mm / 10, mm % 10 };
+
+    memset(dot_time_buf, 0, (size_t)DOT_TIME_W * (size_t)DOT_TIME_H * 4u);
+    const uint32_t white = 0xFFFFFFFFu;   // ARGB8888, opaque white
+
+    for (int d = 0; d < 4; d++) {
+        for (int row = 0; row < DOT_GLYPH_ROWS; row++) {
+            for (int col = 0; col < DOT_GLYPH_COLS; col++) {
+                if (!dot_glyph_lit(digits[d], col, row)) continue;
+                float cx = DOT_DIGIT_X[d] + (float)(col * DOT_CELL) - DOT_TIME_X;
+                float cy = (float)(DOT_ROW_Y0 + row * DOT_CELL)     - DOT_TIME_Y;
+                dot_plot_disc(dot_time_buf, DOT_TIME_W, DOT_TIME_H, cx, cy, DOT_R, white);
+            }
+        }
+    }
+    dot_plot_disc(dot_time_buf, DOT_TIME_W, DOT_TIME_H,
+                  DOT_COLON_X - DOT_TIME_X, (float)(DOT_COLON_Y0 - DOT_TIME_Y), DOT_COLON_R, white);
+    dot_plot_disc(dot_time_buf, DOT_TIME_W, DOT_TIME_H,
+                  DOT_COLON_X - DOT_TIME_X, (float)(DOT_COLON_Y1 - DOT_TIME_Y), DOT_COLON_R, white);
+
+    // Re-point the image at its (mutated) buffer so LVGL drops any cached decode
+    // and re-reads the pixels, mirroring background.cpp's refresh.
+    lv_image_set_src(dot_time_img, NULL);
+    lv_image_set_src(dot_time_img, &dot_time_dsc);
+    lv_obj_invalidate(dot_time_img);
+}
+
+// ---- Status row --------------------------------------------------------------
+//
+// The six line-art icons (LoRa, SD, Bluetooth, WiFi, Wardriver, GPS) are drawn
+// into one ARGB8888 sprite that spans the icon band; NFC and the mesh count are
+// labels, the mesh badge a pill. Coordinates below are the exact face-space
+// values from dotface_final.svg; each icon draws at its absolute position minus
+// the sprite origin. Colours: white = active, gray = idle, per the same state
+// predicates the stock status icons already read.
+static constexpr int DOT_STAT_X = 44;    // extended left (was 96) so the heart fills the far-left corner
+static constexpr int DOT_STAT_Y = 44;
+static constexpr int DOT_STAT_W = 304;   // covers x 44..348
+static constexpr int DOT_STAT_H = 32;    // covers y 44..76
+
+static void dot_draw_lora(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    dot_plot_seg (b, w, h, 107 - ox, 60 - oy, 107 - ox, 70 - oy, 1.8f, c);   // stick
+    dot_plot_disc(b, w, h, 107 - ox, 58 - oy, 3.2f, c);                      // ball
+    dot_plot_arc (b, w, h, 107 - ox, 58 - oy, 5.0f, 180, 360, 1.8f, c);      // top arc
+}
+
+static void dot_draw_sd(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    // Card outline with the cut top-right corner (closed polyline).
+    const float px[6] = { 184-ox, 192-ox, 196-ox, 196-ox, 184-ox, 184-ox };
+    const float py[6] = { 49-oy,  49-oy,  53-oy,  67-oy,  67-oy,  49-oy  };
+    for (int i = 0; i < 5; i++) dot_plot_seg(b, w, h, px[i], py[i], px[i+1], py[i+1], 1.6f, c);
+    dot_plot_seg(b, w, h, 188-ox, 62-oy, 188-ox, 67-oy, 1.6f, c);   // contacts
+    dot_plot_seg(b, w, h, 192-ox, 62-oy, 192-ox, 67-oy, 1.6f, c);
+}
+
+static void dot_draw_bt(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ax[4] = { 222-ox, 226-ox, 218-ox, 222-ox }, ay[4] = { 50-oy, 54-oy, 62-oy, 66-oy };
+    const float bx[4] = { 222-ox, 218-ox, 226-ox, 222-ox }, by[4] = { 50-oy, 54-oy, 62-oy, 66-oy };
+    for (int i = 0; i < 3; i++) dot_plot_seg(b, w, h, ax[i], ay[i], ax[i+1], ay[i+1], 1.6f, c);
+    for (int i = 0; i < 3; i++) dot_plot_seg(b, w, h, bx[i], by[i], bx[i+1], by[i+1], 1.6f, c);
+}
+
+static void dot_draw_wifi(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    dot_plot_arc (b, w, h, 258-ox, 62-oy, 9.0f, 180, 360, 1.7f, c);
+    dot_plot_arc (b, w, h, 258-ox, 65-oy, 6.0f, 180, 360, 1.7f, c);
+    dot_plot_arc (b, w, h, 258-ox, 68-oy, 3.0f, 180, 360, 1.7f, c);
+    dot_plot_disc(b, w, h, 258-ox, 70.5f-oy, 1.3f, c);
+}
+
+static void dot_draw_radar(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    dot_plot_arc (b, w, h, 295-ox, 58-oy, 7.0f, 0, 360, 1.4f, c);    // outer ring
+    dot_plot_arc (b, w, h, 295-ox, 58-oy, 3.5f, 0, 360, 1.1f, c);    // inner ring
+    dot_plot_seg (b, w, h, 295-ox, 58-oy, 301-ox, 54-oy, 1.6f, c);   // sweep
+    dot_plot_disc(b, w, h, 295-ox, 58-oy, 1.2f, c);                  // centre
+}
+
+static void dot_draw_gps(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float cx = 330 - ox, cy = 58 - oy;
+    dot_plot_disc(b, w, h, cx, cy - 2, 7.0f, c);                                 // bulb
+    dot_fill_tri (b, w, h, cx - 6.0f, cy - 1.0f, cx + 6.0f, cy - 1.0f, cx, cy + 9.0f, c); // point
+    dot_plot_disc(b, w, h, cx, cy - 2, 2.2f, 0x00000000u);                       // hole
+}
+
+// Leftmost status icon: a small filled heart at cx=63 that lights when the
+// phone relay is actively feeding health data (red = live, gray = idle). It
+// fills the far-left corner of the status row; the Meshtastic unread pill sits
+// just to its right. Two round lobes plus a downward point, the classic
+// silhouette.
+static void dot_draw_heart(uint32_t *b, int w, int h, uint32_t c)
+{
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float cx = 63 - ox, cy = 59 - oy;
+    dot_plot_disc(b, w, h, cx - 3.0f, cy - 2.0f, 3.4f, c);                        // left lobe
+    dot_plot_disc(b, w, h, cx + 3.0f, cy - 2.0f, 3.4f, c);                        // right lobe
+    dot_fill_tri (b, w, h, cx - 6.2f, cy - 1.0f, cx + 6.2f, cy - 1.0f, cx, cy + 7.0f, c); // point
+}
+
+// Creates the status-row widgets, hidden state driven later by update_dot_status().
+static void build_dot_status_row(lv_obj_t *parent)
+{
+    size_t px = (size_t)DOT_STAT_W * (size_t)DOT_STAT_H;
+    dot_status_buf = (uint32_t *)heap_caps_malloc(px * 4u, MALLOC_CAP_SPIRAM);
+    if (dot_status_buf) {
+        memset(dot_status_buf, 0, px * 4u);
+        dot_status_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        dot_status_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+        dot_status_dsc.header.flags  = 0;
+        dot_status_dsc.header.w      = DOT_STAT_W;
+        dot_status_dsc.header.h      = DOT_STAT_H;
+        dot_status_dsc.header.stride = DOT_STAT_W * 4;
+        dot_status_dsc.data_size     = (uint32_t)(px * 4u);
+        dot_status_dsc.data          = (const uint8_t *)dot_status_buf;
+        dot_status_img = lv_image_create(parent);
+        lv_image_set_src(dot_status_img, &dot_status_dsc);
+        lv_obj_set_pos(dot_status_img, DOT_STAT_X, DOT_STAT_Y);
+    }
+
+    // NFC label, centred on x=146 (face centre is 205).
+    dot_nfc_label = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_nfc_label, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_nfc_label, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_nfc_label, "NFC");
+    lv_obj_align(dot_nfc_label, LV_ALIGN_TOP_MID, 146 - 205, 50);
+
+    // Consolidated unread-notifications badge: a red circle with a white count,
+    // sitting in the empty space to the right of the clock digits (which end near
+    // x=351) and bottom-aligned with them (digits' bottom ~y=279). It counts
+    // phone notifications plus Meshtastic unread, and is hidden while the total is
+    // 0. Driven by update_dot_status().
+    dot_mesh_pill = lv_obj_create(parent);
+    lv_obj_remove_style_all(dot_mesh_pill);
+    lv_obj_set_size(dot_mesh_pill, 30, 30);
+    lv_obj_set_pos(dot_mesh_pill, 360, 249);
+    lv_obj_set_style_radius(dot_mesh_pill, 15, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(dot_mesh_pill, dot_red(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_mesh_pill, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_SCROLLABLE);
+    dot_mesh_count = lv_label_create(dot_mesh_pill);
+    lv_obj_set_style_text_font(dot_mesh_count, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_mesh_count, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_mesh_count, "0");
+    lv_obj_center(dot_mesh_count);
+    lv_obj_add_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Recolours the status icons from the same live predicates the stock status
+// bar reads, and refreshes the NFC label + mesh badge. Only redraws the sprite
+// on a state edge so the 1 Hz tick stays cheap.
+static void update_dot_status()
+{
+    if (!dot_status_buf || !dot_status_img) return;
+
+    bool lora = lora_screen_is_powered() || pager_is_running() || tpms_is_running()
+             || aprs_is_running() || lora_analyze_is_running();
+    bool bt   = btStarted();
+    wifi_mode_t wm = WIFI_MODE_NULL; esp_wifi_get_mode(&wm);
+    bool wifi = (wm != WIFI_MODE_NULL);
+    bool sd   = instance.isCardReady();
+    bool nfc  = instance.pmu.isEnableDLDO1();
+    bool wd   = wardriver_is_running();
+    bool gps  = gps_screen_is_powered();
+    bool hlth = health_data_fresh();
+    // Consolidated unread: phone notifications + Meshtastic unread.
+    int  unread = meshtastic_get_unread() + (int)notify::center().count();
+    if (unread < 0) unread = 0;
+
+    uint32_t state = (uint32_t)lora | (uint32_t)bt << 1 | (uint32_t)wifi << 2
+                   | (uint32_t)sd << 3 | (uint32_t)nfc << 4 | (uint32_t)wd << 5
+                   | (uint32_t)gps << 6 | ((uint32_t)(unread & 0x3FF)) << 7
+                   | (uint32_t)hlth << 17;
+    static uint32_t last_state = 0xFFFFFFFFu;
+    if (state == last_state) return;
+    last_state = state;
+
+    const uint32_t W = 0xFFFFFFFFu, G = 0xFF5C5C5Cu;   // opaque white / gray
+    memset(dot_status_buf, 0, (size_t)DOT_STAT_W * (size_t)DOT_STAT_H * 4u);
+    dot_draw_lora (dot_status_buf, DOT_STAT_W, DOT_STAT_H, lora ? W : G);
+    dot_draw_sd   (dot_status_buf, DOT_STAT_W, DOT_STAT_H, sd   ? W : G);
+    dot_draw_bt   (dot_status_buf, DOT_STAT_W, DOT_STAT_H, bt   ? W : G);
+    dot_draw_wifi (dot_status_buf, DOT_STAT_W, DOT_STAT_H, wifi ? W : G);
+    dot_draw_radar(dot_status_buf, DOT_STAT_W, DOT_STAT_H, wd   ? W : G);
+    dot_draw_gps  (dot_status_buf, DOT_STAT_W, DOT_STAT_H, gps  ? W : G);
+    dot_draw_heart(dot_status_buf, DOT_STAT_W, DOT_STAT_H, hlth ? 0xFFE53935u : G);   // red when live
+    lv_image_set_src(dot_status_img, NULL);
+    lv_image_set_src(dot_status_img, &dot_status_dsc);
+    lv_obj_invalidate(dot_status_img);
+
+    lv_obj_set_style_text_color(dot_nfc_label, nfc ? dot_white() : dot_gray(), LV_PART_MAIN);
+
+    if (unread > 0) {
+        if (unread > 99) lv_label_set_text(dot_mesh_count, "99+");
+        else             lv_label_set_text_fmt(dot_mesh_count, "%d", unread);
+        lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+// ---- USB connection indicator ------------------------------------------------
+//
+// Two rows of 8 dots at y=130 (left x=55..153, right x=247..345, 14 px pitch).
+// Idle: static gray dots, no label. As soon as USB is present, every dot loops
+// white -> red -> white with a ~80 ms cascade from left to right (a wave), and
+// the centre label says why:
+//   charge only   bolt   centred at x=200
+//   data only     "DATA" centred at x=200
+//   both          bolt at x=178 + "DATA" at x=208 (grouped, centred)
+// "Charge" is the debounced PMU state (bat_charge: Charging or Topped, i.e.
+// VBUS present). "Data" is the USB-SD mass-storage mode (usb_sd_is_running()),
+// the only host data transfer this firmware can observe: TinyUSB is not up at
+// boot, so a plain cable to a PC with no mode active reads as charge only.
+//
+// 16 lightweight objects animated by one lv_timer; the timer only runs while
+// the Dot face is on screen and USB is present.
+static constexpr int      DOT_USB_N        = 16;
+static constexpr int      DOT_USB_Y        = 130;
+static constexpr int      DOT_USB_R        = 3;
+static constexpr uint32_t DOT_USB_TICK_MS  = 40;     // ~25 fps
+static constexpr uint32_t DOT_USB_PERIOD   = 1200;   // one white->red->white cycle
+static constexpr uint32_t DOT_USB_STAGGER  = 80;     // cascade delay per dot
+
+static lv_obj_t   *dot_usb_dots[DOT_USB_N];
+static lv_obj_t   *dot_usb_bolt  = nullptr;
+static lv_obj_t   *dot_usb_data  = nullptr;
+static lv_timer_t *dot_usb_timer = nullptr;
+static bool        dot_usb_live  = false;   // wave currently running
+
+static int dot_usb_x(int i)
+{
+    return (i < 8) ? 55 + i * 14 : 247 + (i - 8) * 14;
+}
+
+static void dot_usb_set_all(lv_color_t c)
+{
+    for (int i = 0; i < DOT_USB_N; i++)
+        lv_obj_set_style_bg_color(dot_usb_dots[i], c, LV_PART_MAIN);
+}
+
+// Show/hide the whole dot line. When unplugged the row belongs to the data
+// tiles, so the dots are hidden rather than left as an idle gray strip.
+static void dot_usb_set_dots_hidden(bool hidden)
+{
+    for (int i = 0; i < DOT_USB_N; i++) {
+        if (hidden) lv_obj_add_flag(dot_usb_dots[i], LV_OBJ_FLAG_HIDDEN);
+        else        lv_obj_clear_flag(dot_usb_dots[i], LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+// Wave frame: each dot's phase lags its left neighbour by DOT_USB_STAGGER.
+// Red weight follows a raised cosine, so 0 = white, peak = full red.
+static void dot_usb_anim_cb(lv_timer_t *t)
+{
+    (void)t;
+    uint32_t now = lv_tick_get();
+    for (int i = 0; i < DOT_USB_N; i++) {
+        uint32_t ph = (now + DOT_USB_PERIOD * 16 - (uint32_t)i * DOT_USB_STAGGER) % DOT_USB_PERIOD;
+        float    k  = 0.5f - 0.5f * cosf(6.2831853f * (float)ph / (float)DOT_USB_PERIOD);
+        lv_obj_set_style_bg_color(dot_usb_dots[i],
+            lv_color_mix(dot_red(), dot_white(), (uint8_t)(k * 255.0f)), LV_PART_MAIN);
+    }
+}
+
+static void build_dot_usb(lv_obj_t *parent)
+{
+    for (int i = 0; i < DOT_USB_N; i++) {
+        lv_obj_t *d = lv_obj_create(parent);
+        lv_obj_remove_style_all(d);
+        lv_obj_set_size(d, DOT_USB_R * 2, DOT_USB_R * 2);
+        lv_obj_set_pos(d, dot_usb_x(i) - DOT_USB_R, DOT_USB_Y - DOT_USB_R);
+        lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(d, dot_seg_empty(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(d, LV_OBJ_FLAG_CLICKABLE);
+        dot_usb_dots[i] = d;
+    }
+
+    dot_usb_bolt = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_usb_bolt, &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_usb_bolt, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_usb_bolt, LV_SYMBOL_CHARGE);
+    lv_obj_add_flag(dot_usb_bolt, LV_OBJ_FLAG_HIDDEN);
+
+    dot_usb_data = lv_label_create(parent);
+    lv_obj_set_style_text_font(dot_usb_data, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_usb_data, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_usb_data, "DATA");
+    lv_obj_add_flag(dot_usb_data, LV_OBJ_FLAG_HIDDEN);
+
+    dot_usb_timer = lv_timer_create(dot_usb_anim_cb, DOT_USB_TICK_MS, NULL);
+    lv_timer_pause(dot_usb_timer);
+}
+
+// Park the wave: timer paused, dots back to idle gray. Safe to call repeatedly.
+static void dot_usb_stop()
+{
+    if (!dot_usb_timer || !dot_usb_live) return;
+    lv_timer_pause(dot_usb_timer);
+    dot_usb_set_all(dot_seg_empty());
+    dot_usb_live = false;
+}
+
+// 1 Hz: work out the USB state, start/stop the wave and place the label(s).
+static void update_dot_usb()
+{
+    if (!dot_usb_timer) return;
+
+    bool charge = bat_charge.state() != ChargeState::Discharging;
+    bool data   = usb_sd_is_running();
+    bool usb    = charge || data;
+
+    // Unplugged: hand the row to the two data tiles and hide the dot line.
+    // Plugged: the charge/data wave owns the row and the tiles step aside.
+    dot_usb_set_dots_hidden(!usb);
+    update_dot_tiles(usb);
+
+    // Label layout only changes on a state edge.
+    static int last = -1;
+    int key = (charge ? 1 : 0) | (data ? 2 : 0);
+    if (key != last) {
+        last = key;
+        // Centre each label on its x; y centres on the dot row (~127 / ~134
+        // baselines in the SVG). Face centre x is 205.
+        if (charge) {
+            lv_obj_align(dot_usb_bolt, LV_ALIGN_TOP_MID, (data ? 178 : 200) - 205, DOT_USB_Y - 11);
+            lv_obj_clear_flag(dot_usb_bolt, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(dot_usb_bolt, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (data) {
+            lv_obj_align(dot_usb_data, LV_ALIGN_TOP_MID, (charge ? 208 : 200) - 205, DOT_USB_Y - 9);
+            lv_obj_clear_flag(dot_usb_data, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(dot_usb_data, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    if (usb) {
+        if (!dot_usb_live) {
+            lv_timer_resume(dot_usb_timer);
+            dot_usb_live = true;
+        }
+    } else {
+        dot_usb_stop();
+    }
+}
+
+// ---- Customizable data tiles (two slots on the y=130 row) -------------------
+//
+// When the watch is unplugged the USB dot line has nothing to show, so it is
+// replaced by two tiles the wearer picks (tap a slot -> choose an indicator;
+// long-press to re-pick). Choices persist in NVS (dot_tiles.*). One indicator is
+// a button (Meshtastic) whose tap opens the chat; the rest are read-outs mirrored
+// from the health model. Plugged back in, the charge/data wave reclaims the row.
+static lv_obj_t *dot_tile_hit[2] = { nullptr, nullptr };
+static lv_obj_t *dot_tile_tag[2] = { nullptr, nullptr };
+static lv_obj_t *dot_tile_val[2] = { nullptr, nullptr };
+static constexpr int DOT_TILE_CX[2] = { 104, 296 };   // left / right group centres
+
+// Kind -> short tag (shown above the value) + menu label (shown in the picker).
+struct DotTileDef { DotTileKind kind; const char *tag; const char *menu; };
+static const DotTileDef kDotTileDefs[] = {
+    { DOT_TILE_SLEEP,     "SLEEP", "Sleep score"    },
+    { DOT_TILE_STEP_GOAL, "GOAL",  "Step goal"      },
+    { DOT_TILE_STEPS,     "STEPS", "Daily steps"    },
+    { DOT_TILE_BPM,       "BPM",   "BPM (high/low)" },
+    { DOT_TILE_MESH,      "LoRa",  "Meshtastic chat"},
+};
+static constexpr int DOT_TILE_DEF_N = sizeof(kDotTileDefs) / sizeof(kDotTileDefs[0]);
+
+static void open_tile_picker(int slot);
+
+static void on_dot_tile_short(lv_event_t *e)
+{
+    int s = (int)(intptr_t)lv_event_get_user_data(e);
+    if (s < 0 || s > 1) return;
+    // A configured Meshtastic button opens the chat; everything else (empty or a
+    // read-out tile) opens the picker so a plain tap can (re)choose it.
+    if (dot_tiles_get(s) == DOT_TILE_MESH) meshtastic_screen_show();
+    else                                   open_tile_picker(s);
+}
+
+static void on_dot_tile_long(lv_event_t *e)
+{
+    int s = (int)(intptr_t)lv_event_get_user_data(e);
+    if (s >= 0 && s <= 1) open_tile_picker(s);   // long-press always re-picks
+}
+
+// Two slots on the idle USB line. Each is a single centred line, TITLE then
+// value left-to-right, using most of the tile width for a big, all-white
+// read-out. Montserrat (not a subset font) guarantees the digits, '/', '%' and
+// 'k' always render.
+static constexpr int DOT_TILE_W = 172;
+static constexpr int DOT_TILE_H = 46;
+
+static void build_dot_tiles(lv_obj_t *parent)
+{
+    for (int s = 0; s < 2; s++) {
+        lv_obj_t *hit = lv_obj_create(parent);
+        lv_obj_remove_style_all(hit);
+        lv_obj_set_size(hit, DOT_TILE_W, DOT_TILE_H);
+        lv_obj_set_pos(hit, DOT_TILE_CX[s] - DOT_TILE_W / 2, DOT_USB_Y - DOT_TILE_H / 2);
+        lv_obj_clear_flag(hit, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(hit, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(hit, LV_OBJ_FLAG_HIDDEN);   // shown by update_dot_tiles when unplugged
+        // Title + value on one row, centred together (a hidden label drops out of
+        // the flex, so single-item states self-centre).
+        lv_obj_set_flex_flow(hit, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(hit, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(hit, 8, LV_PART_MAIN);
+        lv_obj_add_event_cb(hit, on_dot_tile_short, LV_EVENT_SHORT_CLICKED, (void *)(intptr_t)s);
+        lv_obj_add_event_cb(hit, on_dot_tile_long,  LV_EVENT_LONG_PRESSED,  (void *)(intptr_t)s);
+
+        lv_obj_t *tag = lv_label_create(hit);
+        lv_obj_set_style_text_font(tag, &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(tag, dot_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_letter_space(tag, 1, LV_PART_MAIN);
+        lv_label_set_text(tag, "");
+        lv_obj_clear_flag(tag, LV_OBJ_FLAG_CLICKABLE);
+
+        lv_obj_t *val = lv_label_create(hit);
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
+        lv_label_set_text(val, "");
+        lv_obj_clear_flag(val, LV_OBJ_FLAG_CLICKABLE);
+
+        dot_tile_hit[s] = hit;
+        dot_tile_tag[s] = tag;
+        dot_tile_val[s] = val;
+    }
+}
+
+// Compact step count: 842, 8.3k, 12k.
+static void dot_tile_fmt_steps(char *buf, size_t n, uint32_t steps)
+{
+    if (steps >= 10000)     snprintf(buf, n, "%luk", (unsigned long)(steps / 1000));
+    else if (steps >= 1000) snprintf(buf, n, "%lu.%luk",
+                                     (unsigned long)(steps / 1000), (unsigned long)((steps % 1000) / 100));
+    else                    snprintf(buf, n, "%lu", (unsigned long)steps);
+}
+
+// Paint one slot from its current kind. Values gray out when stale or missing.
+static void dot_tile_render(int s)
+{
+    lv_obj_t *tag = dot_tile_tag[s];
+    lv_obj_t *val = dot_tile_val[s];
+    if (!tag || !val) return;
+
+    DotTileKind k = dot_tiles_get(s);
+
+    // Empty slot: a single centred "+ add" invite (the title label drops out).
+    if (k == DOT_TILE_NONE) {
+        lv_obj_add_flag(tag, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_20, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, dot_gray(), LV_PART_MAIN);
+        lv_label_set_text(val, "+ add");
+        return;
+    }
+    lv_obj_clear_flag(tag, LV_OBJ_FLAG_HIDDEN);
+
+    // Meshtastic button: title + envelope glyph, always "live" (white).
+    if (k == DOT_TILE_MESH) {
+        lv_obj_set_style_text_color(tag, dot_white(), LV_PART_MAIN);
+        lv_label_set_text(tag, "LoRa");
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
+        lv_label_set_text(val, LV_SYMBOL_ENVELOPE);
+        return;
+    }
+
+    // Read-out tiles from the health model.
+    health::HealthData &h = health_model();
+    uint32_t now = millis();
+    const char *tagtxt = "";
+    char buf[16] = "--";
+    lv_color_t col = dot_gray();   // default: no data -> gray "--"
+
+    switch (k) {
+    case DOT_TILE_SLEEP:
+        tagtxt = "SLEEP";
+        if (h.has_sleep_score()) {
+            snprintf(buf, sizeof buf, "%u", h.sleep_score());
+            col = h.sleep_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    case DOT_TILE_STEP_GOAL:
+        tagtxt = "GOAL";
+        if (h.step_goal() > 0) {
+            snprintf(buf, sizeof buf, "%u%%", h.step_progress_pct());
+            col = h.steps_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    case DOT_TILE_STEPS:
+        tagtxt = "STEPS";
+        if (h.has_steps()) {
+            dot_tile_fmt_steps(buf, sizeof buf, h.steps());
+            col = h.steps_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    case DOT_TILE_BPM:
+        tagtxt = "BPM";
+        if (h.has_hr_range()) {
+            snprintf(buf, sizeof buf, "%u/%u", h.hr_high(), h.hr_low());
+            col = h.hr_range_stale(now) ? dot_gray() : dot_white();
+        } else if (h.has_hr()) {
+            snprintf(buf, sizeof buf, "%u", h.hr());
+            col = h.hr_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    default:
+        break;
+    }
+
+    // Title always white for legibility; value white when live, grey when the
+    // reading is stale or missing (so "old data" still reads at a glance).
+    lv_obj_set_style_text_color(tag, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(tag, tagtxt);
+    lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(val, col, LV_PART_MAIN);
+    lv_label_set_text(val, buf);
+}
+
+static void update_dot_tiles(bool usb_present)
+{
+    for (int s = 0; s < 2; s++) {
+        if (!dot_tile_hit[s]) continue;
+        if (usb_present) {
+            lv_obj_add_flag(dot_tile_hit[s], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(dot_tile_hit[s], LV_OBJ_FLAG_HIDDEN);
+            dot_tile_render(s);
+        }
+    }
+}
+
+// ---- Tile picker (tap a slot) -----------------------------------------------
+static lv_obj_t *s_tile_picker = nullptr;
+
+static void close_tile_picker()
+{
+    if (s_tile_picker) { lv_obj_delete_async(s_tile_picker); s_tile_picker = nullptr; }
+}
+
+static void on_tile_picker_scrim(lv_event_t *e)
+{
+    // Only a tap on the scrim itself (outside the card) closes without a change.
+    if (lv_event_get_target(e) == lv_event_get_current_target(e)) close_tile_picker();
+}
+
+static void on_tile_picker_choice(lv_event_t *e)
+{
+    int packed = (int)(intptr_t)lv_event_get_user_data(e);
+    int slot = (packed >> 8) & 0xFF;
+    DotTileKind kind = (DotTileKind)(packed & 0xFF);
+    dot_tiles_set(slot, kind);
+    close_tile_picker();
+    update_dot_tiles(false);   // repaint now (the picker is only reachable unplugged)
+}
+
+static void open_tile_picker(int slot)
+{
+    if (s_tile_picker || slot < 0 || slot > 1) return;
+
+    DotTileKind current = dot_tiles_get(slot);
+    DotTileKind other   = dot_tiles_get(slot ^ 1);
+
+    // Offer every indicator except the one the OTHER slot already holds (unless
+    // it is this slot's own current pick, so re-opening shows it selected).
+    DotTileKind rows[DOT_TILE_DEF_N];
+    int nrows = 0;
+    for (int i = 0; i < DOT_TILE_DEF_N; i++) {
+        DotTileKind k = kDotTileDefs[i].kind;
+        if (k == other && k != current) continue;
+        rows[nrows++] = k;
+    }
+    bool with_clear = (current != DOT_TILE_NONE);
+    int total = nrows + (with_clear ? 1 : 0);
+
+    // Dark scrim over everything; tap outside the card to dismiss.
+    s_tile_picker = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_tile_picker);
+    lv_obj_set_size(s_tile_picker, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_tile_picker, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_tile_picker, 160, LV_PART_MAIN);
+    lv_obj_add_flag(s_tile_picker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_tile_picker, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_tile_picker, on_tile_picker_scrim, LV_EVENT_CLICKED, NULL);
+
+    int card_h = 12 + 30 + total * 46 + 12;
+    lv_obj_t *card = lv_obj_create(s_tile_picker);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, 264, card_h);
+    lv_obj_center(card);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);   // swallow taps so they don't dismiss
+    lv_obj_set_style_radius(card, 22, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(card, dot_bg(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(card, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(card, 60, LV_PART_MAIN);
+    lv_obj_set_style_border_width(card, 1, LV_PART_MAIN);
+
+    lv_obj_t *title = lv_label_create(card);
+    lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, dot_gray(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(title, 2, LV_PART_MAIN);
+    lv_label_set_text(title, slot == 0 ? "LEFT SLOT" : "RIGHT SLOT");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    int y = 42;
+    for (int i = 0; i < total; i++) {
+        bool clear_row = (with_clear && i == nrows);
+        DotTileKind k  = clear_row ? DOT_TILE_NONE : rows[i];
+        const char *label = "Clear slot";
+        if (!clear_row)
+            for (int d = 0; d < DOT_TILE_DEF_N; d++)
+                if (kDotTileDefs[d].kind == k) { label = kDotTileDefs[d].menu; break; }
+        bool selected = (k == current);
+
+        lv_obj_t *row = lv_obj_create(card);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 240, 40);
+        lv_obj_set_pos(row, 12, y);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_radius(row, 12, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(row, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(row, selected ? 34 : 12, LV_PART_MAIN);
+        if (selected) {
+            lv_obj_set_style_border_color(row, dot_red(), LV_PART_MAIN);   // on-palette accent
+            lv_obj_set_style_border_opa(row, 220, LV_PART_MAIN);
+            lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+        }
+        lv_obj_add_event_cb(row, on_tile_picker_choice, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)((slot << 8) | (int)k));
+
+        lv_obj_t *rl = lv_label_create(row);
+        lv_obj_set_style_text_font(rl, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(rl, clear_row ? dot_gray() : lv_color_white(), LV_PART_MAIN);
+        lv_label_set_text(rl, label);
+        lv_obj_align(rl, LV_ALIGN_LEFT_MID, 14, 0);
+        lv_obj_clear_flag(rl, LV_OBJ_FLAG_CLICKABLE);
+
+        y += 46;
+    }
+}
+
+// ---- Bottom row: stopwatch / timer / alarm + 13-segment battery -------------
+//
+// Same state as the stock face (stopwatch_is_running, timer_is_running,
+// alarm_is_enabled, PMU battery %), but at the fixed Dot positions instead of
+// the stock right-to-left packing: icons are always drawn, white when active,
+// gray when idle. Battery is 13 discrete segments (11 px wide, 3 px gap, from
+// x=140), white when filled, #3A3A3A when empty; the percentage is anchored on
+// its RIGHT edge at x=350.88 so it stays aligned from "0%" to "100%".
+static constexpr int DOT_BOT_X = 52;
+static constexpr int DOT_BOT_Y = 424;
+static constexpr int DOT_BOT_W = 78;    // covers x 52..130
+static constexpr int DOT_BOT_H = 26;    // covers y 424..450
+static constexpr int DOT_BAT_SEGS = 12;   // 12 (was 13): one fewer frees room for the % text
+
+static lv_obj_t *dot_bot_img = nullptr;
+static uint32_t *dot_bot_buf = nullptr;
+static lv_image_dsc_t dot_bot_dsc;
+static lv_obj_t *dot_bat_seg[DOT_BAT_SEGS];
+static lv_obj_t *dot_bat_pct = nullptr;
+
+static void dot_fill_rect(uint32_t *b, int w, int h, int x0, int y0, int x1, int y1, uint32_t c)
+{
+    for (int y = y0; y < y1; y++) {
+        if (y < 0 || y >= h) continue;
+        for (int x = x0; x < x1; x++)
+            if (x >= 0 && x < w) b[y * w + x] = c;
+    }
+}
+
+static void dot_draw_stopwatch(uint32_t *b, int w, int h, uint32_t c)   // chronometre, cx=63
+{
+    const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
+    dot_plot_arc(b, w, h, 63 - ox, 438 - oy, 8.0f, 0, 360, 1.6f, c);
+    dot_plot_seg(b, w, h, 63 - ox, 438 - oy, 67 - ox, 433 - oy, 1.6f, c);
+}
+
+static void dot_draw_timer(uint32_t *b, int w, int h, uint32_t c)       // minuteur, cx=89
+{
+    const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
+    dot_plot_arc(b, w, h, 89 - ox, 438 - oy, 8.0f, 0, 360, 1.6f, c);
+    dot_fill_rect(b, w, h, 85 - DOT_BOT_X, 427 - DOT_BOT_Y, 93 - DOT_BOT_X, 430 - DOT_BOT_Y, c);   // cap
+    dot_plot_seg(b, w, h, 89 - ox, 438 - oy, 85 - ox, 433 - oy, 1.6f, c);
+}
+
+static void dot_draw_bell(uint32_t *b, int w, int h, uint32_t c)        // alarme, x=118
+{
+    const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
+    dot_plot_disc(b, w, h, 118 - ox, 436 - oy, 6.0f, c);                              // dome
+    dot_fill_rect(b, w, h, 112 - DOT_BOT_X, 436 - DOT_BOT_Y, 124 - DOT_BOT_X, 440 - DOT_BOT_Y, c); // body
+    dot_fill_tri (b, w, h, 112 - ox, 440 - oy, 124 - ox, 440 - oy, 126 - ox, 443 - oy, c);   // flare
+    dot_fill_tri (b, w, h, 112 - ox, 440 - oy, 126 - ox, 443 - oy, 110 - ox, 443 - oy, c);
+    dot_plot_disc(b, w, h, 118 - ox, 445 - oy, 1.6f, c);                              // clapper
+}
+
+static void build_dot_bottom(lv_obj_t *parent)
+{
+    size_t px = (size_t)DOT_BOT_W * (size_t)DOT_BOT_H;
+    dot_bot_buf = (uint32_t *)heap_caps_malloc(px * 4u, MALLOC_CAP_SPIRAM);
+    if (dot_bot_buf) {
+        memset(dot_bot_buf, 0, px * 4u);
+        dot_bot_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        dot_bot_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+        dot_bot_dsc.header.flags  = 0;
+        dot_bot_dsc.header.w      = DOT_BOT_W;
+        dot_bot_dsc.header.h      = DOT_BOT_H;
+        dot_bot_dsc.header.stride = DOT_BOT_W * 4;
+        dot_bot_dsc.data_size     = (uint32_t)(px * 4u);
+        dot_bot_dsc.data          = (const uint8_t *)dot_bot_buf;
+        dot_bot_img = lv_image_create(parent);
+        lv_image_set_src(dot_bot_img, &dot_bot_dsc);
+        lv_obj_set_pos(dot_bot_img, DOT_BOT_X, DOT_BOT_Y);
+    }
+
+    for (int i = 0; i < DOT_BAT_SEGS; i++) {
+        lv_obj_t *s = lv_obj_create(parent);
+        lv_obj_remove_style_all(s);
+        lv_obj_set_size(s, 11, 16);
+        lv_obj_set_pos(s, 140 + i * 14, 430);
+        lv_obj_set_style_bg_color(s, dot_seg_empty(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(s, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(s, LV_OBJ_FLAG_CLICKABLE);
+        dot_bat_seg[i] = s;
+    }
+
+    // Percentage centered in the gap to the right of the 12-segment bar (which
+    // ends at x=305). A center-aligned box over x 306..356 keeps "9%" and "100%"
+    // alike balanced in that gap instead of drifting against the bar, and its y
+    // lines the text up with the bar row (bar center y=438).
+    dot_bat_pct = lv_label_create(parent);
+    lv_obj_set_width(dot_bat_pct, 50);
+    lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dot_bat_pct, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_bat_pct, lv_color_hex(0x8A8A8A), LV_PART_MAIN);
+    lv_label_set_text(dot_bat_pct, "");
+    lv_obj_set_pos(dot_bat_pct, 306, 427);
+}
+
+// 1 Hz: redraw the icons / segments / percentage only when something changed.
+static void update_dot_bottom()
+{
+    bool sw = stopwatch_is_running();
+    bool tm = timer_is_running();
+    bool al = alarm_is_enabled();
+    int  pct = instance.pmu.getBatteryPercent();
+    if (pct < 0)   pct = 0;
+    if (pct > 100) pct = 100;
+
+    static int last = -1;
+    int key = (sw ? 1 : 0) | (tm ? 2 : 0) | (al ? 4 : 0) | (pct << 3);
+    if (key == last) return;
+    last = key;
+
+    if (dot_bot_buf && dot_bot_img) {
+        const uint32_t W = 0xFFFFFFFFu, G = 0xFF5C5C5Cu;
+        memset(dot_bot_buf, 0, (size_t)DOT_BOT_W * (size_t)DOT_BOT_H * 4u);
+        dot_draw_stopwatch(dot_bot_buf, DOT_BOT_W, DOT_BOT_H, sw ? W : G);
+        dot_draw_timer    (dot_bot_buf, DOT_BOT_W, DOT_BOT_H, tm ? W : G);
+        dot_draw_bell     (dot_bot_buf, DOT_BOT_W, DOT_BOT_H, al ? W : G);
+        lv_image_set_src(dot_bot_img, NULL);
+        lv_image_set_src(dot_bot_img, &dot_bot_dsc);
+        lv_obj_invalidate(dot_bot_img);
+    }
+
+    int filled = (pct * DOT_BAT_SEGS + 50) / 100;   // 67% -> 8 of 12
+    for (int i = 0; i < DOT_BAT_SEGS; i++)
+        lv_obj_set_style_bg_color(dot_bat_seg[i], i < filled ? dot_white() : dot_seg_empty(), LV_PART_MAIN);
+
+    if (dot_bat_pct) lv_label_set_text_fmt(dot_bat_pct, "%d", pct);   // number only, no '%'
+}
+
+// ---- Detection badges -----------------------------------------------------------
+//
+// Five always-visible badges at the fixed dotface_final.svg positions (y=365),
+// each bound to one detector through detector_toggle, the same control point the
+// Tools tiles use, so the two surfaces always agree. Three states:
+//   off      gray #5C5C5C outline + label, no count
+//   armed    white outline + label, no count (running, nothing seen yet)
+//   hit      red pill, white label, red count beside it (running and count > 0)
+// A tap toggles the detector, in every mode (Daily included, by the owner's
+// choice: unlike the Tools grid, the badges are not gated).
+struct DotBadgeSpec {
+    Detector    det;
+    const char *text;
+    int         pill_x, pill_w;   // pill rect (y=365, h=19)
+    int         count_x;          // count text left edge
+};
+static const DotBadgeSpec kDotBadges[] = {
+    { Detector::Flock,    "Flock",  62, 40, 106 },
+    { Detector::EvilTwin, "EvilT", 124, 40, 168 },
+    { Detector::AirTag,   "AirT",  186, 34, 224 },
+    { Detector::Flipper,  "Flip",  242, 34, 280 },
+    { Detector::Skimmer,  "Skim",  298, 38, 340 },
+};
+static constexpr int DOT_BADGE_N = sizeof(kDotBadges) / sizeof(kDotBadges[0]);
+
+struct DotBadge { lv_obj_t *hit, *pill, *label, *count; int shown; };
+static DotBadge dot_badges[DOT_BADGE_N];
+
+static void update_dot_badges(bool force);
+
+static void on_dot_badge_clicked(lv_event_t *e)
+{
+    int i = (int)(intptr_t)lv_event_get_user_data(e);
+    if (i < 0 || i >= DOT_BADGE_N) return;
+    Detector d = kDotBadges[i].det;
+    bool was = detector_is_running(d);
+    bool now = detector_toggle(d);
+    if (!was && !now) {
+        low_mem_show_dialog(
+            "#ff5555 RADIO BUSY#\n\n"
+            "This detector needs a radio\n"
+            "another feature is using.\n\n"
+            "Turn that off, then try again.");
+    }
+    update_dot_badges(true);
+}
+
+static void build_dot_badges(lv_obj_t *parent)
+{
+    for (int i = 0; i < DOT_BADGE_N; i++) {
+        const DotBadgeSpec &s = kDotBadges[i];
+        DotBadge &b = dot_badges[i];
+        // Invisible hit area around pill + count: a finger-sized tap target.
+        const int hx = s.pill_x - 4, hy = 358;
+        b.hit = lv_obj_create(parent);
+        lv_obj_remove_style_all(b.hit);
+        lv_obj_set_pos(b.hit, hx, hy);
+        lv_obj_set_size(b.hit, (s.count_x + 14) - hx, 33);
+        lv_obj_clear_flag(b.hit, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(b.hit, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(b.hit, on_dot_badge_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+        b.pill = lv_obj_create(b.hit);
+        lv_obj_remove_style_all(b.pill);
+        lv_obj_set_pos(b.pill, s.pill_x - hx, 365 - hy);
+        lv_obj_set_size(b.pill, s.pill_w, 19);
+        lv_obj_set_style_radius(b.pill, 4, LV_PART_MAIN);
+        lv_obj_set_style_border_width(b.pill, 1, LV_PART_MAIN);
+        lv_obj_clear_flag(b.pill, LV_OBJ_FLAG_CLICKABLE);   // let the hit area take the tap
+
+        b.label = lv_label_create(b.pill);
+        lv_obj_set_style_text_font(b.label, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_label_set_text(b.label, s.text);
+        lv_obj_center(b.label);
+
+        b.count = lv_label_create(b.hit);
+        lv_obj_set_style_text_font(b.count, &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_set_style_text_color(b.count, dot_red(), LV_PART_MAIN);
+        lv_label_set_text(b.count, "");
+        lv_obj_set_pos(b.count, s.count_x - hx, 366 - hy);
+        lv_obj_add_flag(b.count, LV_OBJ_FLAG_HIDDEN);
+
+        b.shown = -1;
+    }
+}
+
+// Restyle each badge only when its state or count changed (1 Hz, or forced
+// right after a tap so the badge answers immediately).
+static void update_dot_badges(bool force)
+{
+    for (int i = 0; i < DOT_BADGE_N; i++) {
+        DotBadge &b = dot_badges[i];
+        if (!b.hit) continue;
+        Detector d   = kDotBadges[i].det;
+        bool     on  = detector_is_running(d);
+        int      cnt = on ? detector_count(d) : 0;
+        // 0 off, 1 armed, 2+ hit (encodes the count so a new hit repaints).
+        int state = !on ? 0 : (cnt > 0 ? 2 + (cnt > 999 ? 999 : cnt) : 1);
+        if (!force && state == b.shown) continue;
+        b.shown = state;
+
+        if (state >= 2) {
+            lv_obj_set_style_bg_color(b.pill, dot_red(), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(b.pill, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_border_color(b.pill, dot_red(), LV_PART_MAIN);
+            lv_obj_set_style_text_color(b.label, dot_white(), LV_PART_MAIN);
+            lv_label_set_text_fmt(b.count, "%d", cnt);
+            lv_obj_clear_flag(b.count, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_color_t c = on ? dot_white() : dot_gray();
+            lv_obj_set_style_bg_opa(b.pill, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_color(b.pill, c, LV_PART_MAIN);
+            lv_obj_set_style_text_color(b.label, c, LV_PART_MAIN);
+            lv_obj_add_flag(b.count, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+// Per-second Dot-face refresh hook, called from the 1 Hz status block. No-op
+// unless the Dot face is the active one (and parks the USB wave otherwise so it
+// never animates off screen). Grows as Dot components land.
+static void dot_face_tick()
+{
+    if (clock_face != FACE_DOT || !dot_container
+        || lv_screen_active() != clock_screen) {
+        dot_usb_stop();
+        close_tile_picker();   // never leave the picker up after leaving the face
+        return;
+    }
+    update_dot_status();
+    update_dot_usb();
+    update_dot_bottom();
+    update_dot_badges(false);
+    update_dot_accent();   // step-progress fill on the accent rail
+}
+
+// ---- Face-watch customization (Tools > Face) --------------------------------
+// The LVGL font for the Dot date line per the current choice.
+static const lv_font_t *dot_date_lvfont()
+{
+    switch (face_date_font()) {
+        case FACE_DATE_MONO: return &font_argus_mono_16;
+        case FACE_DATE_ORBITRON:
+        default:             return &font_argus_label_20;
+    }
+}
+
+// Re-apply the saved Dot-face look (accent colour + date font) and force the
+// time/date to repaint with the current hour font + date order. Called at build
+// and by the Face screen whenever a choice changes.
+void clock_screen_apply_face_custom()
+{
+    if (dot_accent)
+        lv_obj_set_style_bg_color(dot_accent, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
+    if (dot_date_label)
+        lv_obj_set_style_text_font(dot_date_label, dot_date_lvfont(), LV_PART_MAIN);
+
+    // Force the next paint to redo the time + date with the new mode / order.
+    s_dot_time_key     = -1;
+    s_dot_date_last[0] = '\x01';
+    s_dot_date_last[1] = '\0';
+
+    // Repaint now if the Dot face is live, rather than waiting for the 1 Hz tick.
+    if (clock_face == FACE_DOT && dot_container && lv_screen_active() == clock_screen) {
+        time_t now = time(NULL);
+        struct tm lt;
+        localtime_r(&now, &lt);
+        update_dot_face(&lt);
+        lv_obj_invalidate(dot_container);
+    }
+}
+
+// Getters for the Face screen (which also drives the shared 12h / wallpaper setters).
+bool clock_screen_get_12h()       { return clock_12h; }
+bool clock_screen_get_wallpaper() { return background_is_enabled(); }
+
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
 // bright steel-blue ARGUS_ACCENT_ACTIVE; the instant Threat Radar flags a tail
 // (top level >= TR_LVL_LIKELY) every live status icon flips to HADES red, so a
@@ -648,8 +1997,9 @@ static void update_charge_bolt()
 {
     if (!bat_bolt) return;
 
-    ChargeState st = bat_charge.update(instance.pmu.isVbusIn(),
-                                       instance.pmu.isCharging());
+    // bat_charge is advanced once per 1 Hz tick by charge_state_tick() (which
+    // runs on every face, including Dot); here we only read the settled state.
+    ChargeState st = bat_charge.state();
 
     // Only touch the hidden flag on an actual edge. lv_obj_add_flag()
     // invalidates whenever LV_OBJ_FLAG_HIDDEN is in the set, so re-asserting
@@ -828,6 +2178,73 @@ static void update_wardriver_indicator()
     realign_status_icons();
 }
 
+// ---- Pull-down from the top edge (any screen) -------------------------------
+//
+// An Android-style pull that starts on the top edge of ANY screen opens the
+// notification shade (the Notify screen, brightness slider on top). The touch
+// indev's PRESSED / RELEASED events (LVGL 9 forwards both to the indev) give the
+// exact start and end points, which a plain LV_EVENT_GESTURE does not expose.
+static int32_t s_press_x = -1, s_press_y = -1;
+static constexpr int32_t TOP_EDGE_PX  = 60;   // a pull must start this close to the top
+static constexpr int32_t PULL_MIN_PX  = 70;   // and travel at least this far down
+
+bool touch_started_at_top_edge()
+{
+    return s_press_y >= 0 && s_press_y < TOP_EDGE_PX;
+}
+
+static void on_touch_pressed(lv_event_t *e)
+{
+    lv_indev_t *indev = (lv_indev_t *)lv_event_get_user_data(e);
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    s_press_x = p.x;
+    s_press_y = p.y;
+}
+
+static void on_touch_released(lv_event_t *e)
+{
+    lv_indev_t *indev = (lv_indev_t *)lv_event_get_user_data(e);
+    bool from_top = touch_started_at_top_edge();
+    int32_t x0 = s_press_x, y0 = s_press_y;
+    s_press_x = s_press_y = -1;
+    if (!from_top) return;
+
+    lv_point_t p;
+    lv_indev_get_point(indev, &p);
+    int32_t dx = p.x - x0, dy = p.y - y0;
+    if (dy < PULL_MIN_PX || dy <= (dx < 0 ? -dx : dx)) return;   // not a downward pull
+
+    // Never over the PIN pad (it guards Offense; the shade must not leak past it),
+    // and not again if the shade is already up (the clock's own swipe-down got
+    // there first on this same touch).
+    if (pin_pad_screen_is_active() || notifications_screen_is_active()) return;
+    notifications_screen_show();
+}
+
+// Hook every pointer indev. Call once after the LVGL input devices exist.
+static void watch_touch_pulls()
+{
+    for (lv_indev_t *i = lv_indev_get_next(NULL); i; i = lv_indev_get_next(i)) {
+        if (lv_indev_get_type(i) != LV_INDEV_TYPE_POINTER) continue;
+        lv_indev_add_event_cb(i, on_touch_pressed,  LV_EVENT_PRESSED,  i);
+        lv_indev_add_event_cb(i, on_touch_released, LV_EVENT_RELEASED, i);
+    }
+}
+
+// Go back to the screen a transient surface (the shade) was opened over. The
+// clock needs its full synchronous repaint; any other screen is simply reloaded.
+void screen_return_to(lv_obj_t *scr)
+{
+    if (!scr || scr == clock_screen || !lv_obj_is_valid(scr)) {
+        clock_screen_show();
+        return;
+    }
+    lv_scr_load(scr);
+    lv_obj_invalidate(scr);
+    main_loop_request_lvgl_priority(12);
+}
+
 static void on_clock_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
@@ -835,35 +2252,66 @@ static void on_clock_gesture(lv_event_t *e)
     // Daily keeps the innocent surfaces reachable. Meshtastic (mesh comms) and Time
     // are day-to-day features allowed in every mode; Wardriver (recon) and the Tools
     // grid are gated to Defense/Offense so a Daily glance/confiscation reveals nothing.
+    //
+    // Home navigation:
+    //   swipe right-to-left  -> Recon grid (gated in Daily)
+    //   swipe left-to-right  -> Wardriver, then Meshtastic, then Nodes (each a
+    //                           further swipe the same way; Daily skips the
+    //                           gated Wardriver and lands on Meshtastic)
+    //   swipe down           -> notification shade (every mode)
+    //   swipe up             -> Tools (clock utilities + Health, every mode)
     bool daily = (argus_mode_current() == ArgusMode::Daily);
     if (dir == LV_DIR_LEFT) {
-        if (!daily) wardriver_screen_show();   // recon, gated in Daily
+        if (!daily) tools_screen_show();       // Recon grid gated in Daily
     } else if (dir == LV_DIR_RIGHT) {
-        meshtastic_mark_read();                // comms, available in every mode
-        meshtastic_screen_show();
+        if (!daily) {
+            wardriver_screen_show();           // recon, gated in Daily
+        } else {
+            meshtastic_mark_read();            // comms, available in every mode
+            meshtastic_screen_show();
+        }
     } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
-        if (!daily) tools_screen_show();       // Tools gated in Daily
+        notifications_screen_show();     // shade: notifications + brightness, every mode
     } else if (dir == LV_DIR_TOP) {      // swipe up from clock face
-        time_screen_show();              // Time is innocent - allowed in every mode
+        time_screen_show();              // Tools grid, allowed in every mode
     }
 }
 
-// Called by settings screen to switch between digital and analog face
+// Called by settings screen to switch between the Digital, Analog and Dot faces.
+// Digital shows the span-group time_label, Analog the hands container, Dot the
+// dot-matrix layer. Whichever comes up is driven to the current time at once so
+// there is no one-tick stale frame right after a switch.
+void clock_screen_set_face(int mode)
+{
+    clock_face = (ClockFace)mode;
+
+    lv_obj_add_flag(time_label,       LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
+    if (dot_container) lv_obj_add_flag(dot_container, LV_OBJ_FLAG_HIDDEN);
+
+    struct tm t;
+    instance.rtc.getDateTime(&t);
+    clocktime::tm_utc_to_local(&t, clock_utc_offset);
+
+    if (clock_face == FACE_ANALOG) {
+        lv_obj_clear_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
+        update_analog_clock(&t);
+    } else if (clock_face == FACE_DOT && dot_container) {
+        lv_obj_clear_flag(dot_container, LV_OBJ_FLAG_HIDDEN);
+        update_dot_face(&t);
+        update_dot_status();
+    } else {
+        clock_face = FACE_DIGITAL;   // fall back if Dot is picked before it built
+        lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
+        update_clock();
+    }
+}
+
+// Back-compat wrapper: older callers (and legacy settings.txt without a
+// clock_face key) only know the binary digital/analog switch.
 void clock_screen_set_analog_face(bool analog)
 {
-    analog_face = analog;
-    if (analog) {
-        lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
-        // Immediately drive hands to the current time
-        struct tm t;
-        instance.rtc.getDateTime(&t);
-        clocktime::tm_utc_to_local(&t, clock_utc_offset);
-        update_analog_clock(&t);
-    } else {
-        lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
-    }
+    clock_screen_set_face(analog ? FACE_ANALOG : FACE_DIGITAL);
 }
 
 // Called by the LoRa screen when LoRa power is toggled, for an immediate icon
@@ -1001,7 +2449,7 @@ void clock_screen_set_12h(bool use_12h)
 // whether to show its AM/PM selector.
 bool clock_screen_uses_12h()
 {
-    return clock_12h || analog_face;
+    return clock_12h || clock_face == FACE_ANALOG;
 }
 
 void clock_screen_set_show_day(bool show)
@@ -1051,15 +2499,369 @@ static uint32_t s_dim_timeout_ms   = 0;   // 0 = disabled
 static uint8_t  s_dim_brightness   = DEVICE_MAX_BRIGHTNESS_LEVEL / 4;
 static uint32_t s_last_activity_ms = 0;
 static bool     s_is_dimmed        = false;
+static uint32_t s_dimmed_at_ms     = 0;   // when the dim timer last fired
+
+// ---- Automatic brightness from the sun ---------------------------------------
+//
+// Optional (Settings > Auto brightness). The active brightness follows the sun
+// at the watch's position: the user's Settings level in daylight, a straight
+// ramp through civil twilight (sun 0 to 6 degrees below the horizon), and
+// AUTO_NIGHT_FACTOR of it once it is dark outside. The season comes for free
+// with the date, so in Quebec in late September it dims from ~18:50 and is at
+// the night level by ~19:20.
+//
+// The position is the last GPS fix, saved to NVS (namespace "argusloc") so it
+// survives reboots and GPS-off days; the watch needs ONE fix ever for this to
+// work. Until then the factor stays 1 (plain Settings brightness).
+static constexpr float    AUTO_NIGHT_FACTOR = 0.35f;
+static constexpr uint32_t AUTO_TICK_MS      = 60000;   // sun moves slowly
+static bool   s_auto_bright   = false;
+static bool   s_loc_valid     = false;
+static float  s_loc_lat       = 0.0f, s_loc_lon = 0.0f;
+static float  s_sun_factor    = 1.0f;
+static uint32_t s_sun_last_ms = 0;
+
+static void sun_location_load()
+{
+    Preferences p;
+    if (!p.begin("argusloc", true)) return;
+    s_loc_valid = p.getBool("valid", false);
+    s_loc_lat   = p.getFloat("lat", 0.0f);
+    s_loc_lon   = p.getFloat("lon", 0.0f);
+    p.end();
+}
+
+// Remember a GPS fix for the sun calculation. Writes NVS only for a first fix
+// or a move of ~10 km or more, so a GPS left on never wears the flash.
+static void sun_location_note_fix()
+{
+    if (!gps_screen_is_powered() || !instance.gps.location.isValid()) return;
+    float lat = (float)instance.gps.location.lat();
+    float lon = (float)instance.gps.location.lng();
+    if (s_loc_valid && fabsf(lat - s_loc_lat) < 0.1f && fabsf(lon - s_loc_lon) < 0.1f) return;
+    s_loc_valid = true; s_loc_lat = lat; s_loc_lon = lon;
+    Preferences p;
+    if (!p.begin("argusloc", false)) return;
+    p.putBool("valid", true);
+    p.putFloat("lat", lat);
+    p.putFloat("lon", lon);
+    p.end();
+}
+
+static void sun_factor_update()
+{
+    if (!s_auto_bright || !s_loc_valid) { s_sun_factor = 1.0f; return; }
+    struct tm t;
+    instance.rtc.getDateTime(&t);   // RTC holds UTC
+    t.tm_isdst = 0;                 // UTC: no DST (mktime reads this field)
+    time_t epoch = mktime(&t);      // normalise to fill tm_yday
+    struct tm u;
+    gmtime_r(&epoch, &u);
+    double elev = sun_elevation_deg(s_loc_lat, s_loc_lon, u.tm_year + 1900, u.tm_yday,
+                                    u.tm_hour, u.tm_min, u.tm_sec);
+    s_sun_factor = sun_brightness_factor(elev, AUTO_NIGHT_FACTOR);
+}
+
+// The brightness the panel should show while awake and undimmed: the Settings
+// level, scaled by the sun when Auto brightness is on.
+static uint8_t active_brightness()
+{
+    int level = (int)(settings_get_brightness() * s_sun_factor + 0.5f);
+    if (level < 1) level = 1;
+    if (level > DEVICE_MAX_BRIGHTNESS_LEVEL) level = DEVICE_MAX_BRIGHTNESS_LEVEL;
+    return (uint8_t)level;
+}
+
+int clock_screen_active_brightness() { return active_brightness(); }
+
+bool clock_screen_has_sun_location() { return s_loc_valid; }
+
+// ---- Battery saver: screen fully off after the dim --------------------------
+//
+// Optional (Settings > Battery saver). SAVER_OFF_AFTER_MS after the dim timer
+// fires, the panel is put to sleep (power cut, ~10 mA saved per the LilyGo
+// docs) and LVGL stops rendering. A touch, a button press, wrist motion (when
+// Motion brightens screen is on) or an incoming notification wakes it. The
+// waking touch lands on a full-screen blocker on the top layer so it can never
+// click whatever sits under the finger on a screen the user cannot see.
+static constexpr uint32_t SAVER_OFF_AFTER_MS = 10000;
+static bool      s_batt_saver   = false;
+static bool      s_display_off  = false;
+static lv_obj_t *s_wake_blocker = nullptr;
+
+// ---- CPU frequency scaling --------------------------------------------------
+//
+// The ESP32-S3 idles far cheaper at a lower core clock. While the panel is off
+// nothing renders and the loop only polls a few cheap inputs, so the full
+// 240 MHz is pure waste. Drop to 80 MHz then — the lowest clock that still
+// keeps the WiFi/BLE radios and their PLL usable, so a background detector scan
+// keeps running — and restore 240 MHz the instant the screen comes back so the
+// UI never feels sluggish. Going below 80 MHz would stall the radios.
+static constexpr uint32_t CPU_MHZ_AWAKE = 240;
+static constexpr uint32_t CPU_MHZ_IDLE  = 80;
+static bool s_cpu_low = false;
+
+// Auto battery saver: below 20% on the cell (and not charging) the screen-off
+// saver is forced on regardless of the Settings toggle, to stretch the last of
+// the charge. Released with hysteresis (back above 25%, or once charging) so it
+// cannot flap around the threshold. Tracked separately from s_batt_saver so it
+// never overwrites the user's own choice — when the cell recovers, the manual
+// toggle is whatever they left it.
+static constexpr int LOW_BATT_ENTER_PCT = 20;
+static constexpr int LOW_BATT_EXIT_PCT  = 25;
+static bool s_low_batt_saver = false;
+
+static void cpu_set_low(bool low)
+{
+    if (low == s_cpu_low) return;
+    s_cpu_low = low;
+    setCpuFrequencyMhz(low ? CPU_MHZ_IDLE : CPU_MHZ_AWAKE);
+}
+
+static bool touch_is_down()
+{
+    for (lv_indev_t *i = lv_indev_get_next(NULL); i; i = lv_indev_get_next(i))
+        if (lv_indev_get_type(i) == LV_INDEV_TYPE_POINTER &&
+            lv_indev_get_state(i) == LV_INDEV_STATE_PRESSED) return true;
+    return false;
+}
+
+static void drop_wake_blocker()
+{
+    if (s_wake_blocker) { lv_obj_delete_async(s_wake_blocker); s_wake_blocker = nullptr; }
+}
+
+static void on_wake_blocker_up(lv_event_t *) { drop_wake_blocker(); }
+
+static void hide_dim_gate();   // defined below; the off-state uses the wake blocker instead
+
+static void display_off()
+{
+    if (s_display_off) return;
+    s_display_off = true;
+    hide_dim_gate();   // the full-off state wakes on any tap via the wake blocker
+    s_wake_blocker = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_wake_blocker);
+    lv_obj_set_size(s_wake_blocker, LV_PCT(100), LV_PCT(100));
+    lv_obj_add_flag(s_wake_blocker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_wake_blocker, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(s_wake_blocker, on_wake_blocker_up, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(s_wake_blocker, on_wake_blocker_up, LV_EVENT_PRESS_LOST, NULL);
+    lv_timer_pause(lv_display_get_refr_timer(lv_display_get_default()));
+    instance.sleepDisplay();
+    // Nothing renders now: stretch a background BLE scan to ~15% duty and drop
+    // the core clock to 80 MHz. Both are restored the moment the screen wakes.
+    ble_scan_set_low_duty(true);
+    cpu_set_low(true);
+}
+
+static void display_on()
+{
+    if (!s_display_off) return;
+    s_display_off = false;
+    // Restore full clock and scan responsiveness before repainting so the wake
+    // frame renders at 240 MHz.
+    cpu_set_low(false);
+    ble_scan_set_low_duty(false);
+    instance.wakeupDisplay();
+    lv_timer_resume(lv_display_get_refr_timer(lv_display_get_default()));
+    // A touch that is still down keeps the blocker until it lifts; any other
+    // wake source (button, motion, notification) drops it right away.
+    if (!touch_is_down()) drop_wake_blocker();
+    lv_obj_invalidate(lv_screen_active());
+    lv_refr_now(NULL);
+}
+
+// ---- Dim wake-gate: swipe up to wake -----------------------------------------
+//
+// While the screen is dimmed (but still on), a full-screen top-layer gate
+// captures touches so a stray pocket/sleeve tap can neither wake the watch nor
+// click the UI behind it. A first touch reveals a subtle "swipe up to wake"
+// hint; only a swipe up actually wakes. Hardware buttons wake directly and
+// bypass this gate, so there is always a reliable way back even if a swipe is
+// missed.
+static void dim_reset_activity();   // forward: the gate wakes through it
+static lv_obj_t *s_dim_gate  = nullptr;
+static lv_obj_t *s_dim_card  = nullptr;   // frosted "glass" hint card (revealed on touch)
+static lv_obj_t *s_dim_arrow = nullptr;   // up chevron inside the card
+static bool      s_dim_gate_armed = false;   // false for the first 15 s: a tap just wakes
+
+// Swipe-up-to-wake arms this long after the screen dims, not at the same instant:
+// the first glance can still wake with a tap; once the watch is clearly set down a
+// deliberate swipe up is required (saves battery, avoids pocket wakes).
+static constexpr uint32_t DIM_GATE_ARM_MS = 15000;
+
+// When the hint is revealed we briefly lift the panel brightness so the white
+// "swipe up to wake" pops OUT of the dim and is easy to read, while a black scrim
+// keeps everything behind it artificially dimmed. Because the backdrop is a
+// near-black scrim (on this AMOLED, black pixels emit nothing), the higher
+// brightness lights only the small hint card - so brushing the screen in a dark
+// room does not light it up. The bright state auto-fades back after a few seconds
+// if no swipe follows, so a stray touch cannot leave the panel lit.
+static constexpr uint8_t  DIM_GATE_REVEAL_BRIGHTNESS = 100;   // ~40%, readable
+static constexpr uint32_t DIM_GATE_REVEAL_MS         = 4000;
+static lv_timer_t        *s_dim_reveal_timer = nullptr;
+
+static void hide_dim_gate()
+{
+    if (s_dim_reveal_timer) { lv_timer_delete(s_dim_reveal_timer); s_dim_reveal_timer = nullptr; }
+    if (s_dim_gate) { lv_obj_delete_async(s_dim_gate); s_dim_gate = nullptr; }
+    s_dim_card  = nullptr;
+    s_dim_arrow = nullptr;
+    s_dim_gate_armed = false;
+}
+
+// Fade the revealed hint back to the plain dimmed state: drop the scrim, hide the
+// card, and restore the dim brightness so the panel goes dark again. The gate
+// itself stays (still armed), so the next touch can reveal it afresh.
+static void dim_gate_conceal(lv_timer_t *t)
+{
+    if (s_dim_reveal_timer) { lv_timer_delete(s_dim_reveal_timer); s_dim_reveal_timer = nullptr; }
+    if (!s_dim_gate) return;
+    lv_obj_set_style_bg_opa(s_dim_gate, LV_OPA_TRANSP, LV_PART_MAIN);   // remove scrim
+    if (s_dim_card) lv_obj_add_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN);
+    if (!s_display_off && s_is_dimmed) instance.setBrightness(s_dim_brightness);
+}
+
+static void on_dim_gate_gesture(lv_event_t *e)
+{
+    lv_indev_t *indev = lv_event_get_indev(e);
+    if (indev && lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) dim_reset_activity();
+}
+
+// lv_anim exec callbacks: gentle vertical drift of the chevron, and a fade-in of
+// the whole card. Kept as free functions so no capturing lambda is needed.
+static void dim_arrow_drift(void *o, int32_t v)
+{
+    lv_obj_set_style_translate_y((lv_obj_t *)o, v, LV_PART_MAIN);
+}
+static void dim_card_fade(void *o, int32_t v)
+{
+    lv_obj_set_style_opa((lv_obj_t *)o, (lv_opa_t)v, LV_PART_MAIN);
+}
+
+static void on_dim_gate_pressed(lv_event_t *)
+{
+    // First 15 s after dimming: a tap simply wakes (swipe-up gate not armed yet).
+    if (!s_dim_gate_armed) { dim_reset_activity(); return; }
+
+    // Armed: reveal the frosted hint once and let it breathe; only a swipe up
+    // (on_dim_gate_gesture) wakes from here, and hardware buttons always do.
+    if (!s_dim_card || !lv_obj_has_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN)) return;
+
+    // Darken everything behind (scrim) and lift the brightness so the white hint
+    // pops out of the dim without lighting the room (see the constants above).
+    lv_obj_set_style_bg_color(s_dim_gate, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_dim_gate, 165, LV_PART_MAIN);          // ~65% scrim
+    if (!s_display_off) instance.setBrightness(DIM_GATE_REVEAL_BRIGHTNESS);
+
+    lv_obj_set_style_opa(s_dim_card, LV_OPA_TRANSP, LV_PART_MAIN);   // start clear, fade in
+    lv_obj_clear_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN);
+
+    // Auto-fade back to the dark dimmed state if no swipe follows.
+    if (s_dim_reveal_timer) lv_timer_delete(s_dim_reveal_timer);
+    s_dim_reveal_timer = lv_timer_create(dim_gate_conceal, DIM_GATE_REVEAL_MS, NULL);
+    lv_timer_set_repeat_count(s_dim_reveal_timer, 1);
+
+    lv_anim_t fade;
+    lv_anim_init(&fade);
+    lv_anim_set_var(&fade, s_dim_card);
+    lv_anim_set_values(&fade, 0, 255);
+    lv_anim_set_time(&fade, 260);
+    lv_anim_set_exec_cb(&fade, dim_card_fade);
+    lv_anim_start(&fade);
+
+    if (s_dim_arrow) {
+        lv_anim_t rise;
+        lv_anim_init(&rise);
+        lv_anim_set_var(&rise, s_dim_arrow);
+        lv_anim_set_values(&rise, 5, -6);
+        lv_anim_set_time(&rise, 900);
+        lv_anim_set_playback_time(&rise, 900);
+        lv_anim_set_repeat_count(&rise, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_exec_cb(&rise, dim_arrow_drift);
+        lv_anim_start(&rise);
+    }
+}
+
+static void show_dim_gate()
+{
+    if (s_dim_gate) return;
+    s_dim_gate_armed = false;
+
+    // Full-screen transparent gate: captures every touch so a stray tap on the
+    // dimmed screen can neither wake the watch nor click the UI behind it. Until
+    // it arms (15 s) a tap wakes; after, only a swipe up does.
+    s_dim_gate = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_dim_gate);
+    lv_obj_set_size(s_dim_gate, LV_PCT(100), LV_PCT(100));
+    lv_obj_add_flag(s_dim_gate, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_dim_gate, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(s_dim_gate, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_dim_gate, on_dim_gate_gesture, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(s_dim_gate, on_dim_gate_pressed, LV_EVENT_PRESSED, NULL);
+
+    // Frosted "glass" card, centred, hidden until the first touch (once armed). A
+    // translucent light fill over the dark dimmed screen reads as frosted glass
+    // and lifts the words off the background so they stay legible. (A true
+    // framebuffer blur is too costly on this software-rendered display, so this is
+    // the cheap stand-in for the "water" look.)
+    s_dim_card = lv_obj_create(s_dim_gate);
+    lv_obj_remove_style_all(s_dim_card);
+    lv_obj_set_size(s_dim_card, 300, 132);
+    lv_obj_center(s_dim_card);
+    lv_obj_clear_flag(s_dim_card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(s_dim_card, LV_OBJ_FLAG_CLICKABLE);   // taps fall through to the gate
+    lv_obj_set_style_radius(s_dim_card, 28, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_dim_card, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_dim_card, 28, LV_PART_MAIN);          // ~11% frosted
+    lv_obj_set_style_border_color(s_dim_card, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(s_dim_card, 90, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_dim_card, 1, LV_PART_MAIN);
+    lv_obj_set_style_shadow_color(s_dim_card, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_shadow_opa(s_dim_card, 110, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(s_dim_card, 24, LV_PART_MAIN);
+    lv_obj_add_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN);
+
+    s_dim_arrow = lv_label_create(s_dim_card);
+    lv_obj_set_style_text_font(s_dim_arrow, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_dim_arrow, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(s_dim_arrow, LV_SYMBOL_UP);
+    lv_obj_align(s_dim_arrow, LV_ALIGN_TOP_MID, 0, 14);
+
+    lv_obj_t *txt = lv_label_create(s_dim_card);
+    lv_obj_set_style_text_font(txt, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(txt, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(txt, 2, LV_PART_MAIN);
+    lv_label_set_text(txt, "swipe up to wake");
+    lv_obj_align(txt, LV_ALIGN_BOTTOM_MID, 0, -20);
+}
+
+bool clock_screen_display_is_off() { return s_display_off; }
+
+void clock_screen_set_battery_saver(bool on)
+{
+    s_batt_saver = on;
+    if (!on) display_on();
+}
+
+void clock_screen_set_auto_brightness(bool on)
+{
+    s_auto_bright = on;
+    sun_factor_update();
+    s_sun_last_ms = millis();
+    if (!s_is_dimmed && !s_display_off) instance.setBrightness(active_brightness());
+}
 
 void clock_screen_set_dim_timeout(uint32_t ms)
 {
     s_dim_timeout_ms = ms;
     // Reset activity timer and restore brightness when timeout changes
     s_last_activity_ms = millis();
+    display_on();
     if (s_is_dimmed) {
         s_is_dimmed = false;
-        instance.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+        instance.setBrightness(active_brightness());
     }
 }
 
@@ -1067,26 +2869,270 @@ void clock_screen_set_dim_brightness(uint8_t level)
 {
     s_dim_brightness = level;
     // If already dimmed, apply new level immediately
-    if (s_is_dimmed) instance.setBrightness(s_dim_brightness);
+    if (s_is_dimmed && !s_display_off) instance.setBrightness(s_dim_brightness);
 }
 
 static void dim_reset_activity()
 {
     s_last_activity_ms = millis();
+    hide_dim_gate();          // waking: drop the swipe-to-wake gate
+    cpu_set_low(false);       // restore 240 MHz now so the wake frame is snappy
+    display_on();
     if (s_is_dimmed) {
         s_is_dimmed = false;
-        instance.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
+        // Wake to the active brightness (Settings level, sun-scaled when Auto
+        // brightness is on), not the hardware maximum.
+        instance.setBrightness(active_brightness());
     }
 }
 
+// Put the panel back to whatever it should show right now: the dim level while
+// dimmed, otherwise the active brightness. Used after a temporary override (the
+// notification banner's brightness boost) ends.
+void clock_screen_restore_brightness()
+{
+    if (s_display_off) return;
+    instance.setBrightness(s_is_dimmed ? s_dim_brightness : active_brightness());
+}
+
+// 1 Hz: follow the sun, remember GPS fixes, and let the battery saver switch
+// the screen off once it has been dimmed long enough.
+// Locally-generated "system" notifications (battery, etc.), published through
+// the same pipeline as phone notifications: banner + list + unread badge. Each
+// event carries a STABLE uid so a re-fire updates in place instead of stacking,
+// and the callers guard each so it fires once on its edge.
+static constexpr uint32_t SYS_UID_SAVER = 0x5A5E0001;
+static constexpr uint32_t SYS_UID_CRIT  = 0x5A5E0002;
+static constexpr uint32_t SYS_UID_FULL  = 0x5A5E0003;
+static constexpr uint32_t SYS_UID_PAIR  = 0x5A5E0004;
+
+static void sys_notify(uint32_t uid, const char *title, const char *body)
+{
+    notify::Notification n;
+    n.uid      = uid;
+    n.category = notify::Category::System;
+    snprintf(n.app,   sizeof(n.app),   "System");
+    snprintf(n.title, sizeof(n.title), "%s", title);
+    snprintf(n.body,  sizeof(n.body),  "%s", body);
+    notify::publish(n);
+}
+
+// ---- Find My Watch / Find My Phone -----------------------------------------
+// Bidirectional "find" over the ANS find characteristic (companion app only):
+//  - phone -> watch: the phone writes a ring op; the watch wakes, shows a bold
+//    flashing overlay and buzzes until Stopped or a timeout (find_alert_*).
+//  - watch -> phone: the Find screen's button calls find_ring_phone(), which
+//    notifies the phone so the app rings/vibrates.
+static lv_obj_t   *s_find_overlay = nullptr;
+static lv_timer_t *s_find_timer   = nullptr;
+static uint32_t    s_find_ticks   = 0;
+static constexpr uint32_t FIND_ALERT_PERIOD_MS = 650;
+static constexpr uint32_t FIND_ALERT_TICKS_MAX = 30;   // ~20 s then give up
+
+static void find_alert_stop();
+
+static void find_alert_tick(lv_timer_t *)
+{
+    if (!s_find_overlay) return;
+    instance.vibrator();                                   // insistent buzz
+    bool on = (s_find_ticks & 1) == 0;                     // flash for visibility
+    lv_obj_set_style_bg_color(s_find_overlay,
+        on ? lv_color_hex(0xE02020) : lv_color_black(), LV_PART_MAIN);
+    if (++s_find_ticks >= FIND_ALERT_TICKS_MAX) find_alert_stop();
+}
+
+static void on_find_stop(lv_event_t *)
+{
+    find_alert_stop();
+    ans::find_notify(0x00);   // best-effort: tell the phone we were found
+}
+
+static void find_alert_start()
+{
+    if (s_find_overlay) return;
+    dim_reset_activity();      // wake + active brightness so the alert is seen
+    s_find_ticks = 0;
+
+    s_find_overlay = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_find_overlay);
+    lv_obj_set_size(s_find_overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_find_overlay, lv_color_hex(0xE02020), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_find_overlay, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(s_find_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *t = lv_label_create(s_find_overlay);
+    lv_obj_set_style_text_font(t, &lv_font_montserrat_28, LV_PART_MAIN);
+    lv_obj_set_style_text_color(t, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(t, "FINDING WATCH");
+    lv_obj_align(t, LV_ALIGN_CENTER, 0, -50);
+
+    lv_obj_t *sub = lv_label_create(s_find_overlay);
+    lv_obj_set_style_text_font(sub, &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(sub, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(sub, "Your phone is looking for this watch");
+    lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_align(sub, LV_ALIGN_CENTER, 0, -6);
+
+    lv_obj_t *btn = lv_button_create(s_find_overlay);
+    lv_obj_set_size(btn, 170, 62);
+    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 96);
+    lv_obj_set_style_bg_color(btn, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_radius(btn, 31, LV_PART_MAIN);
+    lv_obj_add_event_cb(btn, on_find_stop, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *bl = lv_label_create(btn);
+    lv_obj_set_style_text_font(bl, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(bl, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(bl, "STOP");
+    lv_obj_center(bl);
+
+    instance.vibrator();
+    s_find_timer = lv_timer_create(find_alert_tick, FIND_ALERT_PERIOD_MS, NULL);
+}
+
+static void find_alert_stop()
+{
+    if (s_find_timer)   { lv_timer_delete(s_find_timer);   s_find_timer   = nullptr; }
+    if (s_find_overlay) { lv_obj_delete_async(s_find_overlay); s_find_overlay = nullptr; }
+}
+
+// The phone write arrives on the BLE host task, which must not touch LVGL. Latch
+// the op here and let the main loop (LVGL thread) act on it in find_pump().
+static volatile uint8_t s_find_req = 0xFF;   // 0xFF = nothing pending
+static void find_handler(uint8_t op) { s_find_req = op; }
+
+static void find_pump()
+{
+    uint8_t op = s_find_req;
+    if (op == 0xFF) return;
+    s_find_req = 0xFF;
+    if (op == 0x01) find_alert_start();
+    else            find_alert_stop();
+}
+
+// Public (used by find_screen.cpp): ring the phone from the watch. Returns false
+// if no phone is connected over the companion channel.
+bool find_ring_phone()      { return ans::find_notify(0x01); }
+bool find_phone_connected() { return ans::is_connected(); }
+
+// One-time pairing nudge on a genuinely fresh install (NVS wiped by a
+// full-erase flash). The phone companion app can only discover the watch once a
+// Notify mode is enabled (that is what advertises the BLE service), so a new
+// user who just flashed sees nothing in the app until they enable it. On a plain
+// reboot the saved Notify state is auto-restored (device_mode_restore_boot), so
+// there is nothing to nudge and this stays silent. Shown at most once: the
+// marker survives reboots and is only wiped by the same full erase that would
+// warrant showing it again. Never forces a mode - it only tells the user where
+// the switch is, leaving the WiFi/BLE arbitration untouched.
+static void maybe_show_pairing_hint()
+{
+    // "argusnotify" gains the "en" key the first time the user ever toggles
+    // Notify. Its absence means the watch has never been configured for phone
+    // notifications - i.e. a fresh install, not a returning user who left it off.
+    bool ever_configured = false;
+    {
+        Preferences np;
+        if (np.begin("argusnotify", true)) {
+            ever_configured = np.isKey("en");
+            np.end();
+        }
+    }
+    if (ever_configured) return;
+
+    Preferences p;
+    if (!p.begin("arguspair", false)) return;
+    if (!p.getBool("hinted", false)) {
+        sys_notify(SYS_UID_PAIR, "Connect your phone",
+                   "Open Tools > Notify and tap Enable, then Scan in the phone app to pair.");
+        p.putBool("hinted", true);
+    }
+    p.end();
+}
+
+static void display_power_tick()
+{
+    sun_location_note_fix();
+    if (s_auto_bright && millis() - s_sun_last_ms >= AUTO_TICK_MS) {
+        s_sun_last_ms = millis();
+        float before = s_sun_factor;
+        sun_factor_update();
+        if (s_sun_factor != before && !s_is_dimmed && !s_display_off && !notify_popup_is_showing())
+            instance.setBrightness(active_brightness());
+    }
+    // Auto-engage the saver under 20% (released with hysteresis, or on charge).
+    // Kept separate from the user's toggle so the cell recovering doesn't clear
+    // a saver they turned on themselves.
+    int  batt_pct  = instance.pmu.getBatteryPercent();
+    bool charging  = instance.pmu.isVbusIn();
+    if (!s_low_batt_saver) {
+        if (!charging && batt_pct >= 0 && batt_pct <= LOW_BATT_ENTER_PCT)
+            s_low_batt_saver = true;
+    } else if (charging || batt_pct >= LOW_BATT_EXIT_PCT) {
+        s_low_batt_saver = false;
+        // If the user never asked for the saver, undo the forced screen-off now.
+        if (!s_batt_saver && s_display_off) display_on();
+    }
+
+    // System battery notifications, edge-triggered so each fires once.
+    static bool s_saver_was  = false;
+    static bool s_notif_crit = false;
+    static bool s_notif_full = false;
+    if (s_low_batt_saver && !s_saver_was)
+        sys_notify(SYS_UID_SAVER, "Battery saver on",
+                   "Low battery - saving power to extend runtime.");
+    s_saver_was = s_low_batt_saver;
+
+    if (charging) {
+        s_notif_crit = false;                      // re-arm the critical warning
+        if (!s_notif_full && batt_pct >= 100) {    // fully charged while plugged
+            s_notif_full = true;
+            sys_notify(SYS_UID_FULL, "Battery full", "Charged - you can unplug the watch.");
+        }
+    } else {
+        s_notif_full = false;                      // re-arm "full" for the next charge
+        if (!s_notif_crit && batt_pct >= 0 && batt_pct <= 5) {
+            s_notif_crit = true;
+            sys_notify(SYS_UID_CRIT, "Battery critical", "About to shut down - charge now.");
+        }
+    }
+
+    if ((s_batt_saver || s_low_batt_saver) && s_is_dimmed && !s_display_off &&
+        !notify_popup_is_showing() &&
+        millis() - s_dimmed_at_ms >= SAVER_OFF_AFTER_MS)
+        display_off();
+}
+
 // Public hook so full-screen utility screens (e.g. the Flashlight) can keep the
-// display awake at active brightness for as long as they are shown.
+// display awake at active brightness for as long as they are shown. Also used
+// by the notification banner to wake a dimmed or switched-off screen.
 void ui_reset_dim_activity() { dim_reset_activity(); }
+
+// ---- Charge-state feed + wake ----------------------------------------------
+//
+// Advance the shared bat_charge debouncer once per 1 Hz tick, on EVERY face
+// (the Dot USB indicator and the classic charge bolt both read bat_charge, but
+// only the classic update runs update_charge_bolt(), so the debouncer must be
+// fed here or the Dot face never sees the charger). When the charger is first
+// recognised, wake the screen out of dim/off for at least CHARGE_WAKE_MS so it
+// is obvious the watch is charging.
+static constexpr uint32_t CHARGE_WAKE_MS = 5000;
+static uint32_t s_charge_wake_until_ms = 0;
+
+static void charge_state_tick()
+{
+    static bool was_charging = false;
+    bat_charge.update(instance.pmu.isVbusIn(), instance.pmu.isCharging());
+    bool charging = bat_charge.state() != ChargeState::Discharging;
+    if (charging && !was_charging) {
+        s_charge_wake_until_ms = millis() + CHARGE_WAKE_MS;
+        ui_reset_dim_activity();   // wake from dim / battery-saver-off
+    }
+    was_charging = charging;
+}
 
 // ---- Motion-wake ----------------------------------------------------------
 //
 // When enabled, the BHI260AP accelerometer is streamed at a low rate and any
-// jump in magnitude greater than MOTION_DELTA_G is treated like a tap: the
+// jump in magnitude greater than s_motion_delta_g is treated like a tap: the
 // dim timer is reset and (if currently dimmed) the screen is brought back to
 // full brightness. Default ON to match smartwatch wrist-raise behaviour;
 // settings can switch it off if the user wants the dim timer to run even
@@ -1099,10 +3145,20 @@ static float     s_motion_last_mag        = 0.0f;
 // fuses its own samples internally and only fires its interrupt when a
 // sample is ready.
 #define MOTION_SAMPLE_RATE_HZ   10.0f
-// Threshold in g for "this counts as motion". Stationary sample-to-sample
-// noise is well under 0.05 g; any noticeable wrist movement easily exceeds
-// 0.2 g.
-#define MOTION_DELTA_G          0.20f
+// Threshold in g for "this counts as motion", set by Settings > Motion
+// sensitivity (1 = needs a big, deliberate movement ... 5 = reacts to small
+// ones). Stationary sample-to-sample noise is well under 0.05 g. The old fixed
+// 0.20 g (now level 5) woke the screen on almost any wrist twitch, so the
+// default is level 2.
+static const float kMotionDeltaG[5] = { 0.70f, 0.55f, 0.40f, 0.30f, 0.20f };
+static float s_motion_delta_g = kMotionDeltaG[1];   // level 2
+
+void clock_screen_set_motion_sensitivity(int level)
+{
+    if (level < 1) level = 1;
+    if (level > 5) level = 5;
+    s_motion_delta_g = kMotionDeltaG[level - 1];
+}
 
 void clock_screen_set_motion_wake(bool enabled)
 {
@@ -1144,7 +3200,7 @@ static void motion_wake_poll()
 
     float delta = fabsf(mag - s_motion_last_mag);
     s_motion_last_mag = mag;
-    if (delta >= MOTION_DELTA_G) {
+    if (delta >= s_motion_delta_g) {
         dim_reset_activity();
     }
 }
@@ -1358,8 +3414,10 @@ static void update_clock()
     // refills tm_wday / tm_yday, which the day-name label and the calendar read.
     clocktime::tm_utc_to_local(&t, clock_utc_offset);
 
-    if (analog_face) {
+    if (clock_face == FACE_ANALOG) {
         update_analog_clock(&t);
+    } else if (clock_face == FACE_DOT) {
+        update_dot_face(&t);
     } else {
         char hours_buf[4];
         char rest_buf[12];
@@ -1489,7 +3547,7 @@ void setup()
     // Backlight on now so it's visible; the splash stays up through the rest of
     // setup (screen construction) and is swapped for the clock below, held to a
     // minimum visible time. Brand typeface is Saira Condensed (src/font_argus_*.c),
-    // filled steel-blue (#9BBCD6) on black — the sanctioned dark-surface treatment.
+    // filled red (#E02020, the Dot-face accent) on black, with a "DotOS" subtitle.
     instance.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
     lv_obj_t *boot_splash = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(boot_splash, lv_color_black(), LV_PART_MAIN);
@@ -1499,9 +3557,17 @@ void setup()
     // ARGUS hero.
     lv_obj_t *boot_brand = lv_label_create(boot_splash);
     lv_label_set_text(boot_brand, FW_NAME);   // "ARGUS"
-    lv_obj_set_style_text_color(boot_brand, ARGUS_ACCENT, LV_PART_MAIN);   // ARGUS steel-blue
+    lv_obj_set_style_text_color(boot_brand, lv_color_hex(0xE02020), LV_PART_MAIN);   // Dot-face red
     lv_obj_set_style_text_font(boot_brand, &font_argus_argus, LV_PART_MAIN);
     lv_obj_align(boot_brand, LV_ALIGN_CENTER, 0, 8);
+
+    // "DotOS" subtitle, just under the hero.
+    lv_obj_t *boot_sub = lv_label_create(boot_splash);
+    lv_label_set_text(boot_sub, "DotOS");
+    lv_obj_set_style_text_color(boot_sub, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(boot_sub, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(boot_sub, 4, LV_PART_MAIN);
+    lv_obj_align_to(boot_sub, boot_brand, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
 
     lv_scr_load(boot_splash);
     lv_refr_now(NULL);                       // paint now; no timer handler in setup yet
@@ -1916,9 +3982,16 @@ void setup()
     probe_sniffer_screen_create();
     offense_wipe_register();   // arm the duress-shred Tier-1 wipe hook
     time_screen_create();
+    health_screen_create();
     flashlight_screen_create();
     wardriver_screen_create();
+    // Dot face layer, created last so its opaque panel sits above every other
+    // clock_screen child; hidden until the Dot face is selected.
+    build_dot_face(clock_screen);
+    clock_screen_set_face(FACE_DOT);   // default face; a saved choice overrides it in settings_screen_load()
+    sun_location_load();               // last GPS fix, for Auto brightness (before settings load)
     lv_obj_add_event_cb(clock_screen, on_clock_gesture, LV_EVENT_GESTURE, NULL);
+    watch_touch_pulls();   // top-edge pull-down -> notification shade, from any screen
     // Hold the boot splash to a minimum ~1.5 s, then reveal the clock.
     while (millis() - boot_splash_ms < 1500) delay(10);
     lv_scr_load(clock_screen);
@@ -1946,7 +4019,12 @@ void setup()
     //   - settings -> clock
     instance.onEvent([](DeviceEvent_t event, void *params, void *user_data) {
         if (instance.getPMUEventType(params) == PMU_EVENT_KEY_CLICKED) {
+            // A button press wakes the watch directly (buttons are sturdy - no
+            // accidental press), so when the screen is dimmed or off the press
+            // only wakes and does not also advance the screen chain.
+            bool was_asleep = clock_screen_display_is_off() || s_is_dimmed;
             dim_reset_activity();
+            if (was_asleep) return;
             if (clock_vibrate) instance.vibrator();
             if (lv_screen_active() == clock_screen)
                 gps_screen_show();
@@ -2094,6 +4172,27 @@ void setup()
     // the boot radios, so it correctly no-ops if WiFi-at-boot or a BLE scanner is
     // already holding the radio (and keeps the preference for next time).
     device_mode_restore_boot();
+    // First-boot-after-flash nudge: if Notify has never been configured, tell the
+    // user how to make the watch pairable (see maybe_show_pairing_hint). No-op on
+    // a normal reboot, where the saved state is already being restored above.
+    maybe_show_pairing_hint();
+    ans::set_find_handler(find_handler);   // phone -> watch "find" ring
+
+    // Re-start the detectors the user left on (Tools tiles / Dot face badges).
+    // Deferred ~10 s and crash-guarded inside detector_toggle; after the boot
+    // radios and notifications, so a detector whose radio is taken just stays
+    // off this boot and keeps its saved choice.
+    detector_restore_on_boot();
+
+    // Restore the cached health snapshot + the fixed step goal (shown as stale
+    // until the phone relay refreshes them).
+    health_boot_restore();
+    haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
+    dot_tiles_boot_restore();   // restore the two Dot-face data slot choices
+    face_watch_boot_restore();  // restore Dot-face fonts / accent / date order
+    clock_screen_apply_face_custom();   // re-apply the restored look to the built face
+    power_boot_config();     // PMU: VINDPM anti-brownout, input cap, deep-discharge
+                             // guard, and the saved charge target (full / long-life)
     coex_log_heap("setup-done");
 }
 
@@ -2467,6 +4566,10 @@ static void boot_knock_feed(BootPress p, uint32_t press_down_ms, uint32_t releas
 // real press timestamps for knock-gap timing (equal for a synthesized tap).
 static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
 {
+    if (clock_screen_display_is_off() || s_is_dimmed) {   // dimmed/off: a press only wakes
+        dim_reset_activity();
+        return;
+    }
     dim_reset_activity();
     main_loop_request_lvgl_priority(20);
     bool armed = (argus_mode_current() != ArgusMode::Offense)
@@ -2484,6 +4587,7 @@ static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
 void loop()
 {
     instance.loop(); // required for power button and PMU event dispatch
+    find_pump();      // act on a pending phone->watch "find" request (LVGL thread)
 
 #ifdef SCREENSHOT_AUTO
     // Fire once, ~6 s after boot, so the UI and SD mount have settled.
@@ -2626,13 +4730,21 @@ void loop()
             if (lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER) {
                 lv_indev_state_t state = lv_indev_get_state(indev);
                 if (state == LV_INDEV_STATE_PRESSED) {
-                    dim_reset_activity();
-                    // Keep LVGL on its fast cadence while the user is interacting
-                    // so the next taps (buttons, Exit Offense, etc.) aren't starved
-                    // by the heavy per-iteration background work.
-                    main_loop_request_lvgl_priority(20);
-                    if (clock_vibrate && prev_touch == LV_INDEV_STATE_RELEASED)
-                        instance.vibrator();
+                    // While dimmed-but-on, the swipe-to-wake gate owns the touch:
+                    // a stray tap must not wake or click through. The gate wakes
+                    // on a swipe up (and buttons wake directly). The fully-off
+                    // saver still wakes on any tap, so it is not gated here.
+                    if (s_is_dimmed && !s_display_off) {
+                        // gated - do nothing; on_dim_gate_* handles hint + wake
+                    } else {
+                        dim_reset_activity();
+                        // Keep LVGL on its fast cadence while the user is interacting
+                        // so the next taps (buttons, Exit Offense, etc.) aren't starved
+                        // by the heavy per-iteration background work.
+                        main_loop_request_lvgl_priority(20);
+                        if (clock_vibrate && prev_touch == LV_INDEV_STATE_RELEASED)
+                            instance.vibrator();
+                    }
                 }
                 prev_touch = state;
                 break;
@@ -2642,11 +4754,36 @@ void loop()
     }
 
     // Dim timer: check every loop iteration for low latency
-    if (s_dim_timeout_ms > 0 && !s_is_dimmed) {
+    // Never dim under a notification banner: it is boosted on purpose so the
+    // message is readable, and dims back on its own once it is dismissed.
+    // Also hold off dimming briefly after the charger is plugged in, so the
+    // charge indicator is visible for at least CHARGE_WAKE_MS.
+    if (s_dim_timeout_ms > 0 && !s_is_dimmed && !notify_popup_is_showing() &&
+        millis() >= s_charge_wake_until_ms) {
         if (millis() - s_last_activity_ms >= s_dim_timeout_ms) {
-            s_is_dimmed = true;
+            s_is_dimmed    = true;
+            s_dimmed_at_ms = millis();
             instance.setBrightness(s_dim_brightness);
+            // After inactivity, fall back to the home clock (still dimmed) so the
+            // time is glanceable again - unless a modal/overlay is up that must
+            // not be torn down under the user.
+            if (lv_screen_active() != clock_screen &&
+                !pin_pad_screen_is_active() && !notifications_screen_is_active() &&
+                s_low_mem_dialog == nullptr && !alarm_is_ringing()) {
+                clock_screen_show();
+            }
+            // Raise the swipe-to-wake gate so a stray touch cannot wake it.
+            // It starts unarmed: for the first 15 s a tap still wakes.
+            show_dim_gate();
         }
+    }
+
+    // Arm swipe-up-to-wake 15 s after dimming (not at the same instant): until
+    // then a tap wakes; once armed, a tap only reveals the frosted hint and a
+    // deliberate swipe up is required.
+    if (s_is_dimmed && !s_display_off && s_dim_gate && !s_dim_gate_armed &&
+        millis() - s_dimmed_at_ms >= DIM_GATE_ARM_MS) {
+        s_dim_gate_armed = true;
     }
 
     // 1Hz block also skipped during LVGL priority window - it contains
@@ -2659,19 +4796,37 @@ void loop()
         update_clock();
         argus_mode_indicator_refresh();   // Offense border flips to threat-red live
         alarm_tick();              // fires the alarm at the set time
-        layout_battery_indicators(); // pack alarm/stopwatch/timer icons R→L
-        update_battery();
-        update_lora_indicator();
-        update_bt_indicator();
-        update_wifi_indicator();
-        update_sd_indicator();
-        update_nfc_indicator();
-        update_scan_indicators();
+        charge_state_tick();       // feed bat_charge on every face + wake on plug-in
+        // The classic analog/digital face's status icons and battery widget are
+        // only on screen when that face is showing on the (awake) clock screen.
+        // Under the Dot face they sit hidden beneath dot_container, and on any
+        // other screen or with the panel off they aren't drawn at all — so
+        // restyling them every second is pure waste. dot_face_tick() paints the
+        // Dot's own equivalents; the classic ones repaint on return via
+        // screen_return_to()/the face switch.
+        bool classic_face_visible = (lv_screen_active() == clock_screen
+                                     && clock_face != FACE_DOT && !s_display_off);
+        if (classic_face_visible) {
+            layout_battery_indicators(); // pack alarm/stopwatch/timer icons R→L
+            update_battery();
+            update_lora_indicator();
+            update_bt_indicator();
+            update_wifi_indicator();
+            update_sd_indicator();
+            update_nfc_indicator();
+            update_scan_indicators();
+        }
         if (!usb_sd_is_running())   // host owns the SD card while mounted
             wardriver_bg_tick();
-        update_wardriver_indicator();
+        if (classic_face_visible)
+            update_wardriver_indicator();
+        dot_face_tick();   // refresh the Dot face's own status row when active
+        display_power_tick();   // auto brightness from the sun + battery saver
+        health_tick_1hz();      // drain BLE health packets + 2-min HR compile
         if (wardriver_screen_is_active())
             wardriver_screen_update();
+        if (health_screen_is_active())
+            health_screen_update();
         if (configuration_screen_is_active())
             configuration_screen_update();
         low_mem_check();   // warn (once/min) if internal RAM is running low
@@ -2686,6 +4841,25 @@ void loop()
         ble_detect_pipeline_tick(millis() / 1000);
 #endif
     }
+    // Core-clock policy in one place: run 80 MHz whenever the panel is dim or
+    // off (nothing is animating that needs 240 MHz), and full clock the instant
+    // it is bright again. Idempotent; the wake path also restores 240 MHz right
+    // away for a snappy first frame. Placed before the panel-off early return so
+    // it still applies in the saver state.
+    cpu_set_low(s_display_off || s_is_dimmed);
+
+    // Panel off (battery saver): the LVGL refresh timer is paused, so the extra
+    // render passes below would do nothing. Run one cheap handler pass to keep
+    // any pending timers serviced, then idle ~40 ms. The core is already at
+    // 80 MHz here; the long delay lets it sit mostly asleep between the cheap
+    // per-loop polls (motion wake, BOOT button, touch) which still run at ~25 Hz
+    // — fast enough that a wrist-raise or tap wakes the screen without lag.
+    if (s_display_off) {
+        lv_task_handler();
+        delay(40);
+        return;
+    }
+
     // Multiple LVGL passes per loop iteration. Each lv_task_handler call
     // renders at most one partial-refresh tile, and the watch panel needs
     // ~6 tiles for a full screen. When wardriver is dumping detector hits
@@ -2696,5 +4870,15 @@ void loop()
     delay(2);
     lv_task_handler();
     delay(2);
-    lv_task_handler();
+    uint32_t idle_ms = lv_task_handler();
+
+    // When the UI is static - no touch down, no running animation, and the next
+    // LVGL timer is not imminent - let the core idle instead of spinning the loop
+    // at 240 MHz. Capped at 30 ms so motion-wake / BOOT-button / touch polling
+    // stays ~30 Hz (a wrist-raise or tap still wakes without lag; the BOOT ISR
+    // latch recovers any tap shorter than the poll gap). During active use idle_ms
+    // is small, so this is a no-op and responsiveness is unchanged.
+    if (!touch_is_down() && lv_anim_count_running() == 0 && idle_ms > 8) {
+        delay(idle_ms > 30 ? 30 : idle_ms);
+    }
 }

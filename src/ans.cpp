@@ -2,6 +2,7 @@
 #include "ans.h"
 #include "notify/notify_center.h"
 #include "notify/notify_log.h"
+#include "health_state.h"   // health packet ingest (Phase 2.2)
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -22,10 +23,24 @@ constexpr uint16_t UUID_SUP_NEW_CAT  = 0x2A47;   // read: supported categories
 constexpr uint16_t UUID_DIS          = 0x180A;   // Device Information Service
 constexpr uint16_t UUID_FW_REV       = 0x2A26;   // Firmware Revision String
 
+// Vendor health-input characteristic (Phase 2.2). A phone-side companion app
+// reading Gadgetbridge's Amazfit data writes a compact health packet here; see
+// docs/health/README.md for the wire format. It sits on the ANS service (0x1811)
+// so it is always discovered alongside notifications. 128-bit custom UUID so it
+// never collides with an assigned number.
+constexpr char UUID_HEALTH_IN[] = "a2470002-5a4b-4d55-9a3e-1c2d3e4f5a6b";
+
+// Find channel (Find-My-Watch / Find-My-Phone). Also on the ANS service, same
+// reasoning as the health characteristic. Phone writes here to ring the watch;
+// the watch notifies here to ring the phone.
+constexpr char UUID_FIND[] = "a2470003-5a4b-4d55-9a3e-1c2d3e4f5a6b";
+
 bool                s_running   = false;
 volatile bool       s_connected = false;
 BLEServer          *s_server    = nullptr;
 uint32_t            s_uid_seq   = 1;   // synthetic ids (ANS carries no stable uid)
+BLECharacteristic  *s_find_char = nullptr;             // for watch -> phone notify
+void              (*s_find_handler)(uint8_t) = nullptr; // phone -> watch write
 
 bool wifi_active() { return WiFi.getMode() != WIFI_MODE_NULL; }
 
@@ -94,6 +109,26 @@ class NewAlertCb : public BLECharacteristicCallbacks {
 };
 NewAlertCb s_new_alert_cb;
 
+// Health packet writes. Runs in the BLE host task; health_ingest_packet() only
+// copies into a mailbox, so the model itself stays on the loop.
+class HealthInCb : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *c) override {
+        std::string v = c->getValue();
+        health_ingest_packet((const uint8_t *)v.data(), v.size());
+    }
+};
+HealthInCb s_health_in_cb;
+
+// Find writes from the phone: a 1-byte op (0x01 start ringing the watch, 0x00
+// stop). Hand it to the registered handler, which runs the on-watch alert.
+class FindCb : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *c) override {
+        std::string v = c->getValue();
+        if (!v.empty() && s_find_handler) s_find_handler((uint8_t)v[0]);
+    }
+};
+FindCb s_find_cb;
+
 class ServerCb : public BLEServerCallbacks {
     void onConnect(BLEServer *) override { s_connected = true; }
     void onDisconnect(BLEServer *) override {
@@ -131,6 +166,26 @@ bool start()
         BLEUUID(UUID_SUP_NEW_CAT), BLECharacteristic::PROPERTY_READ);
     uint8_t all_cats[2] = { 0xFF, 0x03 };   // all defined categories supported
     sup->setValue(all_cats, sizeof(all_cats));
+
+    // Health-input characteristic (Phase 2.2): the phone relay writes health
+    // packets here. It lives ON the ANS service rather than a separate 3rd
+    // service - adding a third GATT service did not register reliably on this
+    // BLE stack, so the app found no health service. Gadgetbridge ignores this
+    // extra characteristic; only our companion app writes to it.
+    BLECharacteristic *health_in = ans->createCharacteristic(
+        BLEUUID(UUID_HEALTH_IN),
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+    health_in->setCallbacks(&s_health_in_cb);
+
+    // Find characteristic (Find-My-Watch / Find-My-Phone). WRITE for phone->watch
+    // ring, NOTIFY (with a CCCD) for watch->phone ring.
+    s_find_char = ans->createCharacteristic(
+        BLEUUID(UUID_FIND),
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR |
+            BLECharacteristic::PROPERTY_NOTIFY);
+    s_find_char->addDescriptor(new BLE2902());
+    s_find_char->setCallbacks(&s_find_cb);
+
     ans->start();
 
     // Minimal Device Information Service; Gadgetbridge's InfiniTime coordinator
@@ -166,10 +221,21 @@ void stop()
     s_running   = false;
     s_connected = false;
     BLEDevice::deinit(false);
-    s_server = nullptr;
+    s_server    = nullptr;
+    s_find_char = nullptr;   // freed with the stack; do not notify after this
 }
 
 bool is_running()   { return s_running;   }
 bool is_connected() { return s_connected; }
+
+void set_find_handler(void (*fn)(uint8_t)) { s_find_handler = fn; }
+
+bool find_notify(uint8_t op)
+{
+    if (!s_running || !s_connected || !s_find_char) return false;
+    s_find_char->setValue(&op, 1);
+    s_find_char->notify();
+    return true;
+}
 
 }  // namespace ans

@@ -15,6 +15,8 @@
 // not contend for the radio.
 #pragma once
 
+#include <cstdint>   // uint8_t in the find API below
+
 namespace ans {
 
 // Bring up BLE (guarded against WiFi), expose the Alert Notification Service, and
@@ -29,5 +31,18 @@ bool is_running();
 
 // True once a phone (Gadgetbridge) has connected.
 bool is_connected();
+
+// --- Find My Watch / Find My Phone (companion app only) -----------------------
+// A small bidirectional "find" channel on a dedicated characteristic. The phone
+// WRITES an op to ring the watch; the watch NOTIFIES an op to ring the phone.
+// Op 0x01 = start ringing, 0x00 = stop. Gadgetbridge ignores this characteristic;
+// only the DotOS companion app uses it.
+
+// Register the handler run when the phone writes a find op (0x01 start / 0x00
+// stop). Set once at boot; safe to set before start().
+void set_find_handler(void (*fn)(uint8_t op));
+
+// Notify the phone with a find op. Returns false if no phone is connected.
+bool find_notify(uint8_t op);
 
 }  // namespace ans
