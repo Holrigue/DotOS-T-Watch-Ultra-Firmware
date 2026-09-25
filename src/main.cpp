@@ -37,6 +37,7 @@
 #include <Preferences.h>
 #include "detector_toggle.h" // shared detector on/off + NVS persistence (Dot badges, Tools)
 #include "health_state.h"    // wearer health metrics (mirrored from Gadgetbridge)
+#include "dot_tiles.h"       // two user-selectable data slots on the Dot face
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -157,6 +158,8 @@ static void update_clock();
 static void update_dot_face(const struct tm *t);
 static void build_dot_status_row(lv_obj_t *parent);
 static void build_dot_usb(lv_obj_t *parent);
+static void build_dot_tiles(lv_obj_t *parent);
+static void update_dot_tiles(bool usb_present);
 static void build_dot_bottom(lv_obj_t *parent);
 static void build_dot_badges(lv_obj_t *parent);
 static void update_dot_status();
@@ -742,6 +745,7 @@ static void build_dot_face(lv_obj_t *screen)
 
     build_dot_status_row(dot_container);
     build_dot_usb(dot_container);
+    build_dot_tiles(dot_container);
     build_dot_accent_date(dot_container);
     build_dot_bottom(dot_container);
     build_dot_badges(dot_container);
@@ -1015,6 +1019,16 @@ static void dot_usb_set_all(lv_color_t c)
         lv_obj_set_style_bg_color(dot_usb_dots[i], c, LV_PART_MAIN);
 }
 
+// Show/hide the whole dot line. When unplugged the row belongs to the data
+// tiles, so the dots are hidden rather than left as an idle gray strip.
+static void dot_usb_set_dots_hidden(bool hidden)
+{
+    for (int i = 0; i < DOT_USB_N; i++) {
+        if (hidden) lv_obj_add_flag(dot_usb_dots[i], LV_OBJ_FLAG_HIDDEN);
+        else        lv_obj_clear_flag(dot_usb_dots[i], LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 // Wave frame: each dot's phase lags its left neighbour by DOT_USB_STAGGER.
 // Red weight follows a raised cosine, so 0 = white, peak = full red.
 static void dot_usb_anim_cb(lv_timer_t *t)
@@ -1075,6 +1089,12 @@ static void update_dot_usb()
 
     bool charge = bat_charge.state() != ChargeState::Discharging;
     bool data   = usb_sd_is_running();
+    bool usb    = charge || data;
+
+    // Unplugged: hand the row to the two data tiles and hide the dot line.
+    // Plugged: the charge/data wave owns the row and the tiles step aside.
+    dot_usb_set_dots_hidden(!usb);
+    update_dot_tiles(usb);
 
     // Label layout only changes on a state edge.
     static int last = -1;
@@ -1097,13 +1117,307 @@ static void update_dot_usb()
         }
     }
 
-    if (charge || data) {
+    if (usb) {
         if (!dot_usb_live) {
             lv_timer_resume(dot_usb_timer);
             dot_usb_live = true;
         }
     } else {
         dot_usb_stop();
+    }
+}
+
+// ---- Customizable data tiles (two slots on the y=130 row) -------------------
+//
+// When the watch is unplugged the USB dot line has nothing to show, so it is
+// replaced by two tiles the wearer picks (tap a slot -> choose an indicator;
+// long-press to re-pick). Choices persist in NVS (dot_tiles.*). One indicator is
+// a button (Meshtastic) whose tap opens the chat; the rest are read-outs mirrored
+// from the health model. Plugged back in, the charge/data wave reclaims the row.
+static lv_obj_t *dot_tile_hit[2] = { nullptr, nullptr };
+static lv_obj_t *dot_tile_tag[2] = { nullptr, nullptr };
+static lv_obj_t *dot_tile_val[2] = { nullptr, nullptr };
+static constexpr int DOT_TILE_CX[2] = { 104, 296 };   // left / right group centres
+
+// Kind -> short tag (shown above the value) + menu label (shown in the picker).
+struct DotTileDef { DotTileKind kind; const char *tag; const char *menu; };
+static const DotTileDef kDotTileDefs[] = {
+    { DOT_TILE_SLEEP,     "SLEEP", "Sleep score"    },
+    { DOT_TILE_STEP_GOAL, "GOAL",  "Step goal"      },
+    { DOT_TILE_STEPS,     "STEPS", "Daily steps"    },
+    { DOT_TILE_BPM,       "BPM",   "BPM (high/low)" },
+    { DOT_TILE_MESH,      "LoRa",  "Meshtastic chat"},
+};
+static constexpr int DOT_TILE_DEF_N = sizeof(kDotTileDefs) / sizeof(kDotTileDefs[0]);
+
+static void open_tile_picker(int slot);
+
+static void on_dot_tile_short(lv_event_t *e)
+{
+    int s = (int)(intptr_t)lv_event_get_user_data(e);
+    if (s < 0 || s > 1) return;
+    // A configured Meshtastic button opens the chat; everything else (empty or a
+    // read-out tile) opens the picker so a plain tap can (re)choose it.
+    if (dot_tiles_get(s) == DOT_TILE_MESH) meshtastic_screen_show();
+    else                                   open_tile_picker(s);
+}
+
+static void on_dot_tile_long(lv_event_t *e)
+{
+    int s = (int)(intptr_t)lv_event_get_user_data(e);
+    if (s >= 0 && s <= 1) open_tile_picker(s);   // long-press always re-picks
+}
+
+static void build_dot_tiles(lv_obj_t *parent)
+{
+    for (int s = 0; s < 2; s++) {
+        lv_obj_t *hit = lv_obj_create(parent);
+        lv_obj_remove_style_all(hit);
+        lv_obj_set_size(hit, 108, 40);
+        lv_obj_set_pos(hit, DOT_TILE_CX[s] - 54, DOT_USB_Y - 20);
+        lv_obj_clear_flag(hit, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(hit, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(hit, LV_OBJ_FLAG_HIDDEN);   // shown by update_dot_tiles when unplugged
+        lv_obj_add_event_cb(hit, on_dot_tile_short, LV_EVENT_SHORT_CLICKED, (void *)(intptr_t)s);
+        lv_obj_add_event_cb(hit, on_dot_tile_long,  LV_EVENT_LONG_PRESSED,  (void *)(intptr_t)s);
+
+        lv_obj_t *tag = lv_label_create(hit);
+        lv_obj_set_style_text_font(tag, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
+        lv_obj_set_style_text_letter_space(tag, 1, LV_PART_MAIN);
+        lv_label_set_text(tag, "");
+        lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 1);
+        lv_obj_clear_flag(tag, LV_OBJ_FLAG_CLICKABLE);
+
+        lv_obj_t *val = lv_label_create(hit);
+        lv_obj_set_style_text_font(val, &font_argus_mono_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
+        lv_label_set_text(val, "");
+        lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -1);
+        lv_obj_clear_flag(val, LV_OBJ_FLAG_CLICKABLE);
+
+        dot_tile_hit[s] = hit;
+        dot_tile_tag[s] = tag;
+        dot_tile_val[s] = val;
+    }
+}
+
+// Compact step count: 842, 8.3k, 12k.
+static void dot_tile_fmt_steps(char *buf, size_t n, uint32_t steps)
+{
+    if (steps >= 10000)     snprintf(buf, n, "%luk", (unsigned long)(steps / 1000));
+    else if (steps >= 1000) snprintf(buf, n, "%lu.%luk",
+                                     (unsigned long)(steps / 1000), (unsigned long)((steps % 1000) / 100));
+    else                    snprintf(buf, n, "%lu", (unsigned long)steps);
+}
+
+// Paint one slot from its current kind. Values gray out when stale or missing.
+static void dot_tile_render(int s)
+{
+    lv_obj_t *tag = dot_tile_tag[s];
+    lv_obj_t *val = dot_tile_val[s];
+    if (!tag || !val) return;
+
+    DotTileKind k = dot_tiles_get(s);
+
+    // Empty slot: a dim "+" invite so it reads as configurable.
+    if (k == DOT_TILE_NONE) {
+        lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
+        lv_label_set_text(tag, "choose");
+        lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 2);
+        lv_obj_set_style_text_font(val, &font_argus_label_20, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, dot_gray(), LV_PART_MAIN);
+        lv_label_set_text(val, "+");
+        lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -2);
+        return;
+    }
+
+    // Meshtastic button: a static envelope glyph, always "live" (white).
+    if (k == DOT_TILE_MESH) {
+        lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
+        lv_label_set_text(tag, "LoRa");
+        lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 1);
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
+        lv_label_set_text(val, LV_SYMBOL_ENVELOPE);
+        lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -1);
+        return;
+    }
+
+    // Read-out tiles from the health model.
+    health::HealthData &h = health_model();
+    uint32_t now = millis();
+    const char *tagtxt = "";
+    char buf[16] = "--";
+    lv_color_t col = dot_gray();   // default: no data -> gray "--"
+
+    switch (k) {
+    case DOT_TILE_SLEEP:
+        tagtxt = "SLEEP";
+        if (h.has_sleep_score()) {
+            snprintf(buf, sizeof buf, "%u", h.sleep_score());
+            col = h.sleep_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    case DOT_TILE_STEP_GOAL:
+        tagtxt = "GOAL";
+        if (h.step_goal() > 0) {
+            snprintf(buf, sizeof buf, "%u%%", h.step_progress_pct());
+            col = h.steps_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    case DOT_TILE_STEPS:
+        tagtxt = "STEPS";
+        if (h.has_steps()) {
+            dot_tile_fmt_steps(buf, sizeof buf, h.steps());
+            col = h.steps_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    case DOT_TILE_BPM:
+        tagtxt = "BPM";
+        if (h.has_hr_range()) {
+            snprintf(buf, sizeof buf, "%u/%u", h.hr_high(), h.hr_low());
+            col = h.hr_range_stale(now) ? dot_gray() : dot_white();
+        } else if (h.has_hr()) {
+            snprintf(buf, sizeof buf, "%u", h.hr());
+            col = h.hr_stale(now) ? dot_gray() : dot_white();
+        }
+        break;
+    default:
+        break;
+    }
+
+    lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
+    lv_label_set_text(tag, tagtxt);
+    lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 1);
+    lv_obj_set_style_text_font(val, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(val, col, LV_PART_MAIN);
+    lv_label_set_text(val, buf);
+    lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -1);
+}
+
+static void update_dot_tiles(bool usb_present)
+{
+    for (int s = 0; s < 2; s++) {
+        if (!dot_tile_hit[s]) continue;
+        if (usb_present) {
+            lv_obj_add_flag(dot_tile_hit[s], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(dot_tile_hit[s], LV_OBJ_FLAG_HIDDEN);
+            dot_tile_render(s);
+        }
+    }
+}
+
+// ---- Tile picker (tap a slot) -----------------------------------------------
+static lv_obj_t *s_tile_picker = nullptr;
+
+static void close_tile_picker()
+{
+    if (s_tile_picker) { lv_obj_delete_async(s_tile_picker); s_tile_picker = nullptr; }
+}
+
+static void on_tile_picker_scrim(lv_event_t *e)
+{
+    // Only a tap on the scrim itself (outside the card) closes without a change.
+    if (lv_event_get_target(e) == lv_event_get_current_target(e)) close_tile_picker();
+}
+
+static void on_tile_picker_choice(lv_event_t *e)
+{
+    int packed = (int)(intptr_t)lv_event_get_user_data(e);
+    int slot = (packed >> 8) & 0xFF;
+    DotTileKind kind = (DotTileKind)(packed & 0xFF);
+    dot_tiles_set(slot, kind);
+    close_tile_picker();
+    update_dot_tiles(false);   // repaint now (the picker is only reachable unplugged)
+}
+
+static void open_tile_picker(int slot)
+{
+    if (s_tile_picker || slot < 0 || slot > 1) return;
+
+    DotTileKind current = dot_tiles_get(slot);
+    DotTileKind other   = dot_tiles_get(slot ^ 1);
+
+    // Offer every indicator except the one the OTHER slot already holds (unless
+    // it is this slot's own current pick, so re-opening shows it selected).
+    DotTileKind rows[DOT_TILE_DEF_N];
+    int nrows = 0;
+    for (int i = 0; i < DOT_TILE_DEF_N; i++) {
+        DotTileKind k = kDotTileDefs[i].kind;
+        if (k == other && k != current) continue;
+        rows[nrows++] = k;
+    }
+    bool with_clear = (current != DOT_TILE_NONE);
+    int total = nrows + (with_clear ? 1 : 0);
+
+    // Dark scrim over everything; tap outside the card to dismiss.
+    s_tile_picker = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_tile_picker);
+    lv_obj_set_size(s_tile_picker, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_tile_picker, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_tile_picker, 160, LV_PART_MAIN);
+    lv_obj_add_flag(s_tile_picker, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(s_tile_picker, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_tile_picker, on_tile_picker_scrim, LV_EVENT_CLICKED, NULL);
+
+    int card_h = 12 + 30 + total * 46 + 12;
+    lv_obj_t *card = lv_obj_create(s_tile_picker);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, 264, card_h);
+    lv_obj_center(card);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);   // swallow taps so they don't dismiss
+    lv_obj_set_style_radius(card, 22, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(card, dot_bg(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(card, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(card, 60, LV_PART_MAIN);
+    lv_obj_set_style_border_width(card, 1, LV_PART_MAIN);
+
+    lv_obj_t *title = lv_label_create(card);
+    lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, dot_gray(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(title, 2, LV_PART_MAIN);
+    lv_label_set_text(title, slot == 0 ? "LEFT SLOT" : "RIGHT SLOT");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
+
+    int y = 42;
+    for (int i = 0; i < total; i++) {
+        bool clear_row = (with_clear && i == nrows);
+        DotTileKind k  = clear_row ? DOT_TILE_NONE : rows[i];
+        const char *label = "Clear slot";
+        if (!clear_row)
+            for (int d = 0; d < DOT_TILE_DEF_N; d++)
+                if (kDotTileDefs[d].kind == k) { label = kDotTileDefs[d].menu; break; }
+        bool selected = (k == current);
+
+        lv_obj_t *row = lv_obj_create(card);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_size(row, 240, 40);
+        lv_obj_set_pos(row, 12, y);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_radius(row, 12, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(row, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(row, selected ? 34 : 12, LV_PART_MAIN);
+        if (selected) {
+            lv_obj_set_style_border_color(row, dot_red(), LV_PART_MAIN);   // on-palette accent
+            lv_obj_set_style_border_opa(row, 220, LV_PART_MAIN);
+            lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+        }
+        lv_obj_add_event_cb(row, on_tile_picker_choice, LV_EVENT_CLICKED,
+                            (void *)(intptr_t)((slot << 8) | (int)k));
+
+        lv_obj_t *rl = lv_label_create(row);
+        lv_obj_set_style_text_font(rl, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(rl, clear_row ? dot_gray() : lv_color_white(), LV_PART_MAIN);
+        lv_label_set_text(rl, label);
+        lv_obj_align(rl, LV_ALIGN_LEFT_MID, 14, 0);
+        lv_obj_clear_flag(rl, LV_OBJ_FLAG_CLICKABLE);
+
+        y += 46;
     }
 }
 
@@ -1363,6 +1677,7 @@ static void dot_face_tick()
     if (clock_face != FACE_DOT || !dot_container
         || lv_screen_active() != clock_screen) {
         dot_usb_stop();
+        close_tile_picker();   // never leave the picker up after leaving the face
         return;
     }
     update_dot_status();
@@ -2257,12 +2572,22 @@ static void display_on()
 // bypass this gate, so there is always a reliable way back even if a swipe is
 // missed.
 static void dim_reset_activity();   // forward: the gate wakes through it
-static lv_obj_t *s_dim_gate = nullptr;
-static lv_obj_t *s_dim_hint = nullptr;
+static lv_obj_t *s_dim_gate  = nullptr;
+static lv_obj_t *s_dim_card  = nullptr;   // frosted "glass" hint card (revealed on touch)
+static lv_obj_t *s_dim_arrow = nullptr;   // up chevron inside the card
+static bool      s_dim_gate_armed = false;   // false for the first 15 s: a tap just wakes
+
+// Swipe-up-to-wake arms this long after the screen dims, not at the same instant:
+// the first glance can still wake with a tap; once the watch is clearly set down a
+// deliberate swipe up is required (saves battery, avoids pocket wakes).
+static constexpr uint32_t DIM_GATE_ARM_MS = 15000;
 
 static void hide_dim_gate()
 {
-    if (s_dim_gate) { lv_obj_delete_async(s_dim_gate); s_dim_gate = nullptr; s_dim_hint = nullptr; }
+    if (s_dim_gate) { lv_obj_delete_async(s_dim_gate); s_dim_gate = nullptr; }
+    s_dim_card  = nullptr;
+    s_dim_arrow = nullptr;
+    s_dim_gate_armed = false;
 }
 
 static void on_dim_gate_gesture(lv_event_t *e)
@@ -2271,29 +2596,100 @@ static void on_dim_gate_gesture(lv_event_t *e)
     if (indev && lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) dim_reset_activity();
 }
 
+// lv_anim exec callbacks: gentle vertical drift of the chevron, and a fade-in of
+// the whole card. Kept as free functions so no capturing lambda is needed.
+static void dim_arrow_drift(void *o, int32_t v)
+{
+    lv_obj_set_style_translate_y((lv_obj_t *)o, v, LV_PART_MAIN);
+}
+static void dim_card_fade(void *o, int32_t v)
+{
+    lv_obj_set_style_opa((lv_obj_t *)o, (lv_opa_t)v, LV_PART_MAIN);
+}
+
 static void on_dim_gate_pressed(lv_event_t *)
 {
-    if (s_dim_hint) lv_obj_clear_flag(s_dim_hint, LV_OBJ_FLAG_HIDDEN);
+    // First 15 s after dimming: a tap simply wakes (swipe-up gate not armed yet).
+    if (!s_dim_gate_armed) { dim_reset_activity(); return; }
+
+    // Armed: reveal the frosted hint once and let it breathe; only a swipe up
+    // (on_dim_gate_gesture) wakes from here, and hardware buttons always do.
+    if (!s_dim_card || !lv_obj_has_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN)) return;
+    lv_obj_set_style_opa(s_dim_card, LV_OPA_TRANSP, LV_PART_MAIN);   // start clear, fade in
+    lv_obj_clear_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN);
+
+    lv_anim_t fade;
+    lv_anim_init(&fade);
+    lv_anim_set_var(&fade, s_dim_card);
+    lv_anim_set_values(&fade, 0, 255);
+    lv_anim_set_time(&fade, 260);
+    lv_anim_set_exec_cb(&fade, dim_card_fade);
+    lv_anim_start(&fade);
+
+    if (s_dim_arrow) {
+        lv_anim_t rise;
+        lv_anim_init(&rise);
+        lv_anim_set_var(&rise, s_dim_arrow);
+        lv_anim_set_values(&rise, 5, -6);
+        lv_anim_set_time(&rise, 900);
+        lv_anim_set_playback_time(&rise, 900);
+        lv_anim_set_repeat_count(&rise, LV_ANIM_REPEAT_INFINITE);
+        lv_anim_set_exec_cb(&rise, dim_arrow_drift);
+        lv_anim_start(&rise);
+    }
 }
 
 static void show_dim_gate()
 {
     if (s_dim_gate) return;
+    s_dim_gate_armed = false;
+
+    // Full-screen transparent gate: captures every touch so a stray tap on the
+    // dimmed screen can neither wake the watch nor click the UI behind it. Until
+    // it arms (15 s) a tap wakes; after, only a swipe up does.
     s_dim_gate = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(s_dim_gate);
     lv_obj_set_size(s_dim_gate, LV_PCT(100), LV_PCT(100));
     lv_obj_add_flag(s_dim_gate, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(s_dim_gate, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_clear_flag(s_dim_gate, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_dim_gate, on_dim_gate_gesture, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(s_dim_gate, on_dim_gate_pressed, LV_EVENT_PRESSED, NULL);
 
-    s_dim_hint = lv_label_create(s_dim_gate);
-    lv_obj_set_style_text_font(s_dim_hint, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(s_dim_hint, lv_color_hex(0xB0B0B0), LV_PART_MAIN);
-    lv_obj_set_style_text_letter_space(s_dim_hint, 2, LV_PART_MAIN);
-    lv_label_set_text(s_dim_hint, "swipe up to wake");
-    lv_obj_align(s_dim_hint, LV_ALIGN_BOTTOM_MID, 0, -70);
-    lv_obj_add_flag(s_dim_hint, LV_OBJ_FLAG_HIDDEN);   // revealed on first touch
+    // Frosted "glass" card, centred, hidden until the first touch (once armed). A
+    // translucent light fill over the dark dimmed screen reads as frosted glass
+    // and lifts the words off the background so they stay legible. (A true
+    // framebuffer blur is too costly on this software-rendered display, so this is
+    // the cheap stand-in for the "water" look.)
+    s_dim_card = lv_obj_create(s_dim_gate);
+    lv_obj_remove_style_all(s_dim_card);
+    lv_obj_set_size(s_dim_card, 300, 132);
+    lv_obj_center(s_dim_card);
+    lv_obj_clear_flag(s_dim_card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(s_dim_card, LV_OBJ_FLAG_CLICKABLE);   // taps fall through to the gate
+    lv_obj_set_style_radius(s_dim_card, 28, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_dim_card, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_dim_card, 28, LV_PART_MAIN);          // ~11% frosted
+    lv_obj_set_style_border_color(s_dim_card, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(s_dim_card, 90, LV_PART_MAIN);
+    lv_obj_set_style_border_width(s_dim_card, 1, LV_PART_MAIN);
+    lv_obj_set_style_shadow_color(s_dim_card, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_shadow_opa(s_dim_card, 110, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(s_dim_card, 24, LV_PART_MAIN);
+    lv_obj_add_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN);
+
+    s_dim_arrow = lv_label_create(s_dim_card);
+    lv_obj_set_style_text_font(s_dim_arrow, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(s_dim_arrow, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(s_dim_arrow, LV_SYMBOL_UP);
+    lv_obj_align(s_dim_arrow, LV_ALIGN_TOP_MID, 0, 14);
+
+    lv_obj_t *txt = lv_label_create(s_dim_card);
+    lv_obj_set_style_text_font(txt, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(txt, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(txt, 2, LV_PART_MAIN);
+    lv_label_set_text(txt, "swipe up to wake");
+    lv_obj_align(txt, LV_ALIGN_BOTTOM_MID, 0, -20);
 }
 
 bool clock_screen_display_is_off() { return s_display_off; }
@@ -3459,6 +3855,7 @@ void setup()
     // until the phone relay refreshes them).
     health_boot_restore();
     haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
+    dot_tiles_boot_restore();   // restore the two Dot-face data slot choices
     coex_log_heap("setup-done");
 }
 
@@ -4038,8 +4435,17 @@ void loop()
                 clock_screen_show();
             }
             // Raise the swipe-to-wake gate so a stray touch cannot wake it.
+            // It starts unarmed: for the first 15 s a tap still wakes.
             show_dim_gate();
         }
+    }
+
+    // Arm swipe-up-to-wake 15 s after dimming (not at the same instant): until
+    // then a tap wakes; once armed, a tap only reveals the frosted hint and a
+    // deliberate swipe up is required.
+    if (s_is_dimmed && !s_display_off && s_dim_gate && !s_dim_gate_armed &&
+        millis() - s_dimmed_at_ms >= DIM_GATE_ARM_MS) {
+        s_dim_gate_armed = true;
     }
 
     // 1Hz block also skipped during LVGL priority window - it contains

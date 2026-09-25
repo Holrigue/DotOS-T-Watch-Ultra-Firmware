@@ -17,6 +17,13 @@
 // Defined in main.cpp.
 void screen_return_to(lv_obj_t *scr);
 
+// Nothing-OS palette, matching the Dot watchface: pure white, neutral greys,
+// black, and a single red accent. Kept local so this shade reads like the face
+// (no steel-blue/green/orange), independent of the warmer ARGUS theme tokens.
+static const lv_color_t NOTHING_WHITE   = lv_color_hex(0xFFFFFF);
+static const lv_color_t NOTHING_GREY    = lv_color_hex(0x9A9A9A);   // secondary text
+static const lv_color_t NOTHING_RED     = lv_color_hex(0xE02020);   // destructive / warning (face red)
+
 static lv_obj_t *screen;
 static lv_obj_t *status_label;
 static lv_obj_t *platform_btn;
@@ -70,10 +77,10 @@ static void update_status()
     } else if (device_mode_platform() == NotifyPlatform::iOS ? ancs::is_connected()
                                                              : ans::is_connected()) {
         txt = "Phone connected";
-        col = lv_color_make(0x33, 0xCC, 0x66);
+        col = NOTHING_WHITE;
     } else {
         txt = "Waiting for phone to pair...";
-        col = argus_base_accent();
+        col = NOTHING_GREY;
     }
     lv_label_set_text(status_label, txt);
     lv_obj_set_style_text_color(status_label, col, LV_PART_MAIN);
@@ -91,7 +98,7 @@ static void update_status()
         locked ? lv_color_make(0x22, 0x22, 0x22) : lv_color_make(0x33, 0x33, 0x33),
         LV_PART_MAIN);
     lv_obj_set_style_text_color(platform_label,
-        locked ? ARGUS_TEXT_DIM : ARGUS_TEXT, LV_PART_MAIN);
+        locked ? NOTHING_GREY : NOTHING_WHITE, LV_PART_MAIN);
 }
 
 // ---- notification list -----------------------------------------------------
@@ -113,19 +120,19 @@ void notifications_add_card(lv_obj_t *parent, const notify::Notification *n)
     if (n->app[0]) {
         lv_obj_t *app = lv_label_create(card);
         lv_obj_set_style_text_font(app, &font_argus_label_14, LV_PART_MAIN);
-        lv_obj_set_style_text_color(app, argus_base_accent(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(app, NOTHING_GREY, LV_PART_MAIN);
         lv_label_set_text(app, n->app);
     }
     if (n->title[0]) {
         lv_obj_t *title = lv_label_create(card);
         lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
-        lv_obj_set_style_text_color(title, ARGUS_TEXT, LV_PART_MAIN);
+        lv_obj_set_style_text_color(title, NOTHING_WHITE, LV_PART_MAIN);
         lv_label_set_text(title, n->title);
     }
     if (n->body[0]) {
         lv_obj_t *body = lv_label_create(card);
         lv_obj_set_style_text_font(body, &font_argus_label_14, LV_PART_MAIN);
-        lv_obj_set_style_text_color(body, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_color(body, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
         lv_label_set_text(body, n->body);
@@ -138,7 +145,7 @@ static void rebuild_list()
     int n = notify::center().count();
     if (n == 0) {
         lv_obj_t *ph = lv_label_create(list_box);
-        lv_obj_set_style_text_color(ph, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_color(ph, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_style_text_font(ph, &font_argus_label_16, LV_PART_MAIN);
         lv_label_set_text(ph, device_mode_is_daily_wear()
                               ? "No notifications yet"
@@ -190,8 +197,7 @@ static void on_toggle(lv_event_t *)
     ModeAction acted = device_mode_set(want);
     if (acted == ModeAction::BlockedWifiActive) {
         lv_label_set_text(status_label, "Turn WiFi off first - radios can't share");
-        lv_obj_set_style_text_color(status_label, lv_color_make(0xCC, 0x66, 0x00),
-                                    LV_PART_MAIN);
+        lv_obj_set_style_text_color(status_label, NOTHING_RED, LV_PART_MAIN);
     } else {
         update_status();
     }
@@ -232,12 +238,12 @@ void notifications_screen_create()
 
     bright_pct = lv_label_create(screen);
     lv_obj_set_style_text_font(bright_pct, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(bright_pct, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_color(bright_pct, NOTHING_WHITE, LV_PART_MAIN);
     lv_obj_align(bright_pct, LV_ALIGN_TOP_MID, 118, 58);
 
     status_label = lv_label_create(screen);
     lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(status_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
+    lv_obj_set_style_text_color(status_label, NOTHING_GREY, LV_PART_MAIN);
     lv_label_set_text(status_label, "Notifications off - tap Enable");
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 100);
 
@@ -252,21 +258,22 @@ void notifications_screen_create()
     lv_obj_add_event_cb(platform_btn, on_platform, LV_EVENT_CLICKED, NULL);
     platform_label = lv_label_create(platform_btn);
     lv_obj_set_style_text_font(platform_label, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(platform_label, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_color(platform_label, NOTHING_WHITE, LV_PART_MAIN);
     lv_label_set_text(platform_label, "Apple (ANCS)");
     lv_obj_center(platform_label);
 
     toggle_btn = lv_obj_create(screen);
     lv_obj_set_size(toggle_btn, 320, 48);
     lv_obj_align(toggle_btn, LV_ALIGN_TOP_MID, 0, 170);
-    lv_obj_set_style_bg_color(toggle_btn, lv_color_make(0x00, 0x88, 0xCC), LV_PART_MAIN);
+    // Primary action: solid white with black text (Nothing-OS style).
+    lv_obj_set_style_bg_color(toggle_btn, NOTHING_WHITE, LV_PART_MAIN);
     lv_obj_set_style_border_width(toggle_btn, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(toggle_btn, 8, LV_PART_MAIN);
     lv_obj_clear_flag(toggle_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(toggle_btn, on_toggle, LV_EVENT_CLICKED, NULL);
     toggle_label = lv_label_create(toggle_btn);
     lv_obj_set_style_text_font(toggle_label, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(toggle_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(toggle_label, lv_color_black(), LV_PART_MAIN);
     lv_label_set_text(toggle_label, "ENABLE NOTIFICATIONS");
     lv_obj_center(toggle_label);
 
@@ -290,14 +297,16 @@ void notifications_screen_create()
     lv_obj_t *clear_btn = lv_obj_create(screen);
     lv_obj_set_size(clear_btn, 220, 42);
     lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -22);
-    lv_obj_set_style_bg_color(clear_btn, lv_color_make(0x55, 0x22, 0x22), LV_PART_MAIN);
-    lv_obj_set_style_border_width(clear_btn, 0, LV_PART_MAIN);
+    // Destructive action: black with a red outline + red text (Nothing-OS style).
+    lv_obj_set_style_bg_color(clear_btn, lv_color_hex(0x140808), LV_PART_MAIN);
+    lv_obj_set_style_border_color(clear_btn, NOTHING_RED, LV_PART_MAIN);
+    lv_obj_set_style_border_width(clear_btn, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(clear_btn, 8, LV_PART_MAIN);
     lv_obj_clear_flag(clear_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(clear_btn, on_clear, LV_EVENT_CLICKED, NULL);
     lv_obj_t *clear_lbl = lv_label_create(clear_btn);
     lv_obj_set_style_text_font(clear_lbl, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(clear_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_color(clear_lbl, NOTHING_RED, LV_PART_MAIN);
     lv_label_set_text(clear_lbl, "CLEAR");
     lv_obj_center(clear_lbl);
 

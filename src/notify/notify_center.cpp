@@ -29,12 +29,64 @@ bool take_pending(Notification& out)
     return true;
 }
 
+// Strip characters the UI font cannot render (emoji, symbols, CJK, ...), which
+// otherwise show as a "tofu" box. The label fonts cover ASCII + Latin (accents),
+// so we keep code points up to Latin Extended-B, fold a few common typographic
+// marks to ASCII, and drop everything else. Rewrites the UTF-8 string in place;
+// output is never longer than the input, so two cursors are safe.
+static void sanitize(char *s)
+{
+    const unsigned char *r = (const unsigned char *)s;
+    char *w = s;
+    while (*r) {
+        unsigned char c = *r;
+        uint32_t cp;
+        int len;
+        if (c < 0x80)                { cp = c;        len = 1; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; len = 2; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; len = 3; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; len = 4; }
+        else { r++; continue; }   // stray continuation / invalid lead byte -> drop
+
+        bool ok = true;
+        for (int i = 1; i < len; i++) {
+            if ((r[i] & 0xC0) != 0x80) { ok = false; break; }
+            cp = (cp << 6) | (r[i] & 0x3F);
+        }
+        if (!ok) { r++; continue; }   // truncated sequence -> drop one byte, resync
+
+        if (cp < 0x20 || cp == 0x7F) {
+            *w++ = ' ';                         // control char -> space
+        } else if (cp < 0x80) {
+            *w++ = (char)cp;                    // ASCII printable
+        } else if (cp == 0x2018 || cp == 0x2019) {
+            *w++ = '\'';                        // curly single quotes
+        } else if (cp == 0x201C || cp == 0x201D) {
+            *w++ = '"';                         // curly double quotes
+        } else if (cp == 0x2013 || cp == 0x2014) {
+            *w++ = '-';                         // en / em dash
+        } else if (cp == 0x2026) {
+            *w++ = '.'; *w++ = '.'; *w++ = '.'; // ellipsis (same 3 bytes in)
+        } else if (cp <= 0x024F) {
+            for (int i = 0; i < len; i++) *w++ = (char)r[i];   // Latin, keep bytes
+        }
+        // else: emoji / symbol / CJK / unsupported -> drop entirely.
+        r += len;
+    }
+    *w = '\0';
+}
+
 void publish(Notification n)
 {
     // Stamp arrival time in seconds since boot. The UI shows relative age
     // ("2m ago"); absolute wall-clock is not needed and avoids depending on a
     // valid RTC. millis() wraps after ~49 days, acceptable for a glance list.
     n.epoch = (uint32_t)(millis() / 1000);
+
+    // Drop unrenderable glyphs (emoji, symbols) so they never show as tofu boxes.
+    sanitize(n.app);
+    sanitize(n.title);
+    sanitize(n.body);
 
     bool is_update = center().contains(n.uid);
     center().add(n);

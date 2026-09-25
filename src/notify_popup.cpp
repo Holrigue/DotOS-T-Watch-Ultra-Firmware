@@ -13,6 +13,11 @@ void clock_screen_restore_brightness();   // back to the dim level or the active
 int  clock_screen_active_brightness();    // Settings level, sun-scaled when Auto brightness is on
 void ui_reset_dim_activity();             // wake a dimmed / switched-off screen
 
+// Nothing-OS palette (matches the Dot watchface): white / grey / black / red.
+static const lv_color_t NOTHING_WHITE = lv_color_hex(0xFFFFFF);
+static const lv_color_t NOTHING_GREY  = lv_color_hex(0x9A9A9A);
+static const lv_color_t NOTHING_RED   = lv_color_hex(0xE02020);   // face red
+
 static lv_obj_t   *s_banner        = nullptr;
 static lv_timer_t *s_dismiss_timer = nullptr;
 static bool        s_boosted       = false;   // brightness raised for the banner
@@ -80,10 +85,10 @@ static void show_banner(const notify::Notification &n)
     // Sit below the display's top curve / status area rather than jammed against
     // the top edge, so the whole card is readable.
     lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, 72);
-    lv_obj_set_style_bg_color(s_banner, lv_color_make(0x1A, 0x1A, 0x1E), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_banner, lv_color_hex(0x141414), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_banner, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(s_banner, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_banner, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(s_banner, NOTHING_RED, LV_PART_MAIN);   // single red accent
+    lv_obj_set_style_border_width(s_banner, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(s_banner, 12, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_banner, 10, LV_PART_MAIN);
     lv_obj_set_style_pad_row(s_banner, 3, LV_PART_MAIN);
@@ -99,13 +104,13 @@ static void show_banner(const notify::Notification &n)
     // Header: bell + app/source name in the accent colour.
     lv_obj_t *app = lv_label_create(s_banner);
     lv_obj_set_style_text_font(app, &font_argus_label_14, LV_PART_MAIN);
-    lv_obj_set_style_text_color(app, argus_base_accent(), LV_PART_MAIN);
+    lv_obj_set_style_text_color(app, NOTHING_GREY, LV_PART_MAIN);
     lv_label_set_text_fmt(app, LV_SYMBOL_BELL "  %s", n.app[0] ? n.app : "Notification");
 
     if (n.title[0]) {
         lv_obj_t *title = lv_label_create(s_banner);
         lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
-        lv_obj_set_style_text_color(title, ARGUS_TEXT, LV_PART_MAIN);
+        lv_obj_set_style_text_color(title, NOTHING_WHITE, LV_PART_MAIN);
         lv_obj_set_width(title, LV_PCT(100));
         lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);   // one-line, ellipsized
         lv_label_set_text(title, n.title);
@@ -113,7 +118,7 @@ static void show_banner(const notify::Notification &n)
     if (n.body[0]) {
         lv_obj_t *body = lv_label_create(s_banner);
         lv_obj_set_style_text_font(body, &font_argus_label_14, LV_PART_MAIN);
-        lv_obj_set_style_text_color(body, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_color(body, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
         lv_label_set_text(body, n.body);
