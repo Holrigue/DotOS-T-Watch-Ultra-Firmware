@@ -15,6 +15,8 @@
 // not contend for the radio.
 #pragma once
 
+#include <cstdint>   // uint8_t in the find API below
+
 namespace ans {
 
 // Bring up BLE (guarded against WiFi), expose the Alert Notification Service, and
