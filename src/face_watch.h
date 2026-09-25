@@ -1,0 +1,50 @@
+#pragma once
+//
+// face_watch.h - customization state for the Dot watchface (Tools > Face).
+//
+// Holds the wearer's Dot-face look: the hour font, the date font, the accent
+// colour, and the date order. Persisted in NVS. The 12h/24h and wallpaper
+// toggles on the same screen reuse the existing clock_screen_* setters (which
+// own their own persistence), so they are not stored here.
+//
+// Pure state only: main.cpp maps these choices onto fonts/colours and repaints
+// the face; the Face screen drives the setters. Enums are small and stable so
+// the stored bytes keep meaning across firmware updates - only append new values
+// before each __COUNT.
+#include <cstdint>
+
+// Hour digits: the 5x7 dot-matrix raster (the Nothing-OS look, default) or a
+// large regular Montserrat clock font.
+enum FaceHourFont : uint8_t { FACE_HOUR_DOTS = 0, FACE_HOUR_MONT, FACE_HOUR__COUNT };
+
+// Date line font: Orbitron (geometric, default) or a clean monospace.
+enum FaceDateFont : uint8_t { FACE_DATE_ORBITRON = 0, FACE_DATE_MONO, FACE_DATE__COUNT };
+
+// Accent colour presets (Nothing palette). Drives the Dot face's accent rail.
+enum FaceAccent : uint8_t {
+    FACE_ACC_RED = 0, FACE_ACC_WHITE, FACE_ACC_GREY, FACE_ACC_AMBER, FACE_ACC_BLUE,
+    FACE_ACC__COUNT
+};
+
+// Date order: DD/MM (default), MM/DD, YYYY-MM-DD, or DD Mon.
+enum FaceDateOrder : uint8_t {
+    FACE_ORDER_DMY = 0, FACE_ORDER_MDY, FACE_ORDER_ISO, FACE_ORDER_DMON,
+    FACE_ORDER__COUNT
+};
+
+// Load the saved choices from NVS. Call once at boot, after Preferences is up.
+void face_watch_boot_restore();
+
+FaceHourFont  face_hour_font();
+FaceDateFont  face_date_font();
+FaceAccent    face_accent();
+FaceDateOrder face_date_order();
+
+// Set + persist. main.cpp re-applies the look via clock_screen_apply_face_custom().
+void face_set_hour_font(FaceHourFont v);
+void face_set_date_font(FaceDateFont v);
+void face_set_accent(FaceAccent v);
+void face_set_date_order(FaceDateOrder v);
+
+// The current accent colour as a 0xRRGGBB value.
+uint32_t face_accent_rgb();

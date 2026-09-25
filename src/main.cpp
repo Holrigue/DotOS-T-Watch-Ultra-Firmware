@@ -39,6 +39,7 @@
 #include "health_state.h"    // wearer health metrics (mirrored from Gadgetbridge)
 #include "dot_tiles.h"       // two user-selectable data slots on the Dot face
 #include "power_mgmt.h"      // PMU charge policy + battery longevity setting
+#include "face_watch.h"      // Dot watchface customization (Tools > Face)
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -161,6 +162,8 @@ static void build_dot_status_row(lv_obj_t *parent);
 static void build_dot_usb(lv_obj_t *parent);
 static void build_dot_tiles(lv_obj_t *parent);
 static void update_dot_tiles(bool usb_present);
+static const lv_font_t *dot_date_lvfont();
+void clock_screen_apply_face_custom();   // re-apply Face-watch look (fonts/accent/order)
 static void build_dot_bottom(lv_obj_t *parent);
 static void build_dot_badges(lv_obj_t *parent);
 static void update_dot_status();
@@ -196,6 +199,12 @@ static lv_obj_t *dot_container = nullptr;   // ARGUS-Design-OS "Dot" face; built
 static lv_obj_t *dot_time_img  = nullptr;   // dot-matrix time raster (lv_image)
 static uint32_t *dot_time_buf  = nullptr;   // ARGB8888 pixels in PSRAM
 static lv_image_dsc_t dot_time_dsc;         // descriptor pointing at dot_time_buf
+static lv_obj_t *dot_time_label = nullptr;  // font-mode hour (shown instead of the raster)
+
+// Large Montserrat clock font used for the font-mode hour (also the digital
+// face's base). Declared here so the Dot builder can reference it; the full set
+// is externed again lower down next to the digital face.
+extern "C" const lv_font_t lv_font_montserrat_clock_96;
 // Status row: the six line-art icons are rasterised into one ARGB8888 sprite;
 // NFC and the Meshtastic unread count stay LVGL labels, the mesh badge a pill.
 static lv_obj_t *dot_status_img = nullptr;
@@ -665,25 +674,42 @@ static void build_dot_accent_date(lv_obj_t *parent)
     lv_obj_set_pos(dot_date_label, 50, 324);
 }
 
+// Last painted date string, file-scope so clock_screen_apply_face_custom() can
+// force a repaint when the date order changes.
+static char s_dot_date_last[24] = { '\x01', '\0' };
+
 static void update_dot_date(const struct tm *t)
 {
     if (!dot_date_label) return;
-    static const char *const kDay[7] = { "SUN", "MON", "TUES", "WED", "THUR", "FRI", "SAT" };
+    static const char *const kDay[7]  = { "SUN", "MON", "TUES", "WED", "THUR", "FRI", "SAT" };
+    static const char *const kMon[12] = { "JAN","FEB","MAR","APR","MAY","JUN",
+                                          "JUL","AUG","SEP","OCT","NOV","DEC" };
+    int wd = (t->tm_wday >= 0 && t->tm_wday < 7)  ? t->tm_wday : 0;
+    int mo = (t->tm_mon  >= 0 && t->tm_mon  < 12) ? t->tm_mon  : 0;
+
+    // Date part per the chosen order (Tools > Face).
+    char datepart[16] = "";
+    if (clock_show_date) {
+        int d = t->tm_mday, m = mo + 1, y = t->tm_year + 1900;
+        switch (face_date_order()) {
+            case FACE_ORDER_MDY:  snprintf(datepart, sizeof datepart, "%02d/%02d", m, d);       break;
+            case FACE_ORDER_ISO:  snprintf(datepart, sizeof datepart, "%04d-%02d-%02d", y, m, d); break;
+            case FACE_ORDER_DMON: snprintf(datepart, sizeof datepart, "%02d %s", d, kMon[mo]);   break;
+            case FACE_ORDER_DMY:
+            default:              snprintf(datepart, sizeof datepart, "%02d/%02d", d, m);        break;
+        }
+    }
+
     char buf[24];
-    int  wd = (t->tm_wday >= 0 && t->tm_wday < 7) ? t->tm_wday : 0;
-    if (clock_show_day && clock_show_date)
-        snprintf(buf, sizeof(buf), "%s %02d/%02d", kDay[wd], t->tm_mday, t->tm_mon + 1);
-    else if (clock_show_day)
-        snprintf(buf, sizeof(buf), "%s", kDay[wd]);
-    else if (clock_show_date)
-        snprintf(buf, sizeof(buf), "%02d/%02d", t->tm_mday, t->tm_mon + 1);
-    else
-        buf[0] = '\0';
+    if (clock_show_day && clock_show_date) snprintf(buf, sizeof(buf), "%s %s", kDay[wd], datepart);
+    else if (clock_show_day)               snprintf(buf, sizeof(buf), "%s", kDay[wd]);
+    else if (clock_show_date)              snprintf(buf, sizeof(buf), "%s", datepart);
+    else                                   buf[0] = '\0';
 
     // Only touch the label when the text actually changes (this runs at 1 Hz).
-    static char last[24] = { '\x01', '\0' };
-    if (strcmp(buf, last) == 0) return;
-    strncpy(last, buf, sizeof(last) - 1);
+    if (strcmp(buf, s_dot_date_last) == 0) return;
+    strncpy(s_dot_date_last, buf, sizeof(s_dot_date_last) - 1);
+    s_dot_date_last[sizeof(s_dot_date_last) - 1] = '\0';
     lv_label_set_text(dot_date_label, buf);
 }
 
@@ -744,32 +770,67 @@ static void build_dot_face(lv_obj_t *screen)
         lv_obj_set_pos(dot_time_img, DOT_TIME_X, DOT_TIME_Y);
     }
 
+    // Font-mode hour: a big Montserrat clock label occupying the same time band,
+    // hidden unless the user picks a regular hour font (Tools > Face). Centred
+    // horizontally; the raster and the label are never shown at once.
+    dot_time_label = lv_label_create(dot_container);
+    lv_obj_set_style_text_font(dot_time_label, &lv_font_montserrat_clock_96, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_time_label, dot_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_align(dot_time_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_width(dot_time_label, DOT_TIME_W);
+    lv_obj_set_pos(dot_time_label, DOT_TIME_X, DOT_TIME_Y);
+    lv_label_set_text(dot_time_label, "");
+    lv_obj_add_flag(dot_time_label, LV_OBJ_FLAG_HIDDEN);
+
     build_dot_status_row(dot_container);
     build_dot_usb(dot_container);
     build_dot_tiles(dot_container);
     build_dot_accent_date(dot_container);
     build_dot_bottom(dot_container);
     build_dot_badges(dot_container);
+
+    clock_screen_apply_face_custom();   // accent colour + date font from saved state
 }
 
+// Minute+mode key of the last painted time, file-scope so a live font switch
+// (clock_screen_apply_face_custom) can force the next tick to repaint.
+static int s_dot_time_key = -1;
+
 // Refreshes the Dot face for the given local time. Renders HH:MM as white dots
-// on the 5x7 custom grid; hours honour the 12h/24h setting, always 2 digits.
+// on the 5x7 custom grid (or a regular font label); honours the 12h/24h setting.
 static void update_dot_face(const struct tm *t)
 {
     update_dot_date(t);   // cheap, and must follow the show-day/date settings live
-    if (!dot_time_buf || !dot_time_img) return;
-
-    // The dots only change on a minute edge; skip the raster churn otherwise.
-    // Reset to -1 elsewhere would force a redraw, but the buffer persists across
-    // face switches so a same-minute re-show needs no work.
-    static int dot_last_key = -1;
-    int key = t->tm_hour * 60 + t->tm_min;
-    if (key == dot_last_key) return;
-    dot_last_key = key;
 
     int hh = t->tm_hour;
     if (clock_12h) { hh %= 12; if (hh == 0) hh = 12; }
     int mm = t->tm_min;
+
+    // Hour digits: the dot-matrix raster (Nothing look, default) or a regular
+    // Montserrat clock label. Only one is ever shown; the other is hidden.
+    bool font_mode = (face_hour_font() != FACE_HOUR_DOTS);
+    if (dot_time_img) {
+        if (font_mode) lv_obj_add_flag(dot_time_img, LV_OBJ_FLAG_HIDDEN);
+        else           lv_obj_clear_flag(dot_time_img, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (dot_time_label) {
+        if (font_mode) lv_obj_clear_flag(dot_time_label, LV_OBJ_FLAG_HIDDEN);
+        else           lv_obj_add_flag(dot_time_label, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // Repaint only on a change; the key folds in the render mode so a live font
+    // switch repaints at once (clock_screen_apply_face_custom() also resets it).
+    // s_dot_time_key is file-scope for that reset.
+    int key = (font_mode ? 100000 : 0) + hh * 100 + mm;
+    if (key == s_dot_time_key) return;
+    s_dot_time_key = key;
+
+    if (font_mode) {
+        if (dot_time_label) lv_label_set_text_fmt(dot_time_label, "%02d:%02d", hh, mm);
+        return;
+    }
+
+    if (!dot_time_buf || !dot_time_img) return;
     int digits[4] = { hh / 10, hh % 10, mm / 10, mm % 10 };
 
     memset(dot_time_buf, 0, (size_t)DOT_TIME_W * (size_t)DOT_TIME_H * 4u);
@@ -1687,6 +1748,46 @@ static void dot_face_tick()
     update_dot_badges(false);
     update_dot_accent();   // step-progress fill on the accent rail
 }
+
+// ---- Face-watch customization (Tools > Face) --------------------------------
+// The LVGL font for the Dot date line per the current choice.
+static const lv_font_t *dot_date_lvfont()
+{
+    switch (face_date_font()) {
+        case FACE_DATE_MONO: return &font_argus_mono_16;
+        case FACE_DATE_ORBITRON:
+        default:             return &font_argus_label_20;
+    }
+}
+
+// Re-apply the saved Dot-face look (accent colour + date font) and force the
+// time/date to repaint with the current hour font + date order. Called at build
+// and by the Face screen whenever a choice changes.
+void clock_screen_apply_face_custom()
+{
+    if (dot_accent)
+        lv_obj_set_style_bg_color(dot_accent, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
+    if (dot_date_label)
+        lv_obj_set_style_text_font(dot_date_label, dot_date_lvfont(), LV_PART_MAIN);
+
+    // Force the next paint to redo the time + date with the new mode / order.
+    s_dot_time_key     = -1;
+    s_dot_date_last[0] = '\x01';
+    s_dot_date_last[1] = '\0';
+
+    // Repaint now if the Dot face is live, rather than waiting for the 1 Hz tick.
+    if (clock_face == FACE_DOT && dot_container && lv_screen_active() == clock_screen) {
+        time_t now = time(NULL);
+        struct tm lt;
+        localtime_r(&now, &lt);
+        update_dot_face(&lt);
+        lv_obj_invalidate(dot_container);
+    }
+}
+
+// Getters for the Face screen (which also drives the shared 12h / wallpaper setters).
+bool clock_screen_get_12h()       { return clock_12h; }
+bool clock_screen_get_wallpaper() { return background_is_enabled(); }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
 // bright steel-blue ARGUS_ACCENT_ACTIVE; the instant Threat Radar flags a tail
@@ -3858,6 +3959,8 @@ void setup()
     health_boot_restore();
     haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
     dot_tiles_boot_restore();   // restore the two Dot-face data slot choices
+    face_watch_boot_restore();  // restore Dot-face fonts / accent / date order
+    clock_screen_apply_face_custom();   // re-apply the restored look to the built face
     power_boot_config();     // PMU: VINDPM anti-brownout, input cap, deep-discharge
                              // guard, and the saved charge target (full / long-life)
     coex_log_heap("setup-done");

@@ -28,6 +28,7 @@
 #include "aprs_screen.h"
 #include "wifi_screen.h"
 #include "notifications_screen.h"
+#include "face_watch_screen.h"
 #include "analyze_screen.h"
 #include "ble_scan_manager.h"
 #include "detector_toggle.h"   // persist detector on/off (shared with the Dot face badges)
@@ -1865,6 +1866,7 @@ void tools_screen_create()
     lv_obj_t *t_rogueap = make_tile(grid, "Rogue AP");
     lv_obj_t *t_probes  = make_tile(grid, "Probes");
     lv_obj_t *t_notify  = make_tile(grid, "Notify");
+    lv_obj_t *t_face    = make_tile(grid, "Face");
     lv_obj_t *t_pager   = make_tile(grid, "Pager");
     lv_obj_t *t_aprs    = make_tile(grid, "LoRa APRS");
     lv_obj_t *t_pet     = make_tile(grid, "HexHound");
@@ -1963,6 +1965,7 @@ void tools_screen_create()
         { t_rogueap,  "rogueap"   },
         { t_probes,   "probes"    },
         { t_notify,   "notify"    },
+        { t_face,     "facewatch" },
     };
     for (auto &tk : tile_keys) {
         lv_obj_set_user_data(tk.tile, (void *)tk.key);
@@ -1973,6 +1976,9 @@ void tools_screen_create()
         lv_obj_add_event_cb(tk.tile, tile_released,     LV_EVENT_RELEASED,     NULL);
         lv_obj_add_event_cb(tk.tile, tile_press_lost,   LV_EVENT_PRESS_LOST,   NULL);
     }
+
+    // Face tile opens the Dot watchface customization screen.
+    lv_obj_add_event_cb(t_face, [](lv_event_t *) { face_watch_screen_show(); }, LV_EVENT_CLICKED, NULL);
 
     // Tesla CP tile opens the 315 MHz charge-port-open transmit screen.
     lv_obj_add_event_cb(t_tesla, [](lv_event_t *) { if (argus_mode_current() != ArgusMode::Offense) return; tesla_cp_screen_show(); }, LV_EVENT_CLICKED, NULL);
