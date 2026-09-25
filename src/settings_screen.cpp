@@ -11,6 +11,7 @@
 #include "detect/log_retention.h"   // kMaxAgeDays, for the readout
 #include "health_state.h"           // daily step goal (Dot progress bar + Health screen)
 #include "haptic.h"                  // global vibration intensity
+#include "power_mgmt.h"              // battery longevity (charge target) setting
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
@@ -166,6 +167,8 @@ static lv_obj_t *auto_bright_switch;
 static lv_obj_t *auto_bright_val_label;
 static lv_obj_t *batt_saver_switch;
 static lv_obj_t *batt_saver_val_label;
+static lv_obj_t *batt_longevity_switch;
+static lv_obj_t *batt_longevity_val_label;
 static lv_obj_t *manual_time_switch;
 static lv_obj_t *manual_time_val_label;
 // Screenshot long-press toggle — bottom of the settings list. Disabled
@@ -227,7 +230,7 @@ static lv_obj_t *defpersist_val_label;
 // list was laid out. Rather than renumber every row below, each row registered
 // AFTER them is pushed down by POWER_ROWS_SHIFT at registration (s_shift_extra),
 // so the literal base Ys below keep their original meaning.
-#define POWER_ROWS_SHIFT    (5 * 48)
+#define POWER_ROWS_SHIFT    (6 * 48)
 #define MANUAL_SECTION_TOP  (900 + POWER_ROWS_SHIFT)
 // Must exceed the TOTAL number of register_shiftable*() entries created at
 // runtime. Note the 5 manual-time rollers each register twice (header + roller),
@@ -472,6 +475,13 @@ static void on_batt_saver_changed(lv_event_t *e)
     lv_label_set_text(batt_saver_val_label, on ? "On" : "Off");
     clock_screen_set_battery_saver(on);
     settings_save_to_sd();
+}
+
+static void on_batt_longevity_changed(lv_event_t *)
+{
+    bool on = lv_obj_has_state(batt_longevity_switch, LV_STATE_CHECKED);
+    lv_label_set_text(batt_longevity_val_label, on ? "On" : "Off");
+    power_set_longevity(on);   // 4.1 V (gentle) vs 4.2 V (full); persisted in power_mgmt
 }
 
 static void on_screenshot_changed(lv_event_t *)
@@ -1280,6 +1290,41 @@ void settings_screen_create()
     lv_obj_set_style_text_font(vib_intensity_val_label, &font_argus_label_20, LV_PART_MAIN);
     lv_label_set_text_fmt(vib_intensity_val_label, "%d%%", vib_now);
     lv_obj_align(vib_intensity_val_label, LV_ALIGN_RIGHT_MID, -180, 0);
+
+    // Battery longevity: charge to 4.1 V (gentler on the cell, ~2x cycle life)
+    // instead of 4.2 V (full runtime). On/Off row styled like the switches above;
+    // drives the PMU charge target via power_mgmt (persisted there).
+    lv_obj_t *longv_row = lv_obj_create(settings_screen);
+    lv_obj_set_size(longv_row, 380, 40);
+    lv_obj_set_style_bg_opa(longv_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(longv_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(longv_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(longv_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(longv_row, LV_ALIGN_TOP_MID, 0, 1066);
+    register_shiftable(longv_row, 1066);
+
+    lv_obj_t *longv_lbl = lv_label_create(longv_row);
+    lv_obj_set_style_text_color(longv_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(longv_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text(longv_lbl, "Battery longevity");
+    lv_obj_align(longv_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    bool longv_on = power_get_longevity();
+
+    batt_longevity_val_label = lv_label_create(longv_row);
+    lv_obj_set_style_text_color(batt_longevity_val_label, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(batt_longevity_val_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text(batt_longevity_val_label, longv_on ? "On" : "Off");
+    lv_obj_align(batt_longevity_val_label, LV_ALIGN_RIGHT_MID, -80, 0);
+
+    batt_longevity_switch = lv_switch_create(longv_row);
+    lv_obj_set_size(batt_longevity_switch, 70, 34);
+    lv_obj_set_style_bg_color(batt_longevity_switch, lv_color_make(0x44, 0x44, 0x44),
+                              LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(batt_longevity_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    if (longv_on) lv_obj_add_state(batt_longevity_switch, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(batt_longevity_switch, on_batt_longevity_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_align(batt_longevity_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
     s_shift_extra = POWER_ROWS_SHIFT;   // every row registered from here on sits lower
 

@@ -38,6 +38,7 @@
 #include "detector_toggle.h" // shared detector on/off + NVS persistence (Dot badges, Tools)
 #include "health_state.h"    // wearer health metrics (mirrored from Gadgetbridge)
 #include "dot_tiles.h"       // two user-selectable data slots on the Dot face
+#include "power_mgmt.h"      // PMU charge policy + battery longevity setting
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -2731,6 +2732,7 @@ static void dim_reset_activity()
 {
     s_last_activity_ms = millis();
     hide_dim_gate();          // waking: drop the swipe-to-wake gate
+    cpu_set_low(false);       // restore 240 MHz now so the wake frame is snappy
     display_on();
     if (s_is_dimmed) {
         s_is_dimmed = false;
@@ -3856,6 +3858,8 @@ void setup()
     health_boot_restore();
     haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
     dot_tiles_boot_restore();   // restore the two Dot-face data slot choices
+    power_boot_config();     // PMU: VINDPM anti-brownout, input cap, deep-discharge
+                             // guard, and the saved charge target (full / long-life)
     coex_log_heap("setup-done");
 }
 
@@ -4503,6 +4507,13 @@ void loop()
         ble_detect_pipeline_tick(millis() / 1000);
 #endif
     }
+    // Core-clock policy in one place: run 80 MHz whenever the panel is dim or
+    // off (nothing is animating that needs 240 MHz), and full clock the instant
+    // it is bright again. Idempotent; the wake path also restores 240 MHz right
+    // away for a snappy first frame. Placed before the panel-off early return so
+    // it still applies in the saver state.
+    cpu_set_low(s_display_off || s_is_dimmed);
+
     // Panel off (battery saver): the LVGL refresh timer is paused, so the extra
     // render passes below would do nothing. Run one cheap handler pass to keep
     // any pending timers serviced, then idle ~40 ms. The core is already at
@@ -4525,5 +4536,15 @@ void loop()
     delay(2);
     lv_task_handler();
     delay(2);
-    lv_task_handler();
+    uint32_t idle_ms = lv_task_handler();
+
+    // When the UI is static - no touch down, no running animation, and the next
+    // LVGL timer is not imminent - let the core idle instead of spinning the loop
+    // at 240 MHz. Capped at 30 ms so motion-wake / BOOT-button / touch polling
+    // stays ~30 Hz (a wrist-raise or tap still wakes without lag; the BOOT ISR
+    // latch recovers any tap shorter than the poll gap). During active use idle_ms
+    // is small, so this is a no-op and responsiveness is unchanged.
+    if (!touch_is_down() && lv_anim_count_running() == 0 && idle_ms > 8) {
+        delay(idle_ms > 30 ? 30 : idle_ms);
+    }
 }
