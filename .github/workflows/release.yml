@@ -86,6 +86,21 @@ jobs:
           (cd "$out" && sha256sum * > SHA256SUMS)
           ls -l "$out"; cat "$out/SHA256SUMS"
 
+      # A single self-contained HTML flasher: it embeds the four binaries above
+      # (base64) and the vendored ESP Web Tools, so "everything in one file". Open
+      # it locally in Chrome/Edge and click Flash - no other download, no network.
+      # Same generator the CI build uses; here it is attached to the Release.
+      - name: Build one-click flasher (self-contained HTML)
+        run: |
+          set -euo pipefail
+          npx --yes esbuild@0.23.1 flasher/vendor/esp-web-tools/install-button.js \
+            --bundle --format=esm --minify --outfile="$RUNNER_TEMP/ewt.bundle.js"
+          python3 tools/gen_dot_flasher.py .pio/build/$PIO_ENV \
+            ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            "$GITHUB_SHA" "$RUNNER_TEMP/ewt.bundle.js" \
+            "release/DotOS-${GITHUB_REF_NAME}-flasher.html"
+          ls -l "release/DotOS-${GITHUB_REF_NAME}-flasher.html"
+
       - name: Flash usage
         run: pio run -e "$PIO_ENV" --target size 2>/dev/null | tail -8 || true
 
