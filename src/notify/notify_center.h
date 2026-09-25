@@ -27,6 +27,12 @@ void retract(uint32_t uid);
 // Drop everything (UI "clear all").
 void clear_all();
 
+// Silence the incoming-call vibration for a short window (the watch keeps
+// buzzing on every call re-ring; a call answered on another device — Teams on a
+// PC — does not clear the phone notification). The call banner's Mute button
+// calls this; subsequent IncomingCall arrivals within the window do not buzz.
+void mute_call();
+
 // Hand-off for the on-screen banner. publish() runs on the BLE task, but LVGL
 // must be driven from the UI thread, so publish() stashes the newest arrival and
 // the UI-thread popup timer drains it here. Returns true and fills `out` if a new
