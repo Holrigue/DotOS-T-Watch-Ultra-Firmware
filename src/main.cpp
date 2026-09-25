@@ -2861,6 +2861,7 @@ void clock_screen_restore_brightness()
 static constexpr uint32_t SYS_UID_SAVER = 0x5A5E0001;
 static constexpr uint32_t SYS_UID_CRIT  = 0x5A5E0002;
 static constexpr uint32_t SYS_UID_FULL  = 0x5A5E0003;
+static constexpr uint32_t SYS_UID_PAIR  = 0x5A5E0004;
 
 static void sys_notify(uint32_t uid, const char *title, const char *body)
 {
@@ -2871,6 +2872,40 @@ static void sys_notify(uint32_t uid, const char *title, const char *body)
     snprintf(n.title, sizeof(n.title), "%s", title);
     snprintf(n.body,  sizeof(n.body),  "%s", body);
     notify::publish(n);
+}
+
+// One-time pairing nudge on a genuinely fresh install (NVS wiped by a
+// full-erase flash). The phone companion app can only discover the watch once a
+// Notify mode is enabled (that is what advertises the BLE service), so a new
+// user who just flashed sees nothing in the app until they enable it. On a plain
+// reboot the saved Notify state is auto-restored (device_mode_restore_boot), so
+// there is nothing to nudge and this stays silent. Shown at most once: the
+// marker survives reboots and is only wiped by the same full erase that would
+// warrant showing it again. Never forces a mode - it only tells the user where
+// the switch is, leaving the WiFi/BLE arbitration untouched.
+static void maybe_show_pairing_hint()
+{
+    // "argusnotify" gains the "en" key the first time the user ever toggles
+    // Notify. Its absence means the watch has never been configured for phone
+    // notifications - i.e. a fresh install, not a returning user who left it off.
+    bool ever_configured = false;
+    {
+        Preferences np;
+        if (np.begin("argusnotify", true)) {
+            ever_configured = np.isKey("en");
+            np.end();
+        }
+    }
+    if (ever_configured) return;
+
+    Preferences p;
+    if (!p.begin("arguspair", false)) return;
+    if (!p.getBool("hinted", false)) {
+        sys_notify(SYS_UID_PAIR, "Connect your phone",
+                   "Open Tools > Notify and tap Enable, then Scan in the phone app to pair.");
+        p.putBool("hinted", true);
+    }
+    p.end();
 }
 
 static void display_power_tick()
@@ -3997,6 +4032,10 @@ void setup()
     // the boot radios, so it correctly no-ops if WiFi-at-boot or a BLE scanner is
     // already holding the radio (and keeps the preference for next time).
     device_mode_restore_boot();
+    // First-boot-after-flash nudge: if Notify has never been configured, tell the
+    // user how to make the watch pairable (see maybe_show_pairing_hint). No-op on
+    // a normal reboot, where the saved state is already being restored above.
+    maybe_show_pairing_hint();
 
     // Re-start the detectors the user left on (Tools tiles / Dot face badges).
     // Deferred ~10 s and crash-guarded inside detector_toggle; after the boot
