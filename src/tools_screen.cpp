@@ -29,6 +29,7 @@
 #include "wifi_screen.h"
 #include "notifications_screen.h"
 #include "face_watch_screen.h"
+#include "find_screen.h"
 #include "analyze_screen.h"
 #include "ble_scan_manager.h"
 #include "detector_toggle.h"   // persist detector on/off (shared with the Dot face badges)
@@ -1867,6 +1868,7 @@ void tools_screen_create()
     lv_obj_t *t_probes  = make_tile(grid, "Probes");
     lv_obj_t *t_notify  = make_tile(grid, "Notify");
     lv_obj_t *t_face    = make_tile(grid, "Face");
+    lv_obj_t *t_find    = make_tile(grid, "Find");
     lv_obj_t *t_pager   = make_tile(grid, "Pager");
     lv_obj_t *t_aprs    = make_tile(grid, "LoRa APRS");
     lv_obj_t *t_pet     = make_tile(grid, "HexHound");
@@ -1966,6 +1968,7 @@ void tools_screen_create()
         { t_probes,   "probes"    },
         { t_notify,   "notify"    },
         { t_face,     "facewatch" },
+        { t_find,     "find"      },
     };
     for (auto &tk : tile_keys) {
         lv_obj_set_user_data(tk.tile, (void *)tk.key);
@@ -1979,6 +1982,9 @@ void tools_screen_create()
 
     // Face tile opens the Dot watchface customization screen.
     lv_obj_add_event_cb(t_face, [](lv_event_t *) { face_watch_screen_show(); }, LV_EVENT_CLICKED, NULL);
+
+    // Find tile opens the companion-app "find my device" screen.
+    lv_obj_add_event_cb(t_find, [](lv_event_t *) { find_screen_show(); }, LV_EVENT_CLICKED, NULL);
 
     // Tesla CP tile opens the 315 MHz charge-port-open transmit screen.
     lv_obj_add_event_cb(t_tesla, [](lv_event_t *) { if (argus_mode_current() != ArgusMode::Offense) return; tesla_cp_screen_show(); }, LV_EVENT_CLICKED, NULL);
@@ -2104,7 +2110,8 @@ static ArgusMode tile_mode(const char *key)
         !strcmp(key, "beaconspam") || !strcmp(key, "deauthatk") ||
         !strcmp(key, "rogueap") || !strcmp(key, "probes"))
         return ArgusMode::Offense;
-    if (!strcmp(key, "notify") || !strcmp(key, "aprs") || !strcmp(key, "usbsd"))
+    if (!strcmp(key, "notify") || !strcmp(key, "aprs") || !strcmp(key, "usbsd") ||
+        !strcmp(key, "find"))
         return ArgusMode::Daily;
     return ArgusMode::Defense;
 }

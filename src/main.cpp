@@ -27,6 +27,7 @@
 #include "notify/notify_center.h"   // notify::center().count() for the unread badge
 #include "haptic.h"                 // global vibration intensity
 #include "device_mode.h"
+#include "ans.h"   // find channel (Find-My-Watch / Find-My-Phone)
 #include "pet_screen.h"
 #include "handshake.h"
 #include "tpms_screen.h"
@@ -2916,6 +2917,103 @@ static void sys_notify(uint32_t uid, const char *title, const char *body)
     notify::publish(n);
 }
 
+// ---- Find My Watch / Find My Phone -----------------------------------------
+// Bidirectional "find" over the ANS find characteristic (companion app only):
+//  - phone -> watch: the phone writes a ring op; the watch wakes, shows a bold
+//    flashing overlay and buzzes until Stopped or a timeout (find_alert_*).
+//  - watch -> phone: the Find screen's button calls find_ring_phone(), which
+//    notifies the phone so the app rings/vibrates.
+static lv_obj_t   *s_find_overlay = nullptr;
+static lv_timer_t *s_find_timer   = nullptr;
+static uint32_t    s_find_ticks   = 0;
+static constexpr uint32_t FIND_ALERT_PERIOD_MS = 650;
+static constexpr uint32_t FIND_ALERT_TICKS_MAX = 30;   // ~20 s then give up
+
+static void find_alert_stop();
+
+static void find_alert_tick(lv_timer_t *)
+{
+    if (!s_find_overlay) return;
+    instance.vibrator();                                   // insistent buzz
+    bool on = (s_find_ticks & 1) == 0;                     // flash for visibility
+    lv_obj_set_style_bg_color(s_find_overlay,
+        on ? lv_color_hex(0xE02020) : lv_color_black(), LV_PART_MAIN);
+    if (++s_find_ticks >= FIND_ALERT_TICKS_MAX) find_alert_stop();
+}
+
+static void on_find_stop(lv_event_t *)
+{
+    find_alert_stop();
+    ans::find_notify(0x00);   // best-effort: tell the phone we were found
+}
+
+static void find_alert_start()
+{
+    if (s_find_overlay) return;
+    dim_reset_activity();      // wake + active brightness so the alert is seen
+    s_find_ticks = 0;
+
+    s_find_overlay = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_find_overlay);
+    lv_obj_set_size(s_find_overlay, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(s_find_overlay, lv_color_hex(0xE02020), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_find_overlay, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(s_find_overlay, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *t = lv_label_create(s_find_overlay);
+    lv_obj_set_style_text_font(t, &lv_font_montserrat_28, LV_PART_MAIN);
+    lv_obj_set_style_text_color(t, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(t, "FINDING WATCH");
+    lv_obj_align(t, LV_ALIGN_CENTER, 0, -50);
+
+    lv_obj_t *sub = lv_label_create(s_find_overlay);
+    lv_obj_set_style_text_font(sub, &lv_font_montserrat_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(sub, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(sub, "Your phone is looking for this watch");
+    lv_obj_set_style_text_align(sub, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_align(sub, LV_ALIGN_CENTER, 0, -6);
+
+    lv_obj_t *btn = lv_button_create(s_find_overlay);
+    lv_obj_set_size(btn, 170, 62);
+    lv_obj_align(btn, LV_ALIGN_CENTER, 0, 96);
+    lv_obj_set_style_bg_color(btn, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_radius(btn, 31, LV_PART_MAIN);
+    lv_obj_add_event_cb(btn, on_find_stop, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *bl = lv_label_create(btn);
+    lv_obj_set_style_text_font(bl, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(bl, lv_color_white(), LV_PART_MAIN);
+    lv_label_set_text(bl, "STOP");
+    lv_obj_center(bl);
+
+    instance.vibrator();
+    s_find_timer = lv_timer_create(find_alert_tick, FIND_ALERT_PERIOD_MS, NULL);
+}
+
+static void find_alert_stop()
+{
+    if (s_find_timer)   { lv_timer_delete(s_find_timer);   s_find_timer   = nullptr; }
+    if (s_find_overlay) { lv_obj_delete_async(s_find_overlay); s_find_overlay = nullptr; }
+}
+
+// The phone write arrives on the BLE host task, which must not touch LVGL. Latch
+// the op here and let the main loop (LVGL thread) act on it in find_pump().
+static volatile uint8_t s_find_req = 0xFF;   // 0xFF = nothing pending
+static void find_handler(uint8_t op) { s_find_req = op; }
+
+static void find_pump()
+{
+    uint8_t op = s_find_req;
+    if (op == 0xFF) return;
+    s_find_req = 0xFF;
+    if (op == 0x01) find_alert_start();
+    else            find_alert_stop();
+}
+
+// Public (used by find_screen.cpp): ring the phone from the watch. Returns false
+// if no phone is connected over the companion channel.
+bool find_ring_phone()      { return ans::find_notify(0x01); }
+bool find_phone_connected() { return ans::is_connected(); }
+
 // One-time pairing nudge on a genuinely fresh install (NVS wiped by a
 // full-erase flash). The phone companion app can only discover the watch once a
 // Notify mode is enabled (that is what advertises the BLE service), so a new
@@ -4078,6 +4176,7 @@ void setup()
     // user how to make the watch pairable (see maybe_show_pairing_hint). No-op on
     // a normal reboot, where the saved state is already being restored above.
     maybe_show_pairing_hint();
+    ans::set_find_handler(find_handler);   // phone -> watch "find" ring
 
     // Re-start the detectors the user left on (Tools tiles / Dot face badges).
     // Deferred ~10 s and crash-guarded inside detector_toggle; after the boot
@@ -4488,6 +4587,7 @@ static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
 void loop()
 {
     instance.loop(); // required for power button and PMU event dispatch
+    find_pump();      // act on a pending phone->watch "find" request (LVGL thread)
 
 #ifdef SCREENSHOT_AUTO
     // Fire once, ~6 s after boot, so the UI and SD mount have settled.
