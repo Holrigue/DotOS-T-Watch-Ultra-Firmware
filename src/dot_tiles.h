@@ -20,6 +20,7 @@ enum DotTileKind : uint8_t {
     DOT_TILE_STEPS     = 3,   // daily steps
     DOT_TILE_BPM       = 4,   // heart rate, highest/lowest over a recent window
     DOT_TILE_MESH      = 5,   // button: open the Meshtastic (LoRa) chat
+    DOT_TILE_FIND      = 6,   // button: ring the phone (Find) with one tap
     DOT_TILE__COUNT           // keep last
 };
 

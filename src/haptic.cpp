@@ -46,3 +46,7 @@ void haptic_set_intensity(uint8_t pct)
 }
 
 uint8_t haptic_get_intensity() { return s_pct; }
+
+void haptic_reapply() { apply(); }
+
+void haptic_force_max() { instance.setHapticEffects(47); }   // Buzz 1 / 100%

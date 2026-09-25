@@ -372,6 +372,69 @@ static void draw_notify_icon(lv_obj_t *tile)
     lv_obj_align(bell, LV_ALIGN_TOP_MID, 0, 14);   // lifted to sit in the upper band, clear of the label
 }
 
+// Find tile: a phone handset in the DotOS accent red — it rings the phone.
+static void draw_find_icon(lv_obj_t *tile)
+{
+    lv_obj_t *g = lv_label_create(tile);
+    lv_obj_set_style_text_color(g, lv_color_make(0xE0, 0x20, 0x20), LV_PART_MAIN);
+    lv_obj_set_style_text_font(g, &lv_font_montserrat_48, LV_PART_MAIN);
+    lv_label_set_text(g, LV_SYMBOL_CALL);
+    lv_obj_align(g, LV_ALIGN_TOP_MID, 0, 14);
+}
+
+// Face tile: a 3x3 dot-matrix motif (Dot watchface) with a red centre accent.
+static void draw_face_icon(lv_obj_t *tile)
+{
+    const int pitch = 22, r = 6;
+    const int cx = 59;              // 118px tile centre
+    const int cols[3] = { cx - pitch, cx, cx + pitch };
+    const int rows[3] = { 18, 18 + pitch, 18 + 2 * pitch };
+    for (int ry = 0; ry < 3; ry++) {
+        for (int rx = 0; rx < 3; rx++) {
+            bool centre = (rx == 1 && ry == 1);
+            lv_obj_t *d = lv_obj_create(tile);
+            lv_obj_remove_style_all(d);
+            lv_obj_set_size(d, 2 * r, 2 * r);
+            lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(d, LV_OPA_COVER, LV_PART_MAIN);
+            lv_obj_set_style_bg_color(d,
+                centre ? lv_color_make(0xE0, 0x20, 0x20) : lv_color_white(), LV_PART_MAIN);
+            lv_obj_clear_flag(d, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_align(d, LV_ALIGN_TOP_LEFT, cols[rx] - r, rows[ry] - r);
+        }
+    }
+}
+
+// HexHound fallback (no SD card): a steel-blue paw print - four toe pads over a
+// palm pad - so the tile is never blank when /HexHound/pup_icon.png is absent.
+static void draw_hexhound_paw(lv_obj_t *tile)
+{
+    const lv_color_t blue = lv_color_make(0x4A, 0x8A, 0xC0);
+    const int cx = 59;
+    // Palm pad.
+    lv_obj_t *palm = lv_obj_create(tile);
+    lv_obj_remove_style_all(palm);
+    lv_obj_set_size(palm, 40, 30);
+    lv_obj_set_style_radius(palm, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(palm, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(palm, blue, LV_PART_MAIN);
+    lv_obj_clear_flag(palm, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(palm, LV_ALIGN_TOP_LEFT, cx - 20, 46);
+    // Four toe pads in an arc above the palm.
+    const int tx[4] = { cx - 27, cx - 10, cx + 10, cx + 27 };
+    const int ty[4] = { 32, 20, 20, 32 };
+    for (int i = 0; i < 4; i++) {
+        lv_obj_t *t = lv_obj_create(tile);
+        lv_obj_remove_style_all(t);
+        lv_obj_set_size(t, 15, 18);
+        lv_obj_set_style_radius(t, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(t, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(t, blue, LV_PART_MAIN);
+        lv_obj_clear_flag(t, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_align(t, LV_ALIGN_TOP_LEFT, tx[i] - 7, ty[i]);
+    }
+}
+
 // Analyze — spectrum-analyzer logo: a row of vertical bars at varying heights
 // sitting on a baseline, colours stepping from green through yellow to red to
 // suggest channel saturation.
@@ -1617,6 +1680,7 @@ static void draw_pet_icon(lv_obj_t *tile)
     // card is mounted; a missing card just leaves the icon blank (the "HexHound"
     // label still shows). The EVENT_BUBBLE flag added to every tile child in
     // tools_screen_create() makes a tap on the image reach the tile handler.
+    if (!SD.exists("/HexHound/pup_icon.png")) { draw_hexhound_paw(tile); return; }
     lv_obj_t *img = lv_image_create(tile);
     lv_image_set_src(img, "A:/HexHound/pup_icon.png");
     lv_obj_clear_flag(img, LV_OBJ_FLAG_SCROLLABLE);
@@ -1931,6 +1995,8 @@ void tools_screen_create()
     tile_icon(t_rogueap,  "rogueap",  draw_rogueap_icon);
     tile_icon(t_probes,   "probes",   draw_probes_icon);
     tile_icon(t_notify,   "notify",   draw_notify_icon);
+    tile_icon(t_face,     "face",     draw_face_icon);
+    tile_icon(t_find,     "find",     draw_find_icon);
 
     // --- Rearrangeable-grid wiring ---------------------------------------
     // Give every tile a STABLE key (independent of its label) and attach the

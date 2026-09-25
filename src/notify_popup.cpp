@@ -68,6 +68,15 @@ static void on_banner_click(lv_event_t *)
     notifications_screen_show();   // tap the banner -> open the full list
 }
 
+// Mute an incoming call: silence the watch's buzz for this call (see
+// notify::mute_call). Handy when the call is answered on another device (Teams
+// on a PC) and the phone keeps re-ringing the watch.
+static void on_mute_click(lv_event_t *)
+{
+    notify::mute_call();
+    dismiss_banner(true);
+}
+
 bool notify_popup_is_showing() { return s_banner != nullptr; }
 
 static void show_banner(const notify::Notification &n)
@@ -122,6 +131,23 @@ static void show_banner(const notify::Notification &n)
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
         lv_label_set_text(body, n.body);
+    }
+
+    // Incoming call: a full-width Mute button that stops the watch buzzing for
+    // this call (the button consumes its own tap, so it doesn't open the list).
+    if (n.category == notify::Category::IncomingCall) {
+        lv_obj_t *mute = lv_button_create(s_banner);
+        lv_obj_set_width(mute, LV_PCT(100));
+        lv_obj_set_style_bg_color(mute, NOTHING_RED, LV_PART_MAIN);
+        lv_obj_set_style_radius(mute, 8, LV_PART_MAIN);
+        lv_obj_set_style_pad_ver(mute, 8, LV_PART_MAIN);
+        lv_obj_set_style_margin_top(mute, 6, LV_PART_MAIN);
+        lv_obj_add_event_cb(mute, on_mute_click, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *ml = lv_label_create(mute);
+        lv_obj_set_style_text_font(ml, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(ml, NOTHING_WHITE, LV_PART_MAIN);
+        lv_label_set_text(ml, LV_SYMBOL_MUTE "  Mute");
+        lv_obj_center(ml);
     }
 
     s_dismiss_timer = lv_timer_create(on_dismiss_timer, POPUP_MS, NULL);

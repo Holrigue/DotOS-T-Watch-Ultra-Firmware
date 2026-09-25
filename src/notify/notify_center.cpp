@@ -19,6 +19,11 @@ static portMUX_TYPE  s_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_pending = false;
 static Notification  s_pending_notif;
 
+// millis() deadline until which incoming-call buzzes are suppressed (see
+// mute_call). 0 = not muted. Set on the UI thread, read on the BLE task.
+static constexpr uint32_t CALL_MUTE_MS = 120000;   // ~2 min covers one call
+static volatile uint32_t  s_call_mute_until = 0;
+
 bool take_pending(Notification& out)
 {
     if (!s_pending) return false;   // cheap early-out, no lock on the common path
@@ -92,9 +97,13 @@ void publish(Notification n)
     center().add(n);
 
     // Buzz once on a genuinely new notification, not on in-place content updates
-    // (a phone re-sends on edit; we do not want a second buzz for that).
+    // (a phone re-sends on edit; we do not want a second buzz for that). Incoming
+    // calls are exempt while muted: each re-ring is a fresh (synthetic-uid) arrival
+    // so it would otherwise keep buzzing after the call was answered elsewhere.
     if (!is_update) {
-        instance.vibrator();
+        bool muted_call = (n.category == Category::IncomingCall) &&
+                          (int32_t)(s_call_mute_until - millis()) > 0;
+        if (!muted_call) instance.vibrator();
     }
 
     // Debug-only serial mirror (NLOG compiles out unless ARGUS_NOTIFY_DEBUG is
@@ -124,6 +133,13 @@ void retract(uint32_t uid)
 void clear_all()
 {
     center().clear();
+}
+
+void mute_call()
+{
+    uint32_t until = millis() + CALL_MUTE_MS;
+    if (until == 0) until = 1;   // 0 is the "not muted" sentinel
+    s_call_mute_until = until;
 }
 
 }  // namespace notify

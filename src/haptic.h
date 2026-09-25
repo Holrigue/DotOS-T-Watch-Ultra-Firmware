@@ -19,5 +19,15 @@ void haptic_set_intensity(uint8_t pct);
 // Current intensity percent.
 uint8_t haptic_get_intensity();
 
+// Re-apply the saved intensity's effect to the DRV2605 without persisting. Used
+// to restore normal buzz after something temporarily forced a different effect
+// (e.g. the Find alert maxing the motor), so the setting itself is untouched.
+void haptic_reapply();
+
+// Force the strongest buzz effect (Buzz 1 / 100%) immediately, ignoring the
+// saved intensity. Pair with haptic_reapply() to restore. For urgent alerts
+// (Find) that must be felt regardless of the user's comfort setting.
+void haptic_force_max();
+
 // The default when nothing is stored yet (about half the stock strength).
 constexpr uint8_t HAPTIC_DEFAULT_PCT = 50;
