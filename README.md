@@ -60,6 +60,17 @@ The notification banner, list, and toggles are restyled to the face palette (whi
 
 [**ARGD-OS Dashboard**](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-) (Android, Kotlin / Compose) reads sleep / steps / heart-rate from **Health Connect** and pushes them to the watch over BLE — manually or on a background schedule (default every 15 min). iOS needs no app for phone notifications (ANCS); the health bridge is Android-only for now.
 
+**What it syncs:** sleep score, step count, and heart-rate high/low, written to the watch's **Health** screen. Nothing leaves the phone except to the watch over a direct BLE link — there is no cloud account and no server.
+
+**Install:** grab `app-debug.apk` from the app repo's [latest CI build](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-/actions) (Actions ▸ newest run ▸ **argd-os-dashboard-debug** artifact), or a tagged [Release](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-/releases) when one is published, then side-load it (enable "install unknown apps" for your browser/file manager). On first launch, grant **Nearby devices / Bluetooth** and the **Health Connect** read permissions it requests.
+
+**Pair & sync:**
+1. On the watch, open **Notify** and Enable a mode (this puts the watch in BLE-first Daily-wear mode and advertises the health service).
+2. In the app, tap **Scan** — the watch shows up as **ARGUS Watch** (recognised by its service UUID, so it's found even when Android reports its name as "unknown"). Tap it to connect; the status reads **Ready** once the health characteristic is found.
+3. Tap **Sync now** to push immediately, or leave **background auto-sync** on to push every 15 min via WorkManager.
+
+**Reconnecting after a re-flash:** flashing the watch clears its BLE bond and can shift the GATT layout, so a phone that still lists the old device may fail the first reconnect. The app already refreshes Android's cached GATT table on every connect and **retries the first reconnect once automatically**. If it still won't connect, **forget "ARGUS Watch"** in the phone's Bluetooth settings and Scan again — no app reinstall is needed, and the watch health interface is unchanged.
+
 > **Screenshots:** the images below are current sim-rendered captures of the shared UI. Fresh **Dot-face / Tools ▸ Face** captures are regenerated from source through the `sim/` pipeline (same as the existing shots) — those are pending.
 
 ## Purchase
