@@ -1210,19 +1210,30 @@ static const DotTileDef kDotTileDefs[] = {
     { DOT_TILE_STEPS,     "STEPS", "Daily steps"    },
     { DOT_TILE_BPM,       "BPM",   "BPM (high/low)" },
     { DOT_TILE_MESH,      "LoRa",  "Meshtastic chat"},
+    { DOT_TILE_FIND,      "FIND",  "Find (ring phone)"},
 };
 static constexpr int DOT_TILE_DEF_N = sizeof(kDotTileDefs) / sizeof(kDotTileDefs[0]);
 
 static void open_tile_picker(int slot);
+bool find_ring_phone();   // defined below: notify the phone to ring
+static void sys_notify(uint32_t uid, const char *title, const char *body);  // defined below
+static constexpr uint32_t SYS_UID_FIND = 0x5A5E0005;
 
 static void on_dot_tile_short(lv_event_t *e)
 {
     int s = (int)(intptr_t)lv_event_get_user_data(e);
     if (s < 0 || s > 1) return;
-    // A configured Meshtastic button opens the chat; everything else (empty or a
-    // read-out tile) opens the picker so a plain tap can (re)choose it.
-    if (dot_tiles_get(s) == DOT_TILE_MESH) meshtastic_screen_show();
-    else                                   open_tile_picker(s);
+    DotTileKind k = dot_tiles_get(s);
+    // Button tiles act on tap; a read-out tile (or empty slot) opens the picker
+    // so a plain tap can (re)choose it.
+    if (k == DOT_TILE_MESH) { meshtastic_screen_show(); return; }
+    if (k == DOT_TILE_FIND) {
+        bool ok = find_ring_phone();
+        sys_notify(SYS_UID_FIND, "Find",
+                   ok ? "Ringing your phone..." : "Phone not connected");
+        return;
+    }
+    open_tile_picker(s);
 }
 
 static void on_dot_tile_long(lv_event_t *e)
@@ -1310,6 +1321,16 @@ static void dot_tile_render(int s)
         lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
         lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
         lv_label_set_text(val, LV_SYMBOL_ENVELOPE);
+        return;
+    }
+
+    // Find button: title + bell glyph. One tap rings the phone.
+    if (k == DOT_TILE_FIND) {
+        lv_obj_set_style_text_color(tag, dot_white(), LV_PART_MAIN);
+        lv_label_set_text(tag, "FIND");
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
+        lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
+        lv_label_set_text(val, LV_SYMBOL_BELL);
         return;
     }
 
@@ -2985,6 +3006,11 @@ static void find_alert_start()
     lv_label_set_text(bl, "STOP");
     lv_obj_center(bl);
 
+    // Find must be felt and heard no matter the comfort settings: force the
+    // strongest buzz effect, and play the loud doorbell chime at max volume
+    // through the speaker (reusing the alarm's I2S chime).
+    haptic_force_max();
+    alarm_play_chime_loop(100);
     instance.vibrator();
     s_find_timer = lv_timer_create(find_alert_tick, FIND_ALERT_PERIOD_MS, NULL);
 }
@@ -2993,6 +3019,8 @@ static void find_alert_stop()
 {
     if (s_find_timer)   { lv_timer_delete(s_find_timer);   s_find_timer   = nullptr; }
     if (s_find_overlay) { lv_obj_delete_async(s_find_overlay); s_find_overlay = nullptr; }
+    alarm_stop_chime_loop();   // silence the speaker
+    haptic_reapply();          // restore the user's normal buzz strength
 }
 
 // The phone write arrives on the BLE host task, which must not touch LVGL. Latch
