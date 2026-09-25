@@ -3330,7 +3330,7 @@ void setup()
     // Backlight on now so it's visible; the splash stays up through the rest of
     // setup (screen construction) and is swapped for the clock below, held to a
     // minimum visible time. Brand typeface is Saira Condensed (src/font_argus_*.c),
-    // filled steel-blue (#9BBCD6) on black — the sanctioned dark-surface treatment.
+    // filled red (#E02020, the Dot-face accent) on black, with a "DotOS" subtitle.
     instance.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
     lv_obj_t *boot_splash = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(boot_splash, lv_color_black(), LV_PART_MAIN);
@@ -3340,9 +3340,17 @@ void setup()
     // ARGUS hero.
     lv_obj_t *boot_brand = lv_label_create(boot_splash);
     lv_label_set_text(boot_brand, FW_NAME);   // "ARGUS"
-    lv_obj_set_style_text_color(boot_brand, ARGUS_ACCENT, LV_PART_MAIN);   // ARGUS steel-blue
+    lv_obj_set_style_text_color(boot_brand, lv_color_hex(0xE02020), LV_PART_MAIN);   // Dot-face red
     lv_obj_set_style_text_font(boot_brand, &font_argus_argus, LV_PART_MAIN);
     lv_obj_align(boot_brand, LV_ALIGN_CENTER, 0, 8);
+
+    // "DotOS" subtitle, just under the hero.
+    lv_obj_t *boot_sub = lv_label_create(boot_splash);
+    lv_label_set_text(boot_sub, "DotOS");
+    lv_obj_set_style_text_color(boot_sub, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(boot_sub, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(boot_sub, 4, LV_PART_MAIN);
+    lv_obj_align_to(boot_sub, boot_brand, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
 
     lv_scr_load(boot_splash);
     lv_refr_now(NULL);                       // paint now; no timer handler in setup yet
