@@ -2854,6 +2854,25 @@ void clock_screen_restore_brightness()
 
 // 1 Hz: follow the sun, remember GPS fixes, and let the battery saver switch
 // the screen off once it has been dimmed long enough.
+// Locally-generated "system" notifications (battery, etc.), published through
+// the same pipeline as phone notifications: banner + list + unread badge. Each
+// event carries a STABLE uid so a re-fire updates in place instead of stacking,
+// and the callers guard each so it fires once on its edge.
+static constexpr uint32_t SYS_UID_SAVER = 0x5A5E0001;
+static constexpr uint32_t SYS_UID_CRIT  = 0x5A5E0002;
+static constexpr uint32_t SYS_UID_FULL  = 0x5A5E0003;
+
+static void sys_notify(uint32_t uid, const char *title, const char *body)
+{
+    notify::Notification n;
+    n.uid      = uid;
+    n.category = notify::Category::System;
+    snprintf(n.app,   sizeof(n.app),   "System");
+    snprintf(n.title, sizeof(n.title), "%s", title);
+    snprintf(n.body,  sizeof(n.body),  "%s", body);
+    notify::publish(n);
+}
+
 static void display_power_tick()
 {
     sun_location_note_fix();
@@ -2876,6 +2895,29 @@ static void display_power_tick()
         s_low_batt_saver = false;
         // If the user never asked for the saver, undo the forced screen-off now.
         if (!s_batt_saver && s_display_off) display_on();
+    }
+
+    // System battery notifications, edge-triggered so each fires once.
+    static bool s_saver_was  = false;
+    static bool s_notif_crit = false;
+    static bool s_notif_full = false;
+    if (s_low_batt_saver && !s_saver_was)
+        sys_notify(SYS_UID_SAVER, "Battery saver on",
+                   "Low battery - saving power to extend runtime.");
+    s_saver_was = s_low_batt_saver;
+
+    if (charging) {
+        s_notif_crit = false;                      // re-arm the critical warning
+        if (!s_notif_full && batt_pct >= 100) {    // fully charged while plugged
+            s_notif_full = true;
+            sys_notify(SYS_UID_FULL, "Battery full", "Charged - you can unplug the watch.");
+        }
+    } else {
+        s_notif_full = false;                      // re-arm "full" for the next charge
+        if (!s_notif_crit && batt_pct >= 0 && batt_pct <= 5) {
+            s_notif_crit = true;
+            sys_notify(SYS_UID_CRIT, "Battery critical", "About to shut down - charge now.");
+        }
     }
 
     if ((s_batt_saver || s_low_batt_saver) && s_is_dimmed && !s_display_off &&
