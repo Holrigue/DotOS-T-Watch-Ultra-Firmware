@@ -1230,32 +1230,42 @@ static void on_dot_tile_long(lv_event_t *e)
     if (s >= 0 && s <= 1) open_tile_picker(s);   // long-press always re-picks
 }
 
+// Two slots on the idle USB line. Each is a single centred line, TITLE then
+// value left-to-right, using most of the tile width for a big, all-white
+// read-out. Montserrat (not a subset font) guarantees the digits, '/', '%' and
+// 'k' always render.
+static constexpr int DOT_TILE_W = 172;
+static constexpr int DOT_TILE_H = 46;
+
 static void build_dot_tiles(lv_obj_t *parent)
 {
     for (int s = 0; s < 2; s++) {
         lv_obj_t *hit = lv_obj_create(parent);
         lv_obj_remove_style_all(hit);
-        lv_obj_set_size(hit, 108, 40);
-        lv_obj_set_pos(hit, DOT_TILE_CX[s] - 54, DOT_USB_Y - 20);
+        lv_obj_set_size(hit, DOT_TILE_W, DOT_TILE_H);
+        lv_obj_set_pos(hit, DOT_TILE_CX[s] - DOT_TILE_W / 2, DOT_USB_Y - DOT_TILE_H / 2);
         lv_obj_clear_flag(hit, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(hit, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(hit, LV_OBJ_FLAG_HIDDEN);   // shown by update_dot_tiles when unplugged
+        // Title + value on one row, centred together (a hidden label drops out of
+        // the flex, so single-item states self-centre).
+        lv_obj_set_flex_flow(hit, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(hit, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(hit, 8, LV_PART_MAIN);
         lv_obj_add_event_cb(hit, on_dot_tile_short, LV_EVENT_SHORT_CLICKED, (void *)(intptr_t)s);
         lv_obj_add_event_cb(hit, on_dot_tile_long,  LV_EVENT_LONG_PRESSED,  (void *)(intptr_t)s);
 
         lv_obj_t *tag = lv_label_create(hit);
-        lv_obj_set_style_text_font(tag, &lv_font_montserrat_10, LV_PART_MAIN);
-        lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
+        lv_obj_set_style_text_font(tag, &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(tag, dot_white(), LV_PART_MAIN);
         lv_obj_set_style_text_letter_space(tag, 1, LV_PART_MAIN);
         lv_label_set_text(tag, "");
-        lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 1);
         lv_obj_clear_flag(tag, LV_OBJ_FLAG_CLICKABLE);
 
         lv_obj_t *val = lv_label_create(hit);
-        lv_obj_set_style_text_font(val, &font_argus_mono_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
         lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
         lv_label_set_text(val, "");
-        lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -1);
         lv_obj_clear_flag(val, LV_OBJ_FLAG_CLICKABLE);
 
         dot_tile_hit[s] = hit;
@@ -1282,27 +1292,23 @@ static void dot_tile_render(int s)
 
     DotTileKind k = dot_tiles_get(s);
 
-    // Empty slot: a dim "+" invite so it reads as configurable.
+    // Empty slot: a single centred "+ add" invite (the title label drops out).
     if (k == DOT_TILE_NONE) {
-        lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
-        lv_label_set_text(tag, "choose");
-        lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 2);
-        lv_obj_set_style_text_font(val, &font_argus_label_20, LV_PART_MAIN);
+        lv_obj_add_flag(tag, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_20, LV_PART_MAIN);
         lv_obj_set_style_text_color(val, dot_gray(), LV_PART_MAIN);
-        lv_label_set_text(val, "+");
-        lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -2);
+        lv_label_set_text(val, "+ add");
         return;
     }
+    lv_obj_clear_flag(tag, LV_OBJ_FLAG_HIDDEN);
 
-    // Meshtastic button: a static envelope glyph, always "live" (white).
+    // Meshtastic button: title + envelope glyph, always "live" (white).
     if (k == DOT_TILE_MESH) {
-        lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(tag, dot_white(), LV_PART_MAIN);
         lv_label_set_text(tag, "LoRa");
-        lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 1);
-        lv_obj_set_style_text_font(val, &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
         lv_obj_set_style_text_color(val, dot_white(), LV_PART_MAIN);
         lv_label_set_text(val, LV_SYMBOL_ENVELOPE);
-        lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -1);
         return;
     }
 
@@ -1349,13 +1355,13 @@ static void dot_tile_render(int s)
         break;
     }
 
-    lv_obj_set_style_text_color(tag, dot_gray(), LV_PART_MAIN);
+    // Title always white for legibility; value white when live, grey when the
+    // reading is stale or missing (so "old data" still reads at a glance).
+    lv_obj_set_style_text_color(tag, dot_white(), LV_PART_MAIN);
     lv_label_set_text(tag, tagtxt);
-    lv_obj_align(tag, LV_ALIGN_TOP_MID, 0, 1);
-    lv_obj_set_style_text_font(val, &font_argus_mono_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(val, &lv_font_montserrat_24, LV_PART_MAIN);
     lv_obj_set_style_text_color(val, col, LV_PART_MAIN);
     lv_label_set_text(val, buf);
-    lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, -1);
 }
 
 static void update_dot_tiles(bool usb_present)
@@ -2684,12 +2690,36 @@ static bool      s_dim_gate_armed = false;   // false for the first 15 s: a tap 
 // deliberate swipe up is required (saves battery, avoids pocket wakes).
 static constexpr uint32_t DIM_GATE_ARM_MS = 15000;
 
+// When the hint is revealed we briefly lift the panel brightness so the white
+// "swipe up to wake" pops OUT of the dim and is easy to read, while a black scrim
+// keeps everything behind it artificially dimmed. Because the backdrop is a
+// near-black scrim (on this AMOLED, black pixels emit nothing), the higher
+// brightness lights only the small hint card - so brushing the screen in a dark
+// room does not light it up. The bright state auto-fades back after a few seconds
+// if no swipe follows, so a stray touch cannot leave the panel lit.
+static constexpr uint8_t  DIM_GATE_REVEAL_BRIGHTNESS = 100;   // ~40%, readable
+static constexpr uint32_t DIM_GATE_REVEAL_MS         = 4000;
+static lv_timer_t        *s_dim_reveal_timer = nullptr;
+
 static void hide_dim_gate()
 {
+    if (s_dim_reveal_timer) { lv_timer_delete(s_dim_reveal_timer); s_dim_reveal_timer = nullptr; }
     if (s_dim_gate) { lv_obj_delete_async(s_dim_gate); s_dim_gate = nullptr; }
     s_dim_card  = nullptr;
     s_dim_arrow = nullptr;
     s_dim_gate_armed = false;
+}
+
+// Fade the revealed hint back to the plain dimmed state: drop the scrim, hide the
+// card, and restore the dim brightness so the panel goes dark again. The gate
+// itself stays (still armed), so the next touch can reveal it afresh.
+static void dim_gate_conceal(lv_timer_t *t)
+{
+    if (s_dim_reveal_timer) { lv_timer_delete(s_dim_reveal_timer); s_dim_reveal_timer = nullptr; }
+    if (!s_dim_gate) return;
+    lv_obj_set_style_bg_opa(s_dim_gate, LV_OPA_TRANSP, LV_PART_MAIN);   // remove scrim
+    if (s_dim_card) lv_obj_add_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN);
+    if (!s_display_off && s_is_dimmed) instance.setBrightness(s_dim_brightness);
 }
 
 static void on_dim_gate_gesture(lv_event_t *e)
@@ -2717,8 +2747,20 @@ static void on_dim_gate_pressed(lv_event_t *)
     // Armed: reveal the frosted hint once and let it breathe; only a swipe up
     // (on_dim_gate_gesture) wakes from here, and hardware buttons always do.
     if (!s_dim_card || !lv_obj_has_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN)) return;
+
+    // Darken everything behind (scrim) and lift the brightness so the white hint
+    // pops out of the dim without lighting the room (see the constants above).
+    lv_obj_set_style_bg_color(s_dim_gate, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_dim_gate, 165, LV_PART_MAIN);          // ~65% scrim
+    if (!s_display_off) instance.setBrightness(DIM_GATE_REVEAL_BRIGHTNESS);
+
     lv_obj_set_style_opa(s_dim_card, LV_OPA_TRANSP, LV_PART_MAIN);   // start clear, fade in
     lv_obj_clear_flag(s_dim_card, LV_OBJ_FLAG_HIDDEN);
+
+    // Auto-fade back to the dark dimmed state if no swipe follows.
+    if (s_dim_reveal_timer) lv_timer_delete(s_dim_reveal_timer);
+    s_dim_reveal_timer = lv_timer_create(dim_gate_conceal, DIM_GATE_REVEAL_MS, NULL);
+    lv_timer_set_repeat_count(s_dim_reveal_timer, 1);
 
     lv_anim_t fade;
     lv_anim_init(&fade);
