@@ -30,6 +30,7 @@
 #include "notifications_screen.h"
 #include "face_watch_screen.h"
 #include "find_screen.h"
+#include "music_screen.h"
 #include "analyze_screen.h"
 #include "ble_scan_manager.h"
 #include "detector_toggle.h"   // persist detector on/off (shared with the Dot face badges)
@@ -379,6 +380,16 @@ static void draw_find_icon(lv_obj_t *tile)
     lv_obj_set_style_text_color(g, lv_color_make(0xE0, 0x20, 0x20), LV_PART_MAIN);
     lv_obj_set_style_text_font(g, &lv_font_montserrat_48, LV_PART_MAIN);
     lv_label_set_text(g, LV_SYMBOL_CALL);
+    lv_obj_align(g, LV_ALIGN_TOP_MID, 0, 14);
+}
+
+// Music tile: a note glyph in the DotOS accent red.
+static void draw_music_icon(lv_obj_t *tile)
+{
+    lv_obj_t *g = lv_label_create(tile);
+    lv_obj_set_style_text_color(g, lv_color_make(0xE0, 0x20, 0x20), LV_PART_MAIN);
+    lv_obj_set_style_text_font(g, &lv_font_montserrat_48, LV_PART_MAIN);
+    lv_label_set_text(g, LV_SYMBOL_AUDIO);
     lv_obj_align(g, LV_ALIGN_TOP_MID, 0, 14);
 }
 
@@ -1933,6 +1944,7 @@ void tools_screen_create()
     lv_obj_t *t_notify  = make_tile(grid, "Notify");
     lv_obj_t *t_face    = make_tile(grid, "Face");
     lv_obj_t *t_find    = make_tile(grid, "Find");
+    lv_obj_t *t_music   = make_tile(grid, "Music");
     lv_obj_t *t_pager   = make_tile(grid, "Pager");
     lv_obj_t *t_aprs    = make_tile(grid, "LoRa APRS");
     lv_obj_t *t_pet     = make_tile(grid, "HexHound");
@@ -1997,6 +2009,7 @@ void tools_screen_create()
     tile_icon(t_notify,   "notify",   draw_notify_icon);
     tile_icon(t_face,     "face",     draw_face_icon);
     tile_icon(t_find,     "find",     draw_find_icon);
+    tile_icon(t_music,    "music",    draw_music_icon);
 
     // --- Rearrangeable-grid wiring ---------------------------------------
     // Give every tile a STABLE key (independent of its label) and attach the
@@ -2035,6 +2048,7 @@ void tools_screen_create()
         { t_notify,   "notify"    },
         { t_face,     "facewatch" },
         { t_find,     "find"      },
+        { t_music,    "music"     },
     };
     for (auto &tk : tile_keys) {
         lv_obj_set_user_data(tk.tile, (void *)tk.key);
@@ -2051,6 +2065,9 @@ void tools_screen_create()
 
     // Find tile opens the companion-app "find my device" screen.
     lv_obj_add_event_cb(t_find, [](lv_event_t *) { find_screen_show(); }, LV_EVENT_CLICKED, NULL);
+
+    // Music tile opens the artist/track browser + player.
+    lv_obj_add_event_cb(t_music, [](lv_event_t *) { music_screen_show(); }, LV_EVENT_CLICKED, NULL);
 
     // Tesla CP tile opens the 315 MHz charge-port-open transmit screen.
     lv_obj_add_event_cb(t_tesla, [](lv_event_t *) { if (argus_mode_current() != ArgusMode::Offense) return; tesla_cp_screen_show(); }, LV_EVENT_CLICKED, NULL);
@@ -2177,7 +2194,7 @@ static ArgusMode tile_mode(const char *key)
         !strcmp(key, "rogueap") || !strcmp(key, "probes"))
         return ArgusMode::Offense;
     if (!strcmp(key, "notify") || !strcmp(key, "aprs") || !strcmp(key, "usbsd") ||
-        !strcmp(key, "find"))
+        !strcmp(key, "find") || !strcmp(key, "music"))
         return ArgusMode::Daily;
     return ArgusMode::Defense;
 }

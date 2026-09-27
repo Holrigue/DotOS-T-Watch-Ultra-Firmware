@@ -1,0 +1,12 @@
+{
+  "name": "minimp3",
+  "version": "0.0.0+vendored",
+  "description": "Minimalistic MP3 decoder, single header (vendored; see PROVENANCE.md)",
+  "license": "CC0-1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lieff/minimp3.git"
+  },
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

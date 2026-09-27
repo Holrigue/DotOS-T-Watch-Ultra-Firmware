@@ -1,5 +1,6 @@
 #include "alarm.h"
 #include "usb_sd.h"
+#include "music_player.h"   // music_player_stop() - shared-I2S priority, see start_chime()
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
@@ -282,6 +283,11 @@ static void stop_chime()
 static void start_chime()
 {
     if (s_chime_task) return;        // already running
+    // The alarm/timer takes priority over the shared I2S output: stop any
+    // music playback first so the two never fight over instance.player /
+    // I2S_NUM_1 (music_player only refuses to START while we're active - it
+    // has no way to know we're ABOUT to start, so we make room instead).
+    music_player_stop();
     s_chime_active = true;
     xTaskCreatePinnedToCore(chime_task, "alarm_chime", 4096, NULL, 1,
                             &s_chime_task, 0);
@@ -302,6 +308,8 @@ void alarm_stop_chime_loop()
     s_chime_override_volume = 0;   // clear so the next alarm-driven chime
                                    // reverts to the saved volume
 }
+
+bool alarm_chime_is_active() { return s_chime_active; }
 
 // ---- ring trigger ----------------------------------------------------------
 

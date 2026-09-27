@@ -119,6 +119,7 @@ void spycam_screen_show(void)           {}
 void tesla_cp_screen_show(void)         {}
 void face_watch_screen_show(void)       {}
 void find_screen_show(void)             {}
+void music_screen_show(void)            {}
 void tpms_screen_show(void)             {}
 void tracker_timeline_screen_show(void) {}
 void usb_sd_screen_show(void)           {}

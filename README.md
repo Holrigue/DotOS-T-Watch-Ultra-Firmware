@@ -117,6 +117,33 @@ Screens are reached by swipe gestures, the power/back buttons, and the on-screen
 - **Timer** — countdown with HH / MM / SS rollers, six preset chips (1m, 5m, 10m, 30m, 1h, 5h), and a circular progress arc that depletes as the timer runs. Expiry pops a full-screen TIME'S UP overlay and **plays the same alarm chime at 100 % volume + the same haptic cadence**, regardless of the saved alarm volume — borrowed via the shared `alarm_play_chime_loop()` API so there's no duplicated audio code. When counting, a green timer icon appears on the clock face next to the battery.
 - **Calendar** — month-view grid with the current day highlighted; centred "TODAY" button jumps back to today after scrolling.
 
+### Music
+
+A local MP3/FLAC player (Tools ▸ Music), reading straight off the SD card —
+nothing to sync or transcode.
+
+**Folder convention:** put music at `/music/<Artist>/<anything>.mp3` or
+`.flac` on the card — **the folder name is the artist**. This is the whole
+tagging scheme: no ID3/Vorbis-comment parsing, so files with missing or
+garbled tags still show up correctly, and it's how most people already sort a
+music folder by hand. The track title shown is the file name without its
+extension. Nested sub-folders under an artist aren't walked in v1 — keep an
+artist's tracks directly inside their folder.
+
+Opening Music scans `/music` once per session (not at boot, so a watch that
+never opens it never pays the scan cost) and shows an alphabetical-ish list of
+artists — tap one for its tracks, tap a track to play. **Now Playing** has
+play/pause, previous/next (within that artist's list), a progress bar, and
+Stop; playback keeps running if you swipe back to browse, since it's driven by
+its own task independent of the screen. The alarm and timer chime share the
+same speaker output, so they take priority: starting one stops any playing
+track, and Music won't start while either is ringing.
+
+Decoding uses two vendored single-header libraries — [minimp3](https://github.com/lieff/minimp3)
+(MP3, CC0) and [dr_flac](https://github.com/mackron/dr_libs) (FLAC, public
+domain / MIT-0) — both permissively licensed to match this project's own MIT
+lineage; see `lib/minimp3/PROVENANCE.md` and `lib/dr_flac/PROVENANCE.md`.
+
 ### Meshtastic & LoRa
 
 - **LoRa radio** — powers the SX1262 on/off and shows live stats: node ID, frequency, bandwidth, RSSI, channel activity, TX power, and packet count, plus a Boosted RX-gain option.

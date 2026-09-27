@@ -53,3 +53,9 @@ void     alarm_set_snooze_minutes(int minutes);
 // Calling start while the chime is already running is a no-op.
 void     alarm_play_chime_loop(uint8_t volume_override);
 void     alarm_stop_chime_loop();
+
+// True while the chime (alarm ring, timer expiry, or a borrowed chime) is
+// actively driving the shared I2S output. Any other module that also wants
+// the speaker (e.g. the Music player) checks this first, since only one
+// consumer can own the I2S peripheral at a time.
+bool     alarm_chime_is_active();
