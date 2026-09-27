@@ -39,7 +39,7 @@ namespace {
 
 enum class Kind { None, Mp3, Flac };
 
-constexpr uint32_t PLAYER_I2S_PORT     = I2S_NUM_1;   // matches alarm.cpp
+constexpr i2s_port_t PLAYER_I2S_PORT   = I2S_NUM_1;   // matches alarm.cpp
 constexpr int       PCM_CHUNK_FRAMES   = 1152;         // one MP3 frame's worth
 constexpr size_t    PCM_CHUNK_SAMPLES  = PCM_CHUNK_FRAMES * 2;   // stereo-worst-case
 
