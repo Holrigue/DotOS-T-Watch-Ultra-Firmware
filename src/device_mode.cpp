@@ -119,7 +119,12 @@ void device_mode_restore_boot()
 {
     Preferences p;
     if (!p.begin("argusnotify", true)) return;
-    bool    en   = p.getBool("en", false);
+    // Default-ON: a fresh watch (or one whose NVS was wiped by a full-erase
+    // flash) boots into DailyWear with notifications up, instead of staying in
+    // FieldTool until the user enables Notify by hand. A user who deliberately
+    // turned Notify off has en=false persisted (the key is present), so their
+    // choice is still respected - only the absent-key case defaults to on.
+    bool    en   = p.getBool("en", true);
     uint8_t plat = p.getUChar("plat", (uint8_t)NotifyPlatform::iOS);
     p.end();
 
