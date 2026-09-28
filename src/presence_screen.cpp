@@ -19,6 +19,7 @@
 
 // Defined in main.cpp.
 void screen_return_to(lv_obj_t *scr);
+void ui_keep_awake(bool on);   // hold the screen awake (no dim / no auto-home)
 
 static const lv_color_t PW = lv_color_hex(0xFFFFFF);   // primary text
 static const lv_color_t PG = lv_color_hex(0x9A9A9A);   // secondary text
@@ -105,6 +106,7 @@ static void on_poll(lv_timer_t *)
 
 static void on_unload(lv_event_t *)
 {
+    ui_keep_awake(false);
     if (s_poll_timer) { lv_timer_del(s_poll_timer); s_poll_timer = nullptr; }
     if (s_we_started) {          // only stop what we started
         human_detector_stop();
@@ -198,6 +200,7 @@ void presence_screen_show()
     if (!human_detector_is_running())
         s_we_started = human_detector_start();
 
+    ui_keep_awake(true);    // stay lit and on-screen while the radar is open
     if (!s_poll_timer) s_poll_timer = lv_timer_create(on_poll, 50, NULL);
 
     lv_scr_load(screen);

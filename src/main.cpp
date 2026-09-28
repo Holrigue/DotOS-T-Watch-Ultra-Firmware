@@ -2908,6 +2908,18 @@ static void dim_reset_activity()
     }
 }
 
+// Keep-awake: some screens are meant to be watched without touching (the
+// compass, the presence radar), so they must not dim out or fall back to the
+// home clock under the inactivity timer. They raise this while shown and drop
+// it on exit; the dim loop skips dimming entirely while it is set. Raising it
+// also resets the activity clock so there is no stale-timeout dim in the gap.
+static bool s_keep_awake = false;
+void ui_keep_awake(bool on)
+{
+    s_keep_awake = on;
+    dim_reset_activity();   // fresh timeout both on entry and on the exit back
+}
+
 // Put the panel back to whatever it should show right now: the dim level while
 // dimmed, otherwise the active brightness. Used after a temporary override (the
 // notification banner's brightness boost) ends.
@@ -4794,7 +4806,7 @@ void loop()
     // Also hold off dimming briefly after the charger is plugged in, so the
     // charge indicator is visible for at least CHARGE_WAKE_MS.
     if (s_dim_timeout_ms > 0 && !s_is_dimmed && !notify_popup_is_showing() &&
-        millis() >= s_charge_wake_until_ms) {
+        !s_keep_awake && millis() >= s_charge_wake_until_ms) {
         if (millis() - s_last_activity_ms >= s_dim_timeout_ms) {
             s_is_dimmed    = true;
             s_dimmed_at_ms = millis();

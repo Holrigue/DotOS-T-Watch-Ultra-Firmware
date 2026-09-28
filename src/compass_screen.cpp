@@ -33,6 +33,7 @@
 
 // Defined in main.cpp.
 void screen_return_to(lv_obj_t *scr);
+void ui_keep_awake(bool on);   // hold the screen awake (no dim / no auto-home)
 
 static const lv_color_t NW = lv_color_hex(0xFFFFFF);   // primary text
 static const lv_color_t NG = lv_color_hex(0x9A9A9A);   // secondary text
@@ -194,6 +195,7 @@ static void on_unload(lv_event_t *)
     // Fires as soon as navigation away starts, regardless of path - the one
     // place that reliably powers the sensor back down again.
     sensor_disable();
+    ui_keep_awake(false);
     if (s_poll_timer) { lv_timer_del(s_poll_timer); s_poll_timer = nullptr; }
 }
 
@@ -282,6 +284,7 @@ void compass_screen_show()
     if (from != screen) s_return = from;
 
     s_last_drawn = -1000;   // force a repaint on the first poll after re-entry
+    ui_keep_awake(true);    // stay lit and on-screen while the compass is open
     sensor_enable();
     if (!s_poll_timer) s_poll_timer = lv_timer_create(on_poll, 200, NULL);
 
