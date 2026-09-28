@@ -5,6 +5,7 @@
 #include "skimmer.h"
 #include "flock.h"
 #include "evil_twin.h"
+#include "human_detector.h"
 
 #include <Arduino.h>
 #include <Preferences.h>
@@ -13,7 +14,7 @@
 static const char *const NS          = "argusdet";
 static const char *const KEY_PENDING = "rspend";
 static const char *const KEY[(int)Detector::Count] = {
-    "flock", "evilt", "airtag", "flipper", "skim"
+    "flock", "evilt", "airtag", "flipper", "skim", "human"
 };
 
 static const uint32_t kRestoreDelayMs = 10000;   // after boot radios settle
@@ -27,6 +28,7 @@ bool detector_is_running(Detector d)
         case Detector::AirTag:   return airtag_is_running();
         case Detector::Flipper:  return flipper_is_running();
         case Detector::Skimmer:  return skimmer_is_running();
+        case Detector::HumanDetector: return human_detector_is_running();
         default:                 return false;
     }
 }
@@ -39,6 +41,7 @@ int detector_count(Detector d)
         case Detector::AirTag:   return airtag_get_count();
         case Detector::Flipper:  return flipper_get_count();
         case Detector::Skimmer:  return skimmer_get_count();
+        case Detector::HumanDetector: return human_detector_get_count();
         default:                 return 0;
     }
 }
@@ -51,6 +54,7 @@ static bool detector_start(Detector d)
         case Detector::AirTag:   return airtag_start();
         case Detector::Flipper:  return flipper_start();
         case Detector::Skimmer:  return skimmer_start();
+        case Detector::HumanDetector: return human_detector_start();
         default:                 return false;
     }
 }
@@ -63,6 +67,7 @@ static void detector_stop(Detector d)
         case Detector::AirTag:   airtag_stop();    break;
         case Detector::Flipper:  flipper_stop();   break;
         case Detector::Skimmer:  skimmer_stop();   break;
+        case Detector::HumanDetector: human_detector_stop(); break;
         default: break;
     }
 }

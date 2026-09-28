@@ -5,6 +5,8 @@
 #include "skimmer.h"
 #include "evil_twin.h"
 #include "flock.h"
+#include "human_detector.h"
+#include "compass_screen.h"
 #include "threat_radar_screen.h"
 #include "pet_screen.h"
 #include "handshake.h"
@@ -73,6 +75,7 @@ static lv_obj_t *t_flipper;   // referenced by on_flipper_clicked for colour swa
 static lv_obj_t *t_skimmer;   // referenced by on_skimmer_clicked for colour swap
 static lv_obj_t *t_eviltwin;  // referenced by on_eviltwin_clicked for colour swap
 static lv_obj_t *t_flock;     // referenced by on_flock_clicked for colour swap
+static lv_obj_t *t_human;     // referenced by on_human_clicked for colour swap
 static lv_obj_t *t_handshake; // referenced by on_handshake_clicked for colour swap
 static lv_obj_t *tools_grid;  // the flex container holding the tiles
 
@@ -127,6 +130,30 @@ static void on_airtag_clicked(lv_event_t *e)
         set_airtag_tile_running(ok);   // stays gray if it couldn't start
     }
     detector_remember(Detector::AirTag, airtag_is_running());
+}
+
+static void set_human_tile_running(bool running)
+{
+    lv_obj_set_style_bg_color(t_human,
+        running ? lv_color_make(0x00, 0x55, 0x22)
+                : lv_color_make(0x11, 0x11, 0x11),
+        LV_PART_MAIN);
+}
+
+// Human Detector tile toggles the nearby-phone/wearable BLE presence
+// detector. Same dim-green running indication as AirTag; badge count is the
+// live "nearby now" number, not a cumulative tally - see human_detector.h.
+static void on_human_clicked(lv_event_t *)
+{
+    if (human_detector_is_running()) {
+        human_detector_stop();
+        set_human_tile_running(false);
+    } else {
+        bool ok = human_detector_start();
+        if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
+        set_human_tile_running(ok);
+    }
+    detector_remember(Detector::HumanDetector, human_detector_is_running());
 }
 
 static void set_trackers_tile_running(bool running)
@@ -909,6 +936,69 @@ static void draw_airtag_icon(lv_obj_t *tile)
     lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN);
     lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(dot, LV_ALIGN_TOP_MID, 0, 60);
+}
+
+// Human Detector — a simple person silhouette (head + shoulders), red on
+// dark, reading at-a-glance as "presence".
+static void draw_human_icon(lv_obj_t *tile)
+{
+    tile = icon_layer(tile);
+
+    lv_obj_t *head = lv_obj_create(tile);
+    lv_obj_set_size(head, 34, 34);
+    lv_obj_set_style_radius(head, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(head, HADES_RED, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(head, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(head, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(head, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(head, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(head, LV_ALIGN_TOP_MID, 0, 22);
+
+    lv_obj_t *shoulders = lv_obj_create(tile);
+    lv_obj_set_size(shoulders, 76, 42);
+    lv_obj_set_style_radius(shoulders, 24, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(shoulders, HADES_RED, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(shoulders, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(shoulders, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(shoulders, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(shoulders, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(shoulders, LV_ALIGN_TOP_MID, 0, 60);
+}
+
+// Compass — a ring dial with a red needle pointing up, small centre pivot dot.
+static void draw_compass_icon(lv_obj_t *tile)
+{
+    tile = icon_layer(tile);
+
+    lv_obj_t *ring = lv_obj_create(tile);
+    lv_obj_set_size(ring, 72, 72);
+    lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ring, lv_color_make(0xAA, 0xAA, 0xAA), LV_PART_MAIN);
+    lv_obj_set_style_border_width(ring, 3, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(ring, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(ring, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(ring, LV_ALIGN_TOP_MID, 0, 22);
+
+    lv_obj_t *needle = lv_obj_create(tile);
+    lv_obj_set_size(needle, 6, 30);
+    lv_obj_set_style_radius(needle, 3, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(needle, HADES_RED, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(needle, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(needle, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(needle, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(needle, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(needle, LV_ALIGN_TOP_MID, 0, 30);
+
+    lv_obj_t *pivot = lv_obj_create(tile);
+    lv_obj_set_size(pivot, 12, 12);
+    lv_obj_set_style_radius(pivot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(pivot, lv_color_make(0xEE, 0xEE, 0xEE), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(pivot, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(pivot, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(pivot, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(pivot, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(pivot, LV_ALIGN_TOP_MID, 0, 52);
 }
 
 // Flipper Zero — stylized leaping dolphin (the Flipper mascot), facing LEFT
@@ -1945,6 +2035,8 @@ void tools_screen_create()
     lv_obj_t *t_face    = make_tile(grid, "Face");
     lv_obj_t *t_find    = make_tile(grid, "Find");
     lv_obj_t *t_music   = make_tile(grid, "Music");
+    t_human             = make_tile(grid, "Presence");
+    lv_obj_t *t_compass = make_tile(grid, "Compass");
     lv_obj_t *t_pager   = make_tile(grid, "Pager");
     lv_obj_t *t_aprs    = make_tile(grid, "LoRa APRS");
     lv_obj_t *t_pet     = make_tile(grid, "HexHound");
@@ -2010,6 +2102,8 @@ void tools_screen_create()
     tile_icon(t_face,     "face",     draw_face_icon);
     tile_icon(t_find,     "find",     draw_find_icon);
     tile_icon(t_music,    "music",    draw_music_icon);
+    tile_icon(t_human,    "human",    draw_human_icon);
+    tile_icon(t_compass,  "compass",  draw_compass_icon);
 
     // --- Rearrangeable-grid wiring ---------------------------------------
     // Give every tile a STABLE key (independent of its label) and attach the
@@ -2049,6 +2143,8 @@ void tools_screen_create()
         { t_face,     "facewatch" },
         { t_find,     "find"      },
         { t_music,    "music"     },
+        { t_human,    "human"     },
+        { t_compass,  "compass"   },
     };
     for (auto &tk : tile_keys) {
         lv_obj_set_user_data(tk.tile, (void *)tk.key);
@@ -2068,6 +2164,14 @@ void tools_screen_create()
 
     // Music tile opens the artist/track browser + player.
     lv_obj_add_event_cb(t_music, [](lv_event_t *) { music_screen_show(); }, LV_EVENT_CLICKED, NULL);
+
+    // Presence tile toggles the nearby-phone/wearable BLE detector. Same
+    // dim-green running indication as AirTag/Flipper/Skimmer.
+    lv_obj_add_event_cb(t_human, on_human_clicked, LV_EVENT_CLICKED, NULL);
+    set_human_tile_running(human_detector_is_running());
+
+    // Compass tile opens the true-north heading screen.
+    lv_obj_add_event_cb(t_compass, [](lv_event_t *) { compass_screen_show(); }, LV_EVENT_CLICKED, NULL);
 
     // Tesla CP tile opens the 315 MHz charge-port-open transmit screen.
     lv_obj_add_event_cb(t_tesla, [](lv_event_t *) { if (argus_mode_current() != ArgusMode::Offense) return; tesla_cp_screen_show(); }, LV_EVENT_CLICKED, NULL);
@@ -2194,7 +2298,7 @@ static ArgusMode tile_mode(const char *key)
         !strcmp(key, "rogueap") || !strcmp(key, "probes"))
         return ArgusMode::Offense;
     if (!strcmp(key, "notify") || !strcmp(key, "aprs") || !strcmp(key, "usbsd") ||
-        !strcmp(key, "find") || !strcmp(key, "music"))
+        !strcmp(key, "find") || !strcmp(key, "music") || !strcmp(key, "compass"))
         return ArgusMode::Daily;
     return ArgusMode::Defense;
 }
@@ -2256,6 +2360,7 @@ void tools_screen_show()
     set_skimmer_tile_running(skimmer_is_running());
     set_eviltwin_tile_running(evil_twin_is_running());
     set_flock_tile_running(flock_is_running());
+    set_human_tile_running(human_detector_is_running());
     // Repaint the title with the MODE accent on entry: red-team red in Offense,
     // calm steel-blue in Daily/Defense. Deliberately argus_base_accent(), not
     // argus_accent(): a live threat must not turn Defense-side headings red.

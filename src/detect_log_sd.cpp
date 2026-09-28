@@ -15,6 +15,7 @@ static const char *const kAppendLogs[] = {
     "/Flipper/discovered.txt",
     "/Skimmers/discovered.txt",
     "/EvilTwin/discovered.txt",
+    "/HumanDetector/discovered.txt",
 };
 static const int kAppendLogCount = (int)(sizeof(kAppendLogs) / sizeof(kAppendLogs[0]));
 

@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// detector_toggle.h - one control point for the five passive detectors that
+// detector_toggle.h - one control point for the passive detectors that
 // the Tools tiles and the Dot face's detection badges both drive, so the two
 // surfaces always agree and the user's on/off choice survives a reboot.
 //
@@ -26,6 +26,7 @@ enum class Detector : uint8_t {
     AirTag,
     Flipper,
     Skimmer,
+    HumanDetector,
     Count
 };
 
