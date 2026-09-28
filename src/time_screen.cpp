@@ -1,5 +1,6 @@
 #include "time_screen.h"
 #include "theme.h"
+#include "apps_screen.h"
 #include "argus_mode.h"
 #include <SD.h>
 #include "alarm_screen.h"
@@ -910,25 +911,8 @@ void time_screen_create()
     lv_obj_add_event_cb(time_screen, on_gesture, LV_EVENT_GESTURE, NULL);
 }
 
-void time_screen_show()
-{
-    if (s_time_title) lv_obj_set_style_text_color(s_time_title, argus_base_accent(), LV_PART_MAIN);
-    // Tile borders follow the mode: red-team red in Offense, steel-blue otherwise.
-    if (s_time_grid) {
-        lv_color_t bc = (argus_mode_current() == ArgusMode::Offense)
-                      ? ARGUS_OFFENSE_ACCENT : ARGUS_ACCENT_DIM;
-        uint32_t n = lv_obj_get_child_count(s_time_grid);
-        for (uint32_t i = 0; i < n; i++)
-            lv_obj_set_style_border_color(lv_obj_get_child(s_time_grid, i), bc, LV_PART_MAIN);
-    }
-
-    // Icons follow the mode: red in Offense, natural multi-colour otherwise. Only
-    // redraw when the regime actually changes (a normal open is then cheap).
-    bool off = (argus_mode_current() == ArgusMode::Offense);
-    if (off != s_ttiles_red) {
-        for (int i = 0; i < s_ttile_n; i++) tt_redraw(&s_ttiles[i], off);
-        s_ttiles_red = off;
-    }
-    lv_scr_load(time_screen);
-}
-bool time_screen_is_active()  { return lv_screen_active() == time_screen; }
+// The old TOOLS clock-utility grid is merged into the unified Apps launcher, so
+// this entry (and the clock/back gestures that call it) now forwards there. The
+// grid is still built by time_screen_create() but no longer shown.
+void time_screen_show() { apps_screen_show(); }
+bool time_screen_is_active()  { return apps_screen_is_active(); }

@@ -22,6 +22,7 @@
 #include "settings_screen.h"
 #include "screenshot.h"
 #include "tools_screen.h"
+#include "apps_screen.h"
 #include "notifications_screen.h"
 #include "notify_popup.h"
 #include "notify/notify_center.h"   // notify::center().count() for the unread badge
@@ -2284,7 +2285,7 @@ static void on_clock_gesture(lv_event_t *e)
     //   swipe up             -> Tools (clock utilities + Health, every mode)
     bool daily = (argus_mode_current() == ArgusMode::Daily);
     if (dir == LV_DIR_LEFT) {
-        if (!daily) tools_screen_show();       // Recon grid gated in Daily
+        apps_screen_show();                    // unified Apps launcher, every mode
     } else if (dir == LV_DIR_RIGHT) {
         if (!daily) {
             wardriver_screen_show();           // recon, gated in Daily
@@ -2295,7 +2296,7 @@ static void on_clock_gesture(lv_event_t *e)
     } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
         notifications_screen_show();     // shade: notifications + brightness, every mode
     } else if (dir == LV_DIR_TOP) {      // swipe up from clock face
-        time_screen_show();              // Tools grid, allowed in every mode
+        apps_screen_show();              // unified Apps launcher, every mode
     }
 }
 
@@ -3993,6 +3994,7 @@ void setup()
     channels_screen_create();
     settings_screen_create();
     tools_screen_create();
+    apps_screen_create();     // unified launcher; tools/time _show() forward here
     notifications_screen_create();
     notify_popup_init();
     threat_radar_screen_create();

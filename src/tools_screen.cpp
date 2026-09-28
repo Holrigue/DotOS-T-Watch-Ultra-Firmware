@@ -35,6 +35,7 @@
 #include "find_screen.h"
 #include "music_screen.h"
 #include "analyze_screen.h"
+#include "apps_screen.h"
 #include "ble_scan_manager.h"
 #include "detector_toggle.h"   // persist detector on/off (shared with the Dot face badges)
 #include <LilyGoLib.h>
@@ -2341,23 +2342,8 @@ void tools_attach_jump_gesture(lv_obj_t *screen)
     if (screen) lv_obj_add_event_cb(screen, tools_jump_gesture_cb, LV_EVENT_GESTURE, NULL);
 }
 
-void tools_screen_show()
-{
-    main_loop_request_lvgl_priority(12);
-    tools_apply_mode();   // reflect the current mode before the screen paints
-    // The detectors can also be toggled from the Dot face's badges (and restored
-    // at boot), so re-read their live state here rather than trusting the colour
-    // the tiles were given when this screen was built.
-    set_airtag_tile_running(airtag_is_running());
-    set_flipper_tile_running(flipper_is_running());
-    set_skimmer_tile_running(skimmer_is_running());
-    set_eviltwin_tile_running(evil_twin_is_running());
-    set_flock_tile_running(flock_is_running());
-    set_human_tile_running(human_detector_is_running());
-    // Repaint the title with the MODE accent on entry: red-team red in Offense,
-    // calm steel-blue in Daily/Defense. Deliberately argus_base_accent(), not
-    // argus_accent(): a live threat must not turn Defense-side headings red.
-    if (tools_title) lv_obj_set_style_text_color(tools_title, argus_base_accent(), LV_PART_MAIN);
-    lv_scr_load(tools_screen);
-}
-bool tools_screen_is_active() { return lv_screen_active() == tools_screen; }
+// The old RECON grid is merged into the unified Apps launcher, so this entry
+// (and every sub-screen's "back" gesture that calls it) now forwards there.
+// The grid is still built by tools_screen_create() but no longer shown.
+void tools_screen_show() { apps_screen_show(); }
+bool tools_screen_is_active() { return apps_screen_is_active(); }

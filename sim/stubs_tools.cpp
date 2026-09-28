@@ -125,6 +125,12 @@ void find_screen_show(void)             {}
 void music_screen_show(void)            {}
 void compass_screen_show(void)          {}
 void presence_screen_show(void)         {}
+// Unified Apps launcher lives in apps_screen.cpp, which is not in the sim's
+// source subset; tools_screen_show()/time_screen_show() forward to it, so the
+// sim only needs these link-time stubs (the CI sim job builds, never runs).
+void apps_screen_create(void)           {}
+void apps_screen_show(void)             {}
+bool apps_screen_is_active(void)        { return false; }
 void tpms_screen_show(void)             {}
 void tracker_timeline_screen_show(void) {}
 void usb_sd_screen_show(void)           {}
