@@ -27,11 +27,13 @@ volatile float    s_heading_deg   = 0.0f;
 volatile uint16_t s_accuracy      = 0;      // 0 Unreliable .. 3 High (BHY2/BSX scale)
 bool              s_sensor_started = false;
 
-// SensorDataParseCallback (BoschSensorBase.hpp): void(uint8_t, const uint8_t*,
-// uint32_t, uint64_t*, void*). The const-qualified data pointer matters - the
-// vendored .ino example's free function uses a non-const uint8_t*, which
-// mismatches this typedef under this toolchain's device build.
-void on_rotation_vector(uint8_t sensor_id, const uint8_t *data, uint32_t size,
+// SensorDataParseCallback (SensorLib 0.3.4): void(uint8_t, uint8_t*, uint32_t,
+// uint64_t*, void*). NOTE the data pointer is NON-const in the shipped 0.3.4
+// typedef (its own .ino examples use a non-const uint8_t* too); a const
+// parameter here fails to convert to the typedef under -fpermissive. We only
+// read from data, and bhy2_quaternion_to_euler takes a const uint8_t*, so the
+// non-const parameter converts to it fine.
+void on_rotation_vector(uint8_t sensor_id, uint8_t *data, uint32_t size,
                          uint64_t *timestamp, void *user_data)
 {
     (void)sensor_id; (void)timestamp; (void)user_data;
