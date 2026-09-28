@@ -2964,8 +2964,7 @@ static void find_alert_tick(lv_timer_t *)
 
 static void on_find_stop(lv_event_t *)
 {
-    find_alert_stop();
-    ans::find_notify(0x00);   // best-effort: tell the phone we were found
+    find_alert_stop();   // now notifies the phone (find_notify 0x00) itself
 }
 
 static void find_alert_start()
@@ -3017,10 +3016,16 @@ static void find_alert_start()
 
 static void find_alert_stop()
 {
+    bool was_active = (s_find_overlay != nullptr);
     if (s_find_timer)   { lv_timer_delete(s_find_timer);   s_find_timer   = nullptr; }
     if (s_find_overlay) { lv_obj_delete_async(s_find_overlay); s_find_overlay = nullptr; }
     alarm_stop_chime_loop();   // silence the speaker
     haptic_reapply();          // restore the user's normal buzz strength
+    // Tell the phone the alert ended, by ANY path - manual STOP, the ~20s
+    // timeout, or a phone-sent stop. Previously only the STOP button notified,
+    // so a timeout left the companion app stuck on "ringing the watch". Guarded
+    // on was_active so stopping with nothing running emits no spurious notify.
+    if (was_active) ans::find_notify(0x00);
 }
 
 // The phone write arrives on the BLE host task, which must not touch LVGL. Latch
