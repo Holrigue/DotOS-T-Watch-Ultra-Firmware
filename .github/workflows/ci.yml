@@ -126,7 +126,7 @@ jobs:
       - name: Report flash usage
         if: always()
         run: |
-          echo "Flash budget is 3145728 bytes; the build has been running near 95%."
+          echo "Flash budget is 4194304 bytes (app0, resized 2026-09-28 from 3MB - see boards/partitions_argus_16mb.csv)."
           pio run -e twatch_ultra --target size 2>/dev/null | tail -20 || true
 
       # Test builds: publish the four component binaries of THIS build so a
