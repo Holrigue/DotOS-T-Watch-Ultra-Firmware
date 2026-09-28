@@ -89,6 +89,7 @@
 #include "skimmer.h"
 #include "evil_twin.h"
 #include "flock.h"
+#include "human_detector.h"
 #include "threat_radar.h"
 #include "hexhound.h"
 #include "ble_scan_manager.h"
@@ -4725,6 +4726,7 @@ void loop()
             skimmer_bg_tick();
             evil_twin_bg_tick();
             flock_bg_tick();
+            human_detector_bg_tick();
             threatradar_bg_tick();  // correlate detector hits into follow-scores
             // Bridge: a Likely+ tail flips the HexHound to its wary/HADES-red mood,
             // matching the status-bar/radar HADES flip. (Team-decoupled hook.)

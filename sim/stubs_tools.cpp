@@ -53,6 +53,9 @@ void flock_stop(void)               {}
 bool flock_is_running(void)         { return false; }
 bool flock_wifi_active(void)        { return false; }
 bool flock_ble_active(void)         { return false; }
+bool human_detector_start(void)             { return false; }
+void human_detector_stop(void)              {}
+bool human_detector_is_running(void)        { return false; }
 // Pwn capture state. Defaults match the "nothing is running" posture of every
 // other stub here; flip them to render the Pwn tile's SCAN / CH n badge on the
 // host and eyeball it. That is how the badge's FIRST version was found to be
@@ -119,6 +122,7 @@ void spycam_screen_show(void)           {}
 void tesla_cp_screen_show(void)         {}
 void face_watch_screen_show(void)       {}
 void find_screen_show(void)             {}
+void compass_screen_show(void)          {}
 void tpms_screen_show(void)             {}
 void tracker_timeline_screen_show(void) {}
 void usb_sd_screen_show(void)           {}
