@@ -45,6 +45,7 @@ struct SeenEntry {
     uint8_t  mac[6];
     uint32_t last_seen_ms;     // freshens the rolling "nearby now" window
     uint32_t last_logged_ms;   // suppresses re-logging the same MAC too often
+    int8_t   last_rssi;        // latest signal strength (radar plots range from it)
 };
 
 volatile bool s_running = false;
@@ -110,6 +111,7 @@ bool human_detector_check(const uint8_t *mac6, int8_t rssi, uint8_t addr_type,
         s_seen[idx].last_logged_ms = 0;
     }
     s_seen[idx].last_seen_ms = now;
+    s_seen[idx].last_rssi    = rssi;
 
     if (now - s_seen[idx].last_logged_ms >= kRelogMs) {
         s_seen[idx].last_logged_ms = now;
@@ -168,6 +170,26 @@ int human_detector_get_count()
 }
 
 void human_detector_reset_count() { s_seen_count = 0; }
+
+int human_detector_snapshot(HumanBlip *out, int max)
+{
+    if (!out || max <= 0) return 0;
+    uint32_t now = millis();
+    int n = 0;
+    for (int i = 0; i < s_seen_count && n < max; i++) {
+        if (now - s_seen[i].last_seen_ms >= kNearbyWindowMs) continue;
+        // Stable bearing from the MAC: a cheap FNV-ish fold so the same phone
+        // keeps the same angle on the dial across frames (real bearing needs a
+        // directional antenna the watch doesn't have - this is a placement, not
+        // a direction, made obvious by the "no bearing" note on the screen).
+        uint32_t h = 2166136261u;
+        for (int b = 0; b < 6; b++) { h ^= s_seen[i].mac[b]; h *= 16777619u; }
+        out[n].angle_deg = (uint16_t)(h % 360u);
+        out[n].rssi      = s_seen[i].last_rssi;
+        n++;
+    }
+    return n;
+}
 
 void human_detector_bg_tick()
 {

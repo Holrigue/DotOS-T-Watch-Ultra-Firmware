@@ -1,10 +1,10 @@
 #pragma once
 #include <lvgl.h>
 
-// Tools > Compass: true-north heading from the BHI260AP's magnetometer-fused
-// ROTATION_VECTOR virtual sensor (NOT GAME_ROTATION_VECTOR, which the
-// motion-wake code elsewhere in this codebase uses on purpose - that one
-// skips the magnetometer and drifts, fine for a wake gesture, wrong for a
-// compass). The sensor is only powered on while this screen is showing.
+// Tools > Compass: RELATIVE heading from the BHI260AP's GAME_ROTATION_VECTOR
+// (accel+gyro). This board has no magnetometer, so there is no true north to
+// show - the dial drifts and the user pins north with SET NORTH. A red
+// navigation triangle points at the pinned north. The sensor is only powered
+// on while this screen is showing. See compass_screen.cpp for the full story.
 void compass_screen_show();
 bool compass_screen_is_active();

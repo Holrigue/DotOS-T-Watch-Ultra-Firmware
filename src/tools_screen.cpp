@@ -6,6 +6,7 @@
 #include "evil_twin.h"
 #include "flock.h"
 #include "human_detector.h"
+#include "presence_screen.h"
 #include "compass_screen.h"
 #include "threat_radar_screen.h"
 #include "pet_screen.h"
@@ -140,20 +141,12 @@ static void set_human_tile_running(bool running)
         LV_PART_MAIN);
 }
 
-// Human Detector tile toggles the nearby-phone/wearable BLE presence
-// detector. Same dim-green running indication as AirTag; badge count is the
-// live "nearby now" number, not a cumulative tally - see human_detector.h.
+// Presence tile opens the radar visual, which starts the nearby-phone/wearable
+// BLE detector while it's showing and stops it on exit (see presence_screen.*).
+// The dim-green tile indication still tracks whether the detector is running.
 static void on_human_clicked(lv_event_t *)
 {
-    if (human_detector_is_running()) {
-        human_detector_stop();
-        set_human_tile_running(false);
-    } else {
-        bool ok = human_detector_start();
-        if (!ok) show_radio_conflict_dialog(true);  // BLE feature blocked by WiFi
-        set_human_tile_running(ok);
-    }
-    detector_remember(Detector::HumanDetector, human_detector_is_running());
+    presence_screen_show();
 }
 
 static void set_trackers_tile_running(bool running)

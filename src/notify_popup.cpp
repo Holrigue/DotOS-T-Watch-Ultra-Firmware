@@ -109,6 +109,10 @@ static void show_banner(const notify::Notification &n)
     lv_obj_set_flex_flow(s_banner, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(s_banner, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(s_banner, on_banner_click, LV_EVENT_CLICKED, NULL);
+    // Guarantee we're above every other lv_layer_top overlay (the dim/wake gate,
+    // the mode frame, the find scrim): those are created at other times, and a
+    // banner arriving while one is up must not render behind it.
+    lv_obj_move_foreground(s_banner);
 
     // Header: bell + app/source name in the accent colour.
     lv_obj_t *app = lv_label_create(s_banner);
