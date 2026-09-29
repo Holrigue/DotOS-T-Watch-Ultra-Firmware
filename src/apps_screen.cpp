@@ -147,13 +147,11 @@ constexpr int ENTRY_COUNT = (int)(sizeof(ENTRIES) / sizeof(ENTRIES[0]));
 
 }  // namespace
 
-static lv_obj_t *s_home      = nullptr;   // Notifications + category rows
-static lv_obj_t *s_cat       = nullptr;   // one category's list (repopulated)
-static lv_obj_t *s_cat_title = nullptr;
-static lv_obj_t *s_cat_list  = nullptr;
-static Cat       s_cur_cat   = CAT_TRACKING;
+static lv_obj_t *s_home = nullptr;              // Notifications + category rows
+static lv_obj_t *s_cat_screen[CAT_COUNT] = {};  // one PRE-BUILT screen per category
 
-// Toggle pills currently on the category page, so a tap can refresh them.
+// Toggle pills across all category screens, so opening a category can refresh
+// them from the live detector state (they may have changed elsewhere).
 static lv_obj_t *s_pill[24];
 static int       s_pill_entry[24];
 static int       s_pill_n = 0;
@@ -268,29 +266,21 @@ static void on_toggle(lv_event_t *e)
         set_pill(s_pill[k], ENTRIES[s_pill_entry[k]].t_running());
 }
 
+static void refresh_pills()
+{
+    for (int k = 0; k < s_pill_n; k++)
+        set_pill(s_pill[k], ENTRIES[s_pill_entry[k]].t_running());
+}
+
+// Category screens are PRE-BUILT at boot; opening one just refreshes its toggle
+// pills and loads it. Crucially we do NOT clean/rebuild objects here: this runs
+// inside the row's CLICKED callback, and deleting/creating LVGL objects mid-event
+// corrupts the touch input state (the earlier version did that and froze touch).
 static void open_category(Cat c)
 {
-    s_cur_cat = c;
-    lv_label_set_text(s_cat_title, CAT_NAME[c]);
-    lv_obj_clean(s_cat_list);
-    s_pill_n = 0;
-    for (int i = 0; i < ENTRY_COUNT; i++) {
-        if (ENTRIES[i].cat != c) continue;
-        if (ENTRIES[i].toggle) {
-            lv_obj_t *pill = make_row(s_cat_list, ENTRIES[i].title, "OFF", AW,
-                                      on_toggle, (void *)(intptr_t)i);
-            set_pill(pill, ENTRIES[i].t_running());
-            if (s_pill_n < (int)(sizeof(s_pill) / sizeof(s_pill[0]))) {
-                s_pill[s_pill_n]       = pill;
-                s_pill_entry[s_pill_n] = i;
-                s_pill_n++;
-            }
-        } else {
-            make_row(s_cat_list, ENTRIES[i].title, LV_SYMBOL_RIGHT, AW,
-                     on_launch, (void *)(intptr_t)i);
-        }
-    }
-    lv_scr_load(s_cat);
+    if (c < 0 || c >= CAT_COUNT || !s_cat_screen[c]) return;
+    refresh_pills();
+    lv_scr_load(s_cat_screen[c]);
 }
 
 // Offense holds active RF/network attack tools, so opening it requires explicit
@@ -408,26 +398,49 @@ static void on_cat_gesture(lv_event_t *e)
 
 // ---- build ------------------------------------------------------------------
 
+// Build ONE category's screen once, at boot: its rows are created here, never
+// during a tap. Toggle rows record their pill so open_category() can refresh it.
+static void build_category_screen(Cat c)
+{
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_t *list = make_list(scr, CAT_NAME[c], NULL);
+    for (int i = 0; i < ENTRY_COUNT; i++) {
+        if (ENTRIES[i].cat != c) continue;
+        if (ENTRIES[i].toggle) {
+            lv_obj_t *pill = make_row(list, ENTRIES[i].title, "OFF", AW,
+                                      on_toggle, (void *)(intptr_t)i);
+            set_pill(pill, ENTRIES[i].t_running());
+            if (s_pill_n < (int)(sizeof(s_pill) / sizeof(s_pill[0]))) {
+                s_pill[s_pill_n]       = pill;
+                s_pill_entry[s_pill_n] = i;
+                s_pill_n++;
+            }
+        } else {
+            make_row(list, ENTRIES[i].title, LV_SYMBOL_RIGHT, AW,
+                     on_launch, (void *)(intptr_t)i);
+        }
+    }
+    add_gear(scr);
+    lv_obj_add_event_cb(scr, on_cat_gesture, LV_EVENT_GESTURE, NULL);
+    s_cat_screen[c] = scr;
+}
+
 static void build()
 {
-    // Home: Notifications pinned at the top, then the four categories.
+    // Home: Notifications pinned at the top, then the category rows.
     s_home = lv_obj_create(NULL);
     lv_obj_t *hlist = make_list(s_home, "APPS", NULL);
-    lv_obj_t *n = make_row(hlist, "Notifications", LV_SYMBOL_RIGHT, AR, on_notifications, NULL);
-    (void)n;
-    make_row(hlist, "Tracking", LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TRACKING);
-    make_row(hlist, "Defense",  LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_DEFENSE);
-    make_row(hlist, "Offense",  LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_OFFENSE);
-    make_row(hlist, "Apps",     LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_APPS);
+    make_row(hlist, "Notifications", LV_SYMBOL_RIGHT, AR, on_notifications, NULL);
+    make_row(hlist, "Tracking",     LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TRACKING);
+    make_row(hlist, "Defense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_DEFENSE);
+    make_row(hlist, "Offense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_OFFENSE);
+    make_row(hlist, "Apps",         LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_APPS);
     make_row(hlist, "Time & Clock", LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TIMECLOCK);
     add_gear(s_home);
     lv_obj_add_event_cb(s_home, on_home_gesture, LV_EVENT_GESTURE, NULL);
 
-    // Category page (repopulated by open_category()).
-    s_cat = lv_obj_create(NULL);
-    s_cat_list = make_list(s_cat, "TRACKING", &s_cat_title);
-    add_gear(s_cat);
-    lv_obj_add_event_cb(s_cat, on_cat_gesture, LV_EVENT_GESTURE, NULL);
+    // One pre-built screen per category (no rebuilding during a tap).
+    for (int c = 0; c < CAT_COUNT; c++) build_category_screen((Cat)c);
 }
 
 // ---- public API -------------------------------------------------------------
@@ -443,5 +456,9 @@ void apps_screen_show()
 
 bool apps_screen_is_active()
 {
-    return lv_screen_active() == s_home || lv_screen_active() == s_cat;
+    lv_obj_t *act = lv_screen_active();
+    if (act == s_home) return true;
+    for (int c = 0; c < CAT_COUNT; c++)
+        if (act == s_cat_screen[c]) return true;
+    return false;
 }
