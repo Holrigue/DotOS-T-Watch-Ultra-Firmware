@@ -23,8 +23,7 @@ void main_loop_request_lvgl_priority(int cycles);
 void low_mem_show_dialog(const char *msg);   // modal dialog defined in main.cpp
 void clock_screen_show();                    // go home to the watch face
 void face_watch_screen_show();               // Dot watchface customization (Settings entry)
-void clock_screen_set_analog_face(bool analog);
-void clock_screen_set_face(int mode);        // 0 Digital, 1 Analog, 2 Dot
+void clock_screen_set_face(int mode);        // DotOS only; arg ignored (always Dot)
 void clock_screen_set_12h(bool use_12h);
 void clock_screen_set_matrix(bool enabled);
 void clock_screen_set_wallpaper(bool enabled);
@@ -137,7 +136,6 @@ static void settings_update_sysinfo()
         det, detlog::kMaxAgeDays);
 }
 static int32_t   s_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
-static lv_obj_t *face_dropdown;   // Watch face: Digital / Analog / Dot
 static lv_obj_t *hour_format_row;
 static lv_obj_t *hour_format_switch;
 static lv_obj_t *hour_format_val_label;
@@ -287,11 +285,13 @@ static void register_manual_obj(lv_obj_t *obj)
 // callers don't have to pass them in. Hidden rows still get a position,
 // just one that's off-screen above their normal slot — harmless because
 // they're invisible.
-// Selected watch face: 0 Digital, 1 Analog, 2 Dot. Matches the dropdown option
-// order and the ClockFace enum in main.cpp.
+// DotOS is the only watch face now, so this is fixed at 2 (FACE_DOT). Kept as a
+// function because apply_layout() and the SD save still call it; the old
+// Digital/Analog/Dot dropdown it used to read is gone. digital==false here
+// always, so apply_layout keeps the 12h/AM-PM/seconds rows collapsed.
 static inline int settings_face_mode()
 {
-    return (int)lv_dropdown_get_selected(face_dropdown);
+    return 2;   // FACE_DOT
 }
 
 static void apply_layout()
@@ -331,18 +331,6 @@ static const char *SETTINGS_PATH = "/Settings/settings.txt";
 
 // Forward declaration so the change callbacks can call it
 static void settings_save_to_sd();
-
-static void on_face_changed(lv_event_t *e)
-{
-    (void)e;
-    int mode = settings_face_mode();   // 0 Digital, 1 Analog, 2 Dot
-    clock_screen_set_face(mode);
-    // 12h / AM-PM / Show-seconds rows are only relevant on the digital
-    // face. apply_layout hides them for Analog/Dot AND closes the resulting
-    // gap by shifting every row below up by 144 px.
-    apply_layout();
-    settings_save_to_sd();
-}
 
 static void on_hour_format_changed(lv_event_t *e)
 {
@@ -825,35 +813,32 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(sep, 0, LV_PART_MAIN);
     lv_obj_align(sep, LV_ALIGN_TOP_MID, 0, 222);
 
-    // Watch Face row: label left, state label + toggle right
+    // Facewatch row (top of Settings): opens the Dot-face customization screen.
+    // DotOS is the only watch face, so this replaced the old Digital/Analog/Dot
+    // selector entirely — the whole row is the tap target.
     lv_obj_t *face_row = lv_obj_create(settings_screen);
     lv_obj_set_size(face_row, 380, 40);
     lv_obj_set_style_bg_opa(face_row, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(face_row, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(face_row, 0, LV_PART_MAIN);
     lv_obj_clear_flag(face_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(face_row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_align(face_row, LV_ALIGN_TOP_MID, 0, 232);
+    lv_obj_add_event_cb(face_row, [](lv_event_t *) { face_watch_screen_show(); },
+                        LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *face_lbl = lv_label_create(face_row);
     lv_obj_set_style_text_color(face_lbl, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(face_lbl, &font_argus_label_20, LV_PART_MAIN);
-    lv_label_set_text(face_lbl, "Watch Face");
+    lv_label_set_text(face_lbl, "Facewatch");
     lv_obj_align(face_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
-    // Watch face selector: Digital / Analog / Dot. Analog and Dot both render
-    // their own time, so the digital-only rows below collapse for either (see
-    // apply_layout / settings_face_mode). Option order matches the ClockFace
-    // enum in main.cpp.
-    face_dropdown = lv_dropdown_create(face_row);
-    lv_dropdown_set_options_static(face_dropdown, "Digital\nAnalog\nDot");
-    lv_dropdown_set_selected(face_dropdown, 2);   // Dot is the default face
-    lv_obj_set_width(face_dropdown, 150);
-    lv_obj_set_style_text_font(face_dropdown, &font_argus_label_20, LV_PART_MAIN);
-    lv_obj_set_style_text_color(face_dropdown, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(face_dropdown, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
-    lv_obj_set_style_border_color(face_dropdown, ARGUS_ACCENT, LV_PART_MAIN);
-    lv_obj_align(face_dropdown, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_add_event_cb(face_dropdown, on_face_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    // Right-aligned affordance (plain ASCII to avoid any glyph-tofu risk).
+    lv_obj_t *face_hint = lv_label_create(face_row);
+    lv_obj_set_style_text_color(face_hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
+    lv_obj_set_style_text_font(face_hint, &font_argus_label_20, LV_PART_MAIN);
+    lv_label_set_text(face_hint, "Customize");
+    lv_obj_align(face_hint, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Time format row — visible only when Digital face is active
     hour_format_row = lv_obj_create(settings_screen);
@@ -1769,22 +1754,9 @@ void settings_screen_create()
     lv_obj_add_event_cb(usbsd_btn, [](lv_event_t *) { usb_sd_screen_show(); },
                         LV_EVENT_CLICKED, NULL);
 
-    // "Facewatch" - customise the Dot watchface. Moved here out of the Apps
-    // launcher so watchface tuning lives with the other device settings.
-    lv_obj_t *facewatch_btn = lv_button_create(settings_screen);
-    lv_obj_set_size(facewatch_btn, 380, 64);
-    lv_obj_set_style_bg_color(facewatch_btn, lv_color_make(0x1E, 0x1E, 0x1E), LV_PART_MAIN);
-    lv_obj_set_style_border_color(facewatch_btn, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_border_width(facewatch_btn, 1, LV_PART_MAIN);
-    lv_obj_align(facewatch_btn, LV_ALIGN_TOP_MID, 0, 2400);
-    register_shiftable(facewatch_btn, 2400);
-    lv_obj_t *facewatch_lbl = lv_label_create(facewatch_btn);
-    lv_obj_set_style_text_font(facewatch_lbl, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(facewatch_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_label_set_text(facewatch_lbl, "Facewatch");
-    lv_obj_center(facewatch_lbl);
-    lv_obj_add_event_cb(facewatch_btn, [](lv_event_t *) { face_watch_screen_show(); },
-                        LV_EVENT_CLICKED, NULL);
+    // (Facewatch now lives at the TOP of Settings, repurposed from the old
+    // "Watch Face" row — see face_row above. The duplicate button that used to
+    // sit here was removed.)
 
     lv_obj_add_event_cb(s_ofs_btn, [](lv_event_t *) {
         if (argus_mode_current() == ArgusMode::Offense) { lock_offense(); clock_screen_show(); }
@@ -1933,23 +1905,13 @@ void settings_screen_load()
             instance.setBrightness((uint8_t)v);
             int pct = (int)v * 100 / (int)DEVICE_MAX_BRIGHTNESS_LEVEL;
             lv_label_set_text_fmt(brightness_val_label, "%d%%", pct);
-        } else if (key == "clock_face") {
-            int m = (int)v;
-            if (m < 0 || m > 2) m = 0;
-            lv_dropdown_set_selected(face_dropdown, (uint32_t)m);
-            // Honour the saved face both for the clock and for the
-            // settings-screen layout reflow.
+        } else if (key == "clock_face" || key == "analog_face") {
+            // Legacy face keys (the old Digital/Analog/Dot selector). DotOS is
+            // the only watch face now, so the stored choice is ignored: keep the
+            // Dot face and its collapsed layout regardless of what the card says.
+            (void)v; (void)b;
             apply_layout();
-            clock_screen_set_face(m);
-        } else if (key == "analog_face") {
-            // Legacy cards written before the 3-way selector. Only an explicit
-            // Analog choice (1) is carried over; 0 was merely the old Digital
-            // default, so it yields to the new default face (Dot).
-            if (b) {
-                lv_dropdown_set_selected(face_dropdown, 1);
-                apply_layout();
-                clock_screen_set_face(1);
-            }
+            clock_screen_set_face(2 /* FACE_DOT */);
         } else if (key == "format_12h") {
             apply_switch(hour_format_switch, b);
             lv_label_set_text(hour_format_val_label, b ? "12h" : "24h");

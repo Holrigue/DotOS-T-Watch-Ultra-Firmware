@@ -194,10 +194,6 @@ static lv_obj_t *lora_container;
 static lv_obj_t *lora_arc;
 static lv_obj_t *lora_ball;
 static lv_obj_t *lora_stick;
-static lv_obj_t *analog_container;
-static lv_obj_t *hand_hour;
-static lv_obj_t *hand_min;
-static lv_obj_t *hand_sec;
 static lv_obj_t *dot_container = nullptr;   // ARGUS-Design-OS "Dot" face; built hidden
 static lv_obj_t *dot_time_img  = nullptr;   // dot-matrix time raster (lv_image)
 static uint32_t *dot_time_buf  = nullptr;   // ARGB8888 pixels in PSRAM
@@ -217,12 +213,13 @@ static lv_obj_t *dot_nfc_label  = nullptr;
 static lv_obj_t *dot_mesh_pill  = nullptr;
 static lv_obj_t *dot_mesh_count = nullptr;
 
-// Watch face selection. Digital and Analog are the stock faces; Dot is the
-// ARGUS-Design-OS dot-matrix face added alongside them. Persisted in
-// /Settings/settings.txt as clock_face=0|1|2 (legacy analog_face=0|1 still read
-// for back-compat on cards written by older builds).
+// Watch face selection. DotOS is now the only face; FACE_DIGITAL is kept solely
+// as a safety fallback if the Dot layer fails to build (it needs a PSRAM ARGB
+// buffer). FACE_ANALOG is retired — the enum value is left in place so the
+// persisted /Settings/settings.txt numbering (clock_face=0|1|2) keeps meaning,
+// but nothing selects or renders it any more.
 enum ClockFace { FACE_DIGITAL = 0, FACE_ANALOG = 1, FACE_DOT = 2 };
-static ClockFace clock_face = FACE_DIGITAL;
+static ClockFace clock_face = FACE_DOT;
 static uint32_t last_update_ms   = 0;
 static int      clock_utc_offset = -4; // hours; default US Eastern (EDT).
                                        // The RTC ALWAYS holds UTC; this shifts it
@@ -403,103 +400,6 @@ static void build_battery_widget(lv_obj_t *screen)
     lv_obj_set_style_border_width(bat_nub, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(bat_nub, 2, LV_PART_MAIN);
     lv_obj_set_style_pad_all(bat_nub, 0, LV_PART_MAIN);
-}
-
-// 160×160 px analog clock. Hands are thin rectangles rotated around the
-// clock center (80,80) using LVGL transform_rotation (tenths of degrees).
-// build_analog_clock() creates the widget hidden; clock_screen_set_analog_face()
-// toggles it and the digital time_label.
-static void build_analog_clock(lv_obj_t *screen)
-{
-    analog_container = lv_obj_create(screen);
-    lv_obj_set_size(analog_container, 320, 320);
-    lv_obj_set_style_bg_opa(analog_container, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(analog_container, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(analog_container, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(analog_container, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(analog_container, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-    lv_obj_align(analog_container, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_flag(analog_container, LV_OBJ_FLAG_HIDDEN); // hidden until analog mode is on
-
-    // Subtle clock face ring
-    lv_obj_t *face = lv_obj_create(analog_container);
-    lv_obj_set_pos(face, 1, 1);
-    lv_obj_set_size(face, 316, 316);
-    lv_obj_set_style_radius(face, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(face, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_color(face, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
-    lv_obj_set_style_border_width(face, 2, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(face, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(face, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(face, LV_OBJ_FLAG_CLICKABLE);
-
-    // Hour hand: 4×60 px (tip=48, tail=12). Pivot at (2,48) → abs (80,80).
-    hand_hour = lv_obj_create(analog_container);
-    lv_obj_set_pos(hand_hour, 156, 64);   // 80-2=78, 80-48=32
-    lv_obj_set_size(hand_hour, 8, 120);
-    lv_obj_set_style_bg_color(hand_hour, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(hand_hour, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(hand_hour, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(hand_hour, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(hand_hour, 0, LV_PART_MAIN);
-    lv_obj_set_style_transform_pivot_x(hand_hour, 4, LV_PART_MAIN);
-    lv_obj_set_style_transform_pivot_y(hand_hour, 96, LV_PART_MAIN);
-    lv_obj_clear_flag(hand_hour, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(hand_hour, LV_OBJ_FLAG_CLICKABLE);
-
-    // Minute hand: 4×88 px (tip=70, tail=18). Pivot at (2,70) → abs (80,80).
-    hand_min = lv_obj_create(analog_container);
-    lv_obj_set_pos(hand_min, 156, 20);    // 80-2=78, 80-70=10
-    lv_obj_set_size(hand_min, 8, 176);
-    lv_obj_set_style_bg_color(hand_min, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(hand_min, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(hand_min, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(hand_min, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(hand_min, 0, LV_PART_MAIN);
-    lv_obj_set_style_transform_pivot_x(hand_min, 4, LV_PART_MAIN);
-    lv_obj_set_style_transform_pivot_y(hand_min, 140, LV_PART_MAIN);
-    lv_obj_clear_flag(hand_min, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(hand_min, LV_OBJ_FLAG_CLICKABLE);
-
-    // Second hand: 2×100 px (tip=78, tail=22). Pivot at (1,78) → abs (80,80). Red.
-    hand_sec = lv_obj_create(analog_container);
-    lv_obj_set_pos(hand_sec, 158, 4);     // 80-1=79, 80-78=2
-    lv_obj_set_size(hand_sec, 4, 200);
-    lv_obj_set_style_bg_color(hand_sec, lv_color_make(0xFF, 0x00, 0x00), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(hand_sec, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(hand_sec, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(hand_sec, 2, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(hand_sec, 0, LV_PART_MAIN);
-    lv_obj_set_style_transform_pivot_x(hand_sec, 2, LV_PART_MAIN);
-    lv_obj_set_style_transform_pivot_y(hand_sec, 156, LV_PART_MAIN);
-    lv_obj_clear_flag(hand_sec, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(hand_sec, LV_OBJ_FLAG_CLICKABLE);
-
-    // Center cap drawn last so it sits on top of all hands
-    lv_obj_t *dot = lv_obj_create(analog_container);
-    lv_obj_set_pos(dot, 154, 154);         // 80-3=77
-    lv_obj_set_size(dot, 12, 12);
-    lv_obj_set_style_bg_color(dot, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(dot, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(dot, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(dot, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(dot, LV_OBJ_FLAG_CLICKABLE);
-}
-
-static void update_analog_clock(const struct tm *t)
-{
-    // Angles in tenths of degrees, clockwise from 12 o'clock.
-    // Hour:   30°/h  → 300 tenths/h,  + 0.5°/min  → 5 tenths/min
-    // Minute:  6°/min → 60 tenths/min, + 0.1°/sec  → 1 tenth/sec
-    // Second:  6°/sec → 60 tenths/sec
-    int32_t h = (int32_t)(t->tm_hour % 12) * 300 + t->tm_min * 5;
-    int32_t m = t->tm_min * 60 + t->tm_sec;
-    int32_t s = t->tm_sec * 60;
-    lv_obj_set_style_transform_rotation(hand_hour, h, LV_PART_MAIN);
-    lv_obj_set_style_transform_rotation(hand_min,  m, LV_PART_MAIN);
-    lv_obj_set_style_transform_rotation(hand_sec,  s, LV_PART_MAIN);
 }
 
 // ---------------------------------------------------------------------------
@@ -2300,41 +2200,31 @@ static void on_clock_gesture(lv_event_t *e)
     }
 }
 
-// Called by settings screen to switch between the Digital, Analog and Dot faces.
-// Digital shows the span-group time_label, Analog the hands container, Dot the
-// dot-matrix layer. Whichever comes up is driven to the current time at once so
-// there is no one-tick stale frame right after a switch.
-void clock_screen_set_face(int mode)
+// DotOS is the only watch face now. The `mode` argument is ignored (kept so the
+// settings screen and legacy callers need no signature change) — the Dot layer
+// is always selected. The digital span-group time_label is the safety fallback,
+// shown only if the Dot layer failed to build (its PSRAM raster buffer could not
+// be allocated). Whichever comes up is driven to the current time at once so
+// there is no one-tick stale frame right after loading the clock.
+void clock_screen_set_face(int /*mode*/)
 {
-    clock_face = (ClockFace)mode;
-
-    lv_obj_add_flag(time_label,       LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(time_label, LV_OBJ_FLAG_HIDDEN);
     if (dot_container) lv_obj_add_flag(dot_container, LV_OBJ_FLAG_HIDDEN);
 
     struct tm t;
     instance.rtc.getDateTime(&t);
     clocktime::tm_utc_to_local(&t, clock_utc_offset);
 
-    if (clock_face == FACE_ANALOG) {
-        lv_obj_clear_flag(analog_container, LV_OBJ_FLAG_HIDDEN);
-        update_analog_clock(&t);
-    } else if (clock_face == FACE_DOT && dot_container) {
+    if (dot_container) {
+        clock_face = FACE_DOT;
         lv_obj_clear_flag(dot_container, LV_OBJ_FLAG_HIDDEN);
         update_dot_face(&t);
         update_dot_status();
     } else {
-        clock_face = FACE_DIGITAL;   // fall back if Dot is picked before it built
+        clock_face = FACE_DIGITAL;   // fallback if the Dot layer failed to build
         lv_obj_clear_flag(time_label, LV_OBJ_FLAG_HIDDEN);
         update_clock();
     }
-}
-
-// Back-compat wrapper: older callers (and legacy settings.txt without a
-// clock_face key) only know the binary digital/analog switch.
-void clock_screen_set_analog_face(bool analog)
-{
-    clock_screen_set_face(analog ? FACE_ANALOG : FACE_DIGITAL);
 }
 
 // Called by the LoRa screen when LoRa power is toggled, for an immediate icon
@@ -2466,13 +2356,12 @@ void clock_screen_set_12h(bool use_12h)
     update_clock();   // refresh the displayed string + rescale the label
 }
 
-// True when the watch face shows time in 12-hour form — either the digital
-// face has 12h enabled in settings, or the analog face is active (no implicit
-// 24h cue on an analog dial). The alarm screen consults this to decide
-// whether to show its AM/PM selector.
+// True when the watch face shows time in 12-hour form. The Dot face honours the
+// same clock_12h setting (its Facewatch 12h toggle reuses this setter). The
+// alarm screen consults this to decide whether to show its AM/PM selector.
 bool clock_screen_uses_12h()
 {
-    return clock_12h || clock_face == FACE_ANALOG;
+    return clock_12h;
 }
 
 void clock_screen_set_show_day(bool show)
@@ -3461,9 +3350,7 @@ static void update_clock()
     // refills tm_wday / tm_yday, which the day-name label and the calendar read.
     clocktime::tm_utc_to_local(&t, clock_utc_offset);
 
-    if (clock_face == FACE_ANALOG) {
-        update_analog_clock(&t);
-    } else if (clock_face == FACE_DOT) {
+    if (clock_face == FACE_DOT) {
         update_dot_face(&t);
     } else {
         char hours_buf[4];
@@ -3794,7 +3681,6 @@ void setup()
                                            /*wide_cap=*/true,
                                            /*hand_rotation_deci_deg=*/-450);  // 10:30
     lv_obj_align(timer_indicator,     LV_ALIGN_BOTTOM_MID, -158, -10);
-    build_analog_clock(clock_screen);
 
     // AirTag scanner indicator — flex row of disc-icon + count. Hidden until
     // airtag_is_running(); update_airtag_indicator() positions it left of the
