@@ -12,20 +12,25 @@
 #include <lvgl.h>
 #include <LilyGoLib.h>
 #include <Arduino.h>
+#include <esp_heap_caps.h>   // heap_caps_malloc / MALLOC_CAP_SPIRAM for the mascot buffer
 #include <math.h>
 
 // ── ARGUS HexHound — LVGL renderer ─────────────────────────────────────
 //
-// The HexHound is a per-stage HD sprite loaded from the SD card
-// (/HexHound/<stage>.png: egg / pup / beast / gremlin / sentinel), centered in a
-// bobbing container inside a set of sonar rings that pulse as it sweeps the
-// airwaves. The rings recolour by mood (calm steel-blue / HADES-red on a
-// confirmed threat) as the at-a-glance threat cue. Everything below reads engine
-// state through the hexhound_*() accessors; no game logic lives here.
+// The HexHound is an 8-bit pixel-art mascot (a pwnagotchi/Tamagotchi-style face)
+// drawn on-device into a small ARGB buffer — no SD card, no PNG decode. It bobs
+// inside a set of sonar rings that pulse as it sweeps the airwaves; both the face
+// and the rings recolour by mood (calm steel-blue / HADES-red on a threat) as the
+// at-a-glance cue. (The previous build loaded per-stage HD PNGs from the SD card;
+// that decode froze the menu -> HexHound transition, so it was replaced by this
+// self-contained renderer.) Everything below reads engine state through the
+// hexhound_*() accessors; no game logic lives here.
 
 static lv_obj_t  *s_screen    = nullptr;
-static lv_obj_t  *s_sprite    = nullptr;   // per-stage HD sprite image (bobbed directly)
-static uint8_t    s_sprite_stage = 0xFF;   // stage whose sprite is loaded (0xFF=none)
+static lv_obj_t  *s_sprite    = nullptr;   // 8-bit mascot face: lv_image over an ARGB buffer
+static uint32_t     *s_masc_buf = nullptr; // mascot pixels in PSRAM (ARGB8888)
+static lv_image_dsc_t s_masc_dsc;          // descriptor pointing at s_masc_buf
+static uint8_t    s_masc_mood = 0xFF;      // last-drawn mood (redraw only on a change)
 static lv_obj_t  *s_ring[3]   = { nullptr, nullptr, nullptr };  // sonar sweep
 static lv_obj_t  *s_stage_lbl = nullptr;
 static lv_obj_t  *s_ability   = nullptr;
@@ -58,25 +63,77 @@ static void pet_wifi_cb(const WifiBeacon *b)
     if (b) hexhound_note_wifi(b->bssid);   // feed distinct-AP XP
 }
 
-// Point the sprite at this stage's SD asset. Only reloads (re-decodes) when the
-// stage actually changes, so refresh() can call it every tick cheaply. LVGL
-// mounts the SD card as drive "A" (same as the wallpaper in background.cpp).
-static void update_sprite(uint8_t stage)
+// ── 8-bit mascot (pixel face, drawn on-device) ──────────────────────────────
+// A pwnagotchi/Tamagotchi-style face rendered into a small ARGB buffer and shown
+// as an lv_image. Drawn entirely on-device: opening HexHound never touches the
+// SD card, which is what the old HD-PNG decode did — and that decode froze the
+// menu -> HexHound transition. The expression tracks the pet's mood.
+static constexpr int MASC_CELL = 16;                     // one chunky "8-bit" block
+static constexpr int MASC_COLS = 10, MASC_ROWS = 8;
+static constexpr int MASC_W = MASC_COLS * MASC_CELL;     // 160
+static constexpr int MASC_H = MASC_ROWS * MASC_CELL;     // 128
+
+// Mood -> face colour (ARGB8888). Mirrors mood_color()'s intent but as a raw
+// pixel value for the buffer: threat red, bright/amber/dim steel by mood.
+static uint32_t masc_color(uint8_t mood)
 {
-    if (!s_sprite || stage == s_sprite_stage) return;
-    s_sprite_stage = stage;
-    const char *path;
-    switch (stage) {
-        case HEX_PUP:      path = "A:/HexHound/pup.png";      break;
-        case HEX_BEAST:    path = "A:/HexHound/beast.png";    break;
-        case HEX_GREMLIN:  path = "A:/HexHound/gremlin.png";  break;
-        case HEX_SENTINEL: path = "A:/HexHound/sentinel.png"; break;
-        case HEX_EGG:
-        default:           path = "A:/HexHound/egg.png";      break;
+    switch (mood) {
+        case HEX_WARY:    return 0xFFE02020;   // red eyes on a threat
+        case HEX_EXCITED: return 0xFF9BBCD6;   // bright steel
+        case HEX_HUNGRY:  return 0xFFC89B5A;   // amber-ish
+        case HEX_SLEEPY:  return 0xFF5C6B7A;   // dim steel
+        default:          return 0xFF7FA8C9;   // calm steel-blue
     }
-    lv_image_set_src(s_sprite, NULL);   // force reload even if the pointer repeats
-    lv_image_set_src(s_sprite, path);
-    lv_obj_center(s_sprite);
+}
+
+// Fill one grid cell (a chunky pixel) in the mascot buffer.
+static void masc_block(int col, int row, uint32_t argb)
+{
+    for (int y = 0; y < MASC_CELL; y++)
+        for (int x = 0; x < MASC_CELL; x++) {
+            int px = col * MASC_CELL + x, py = row * MASC_CELL + y;
+            if (px >= 0 && px < MASC_W && py >= 0 && py < MASC_H)
+                s_masc_buf[py * MASC_W + px] = argb;
+        }
+}
+
+// Redraw the face for a mood (transparent background + accent-coloured blocks).
+// Cheap; refresh() calls it only when the mood actually changes.
+static void draw_mascot(uint8_t mood)
+{
+    if (!s_masc_buf) return;
+    memset(s_masc_buf, 0, (size_t)MASC_W * (size_t)MASC_H * 4u);   // transparent
+    const uint32_t c = masc_color(mood);
+
+    // Eyes: open 2x2 blocks, or a single closed bar when sleepy.
+    if (mood == HEX_SLEEPY) {
+        masc_block(2, 3, c); masc_block(3, 3, c); masc_block(6, 3, c); masc_block(7, 3, c);
+    } else {
+        masc_block(2, 2, c); masc_block(3, 2, c); masc_block(2, 3, c); masc_block(3, 3, c);
+        masc_block(6, 2, c); masc_block(7, 2, c); masc_block(6, 3, c); masc_block(7, 3, c);
+    }
+    // Angry brows when wary (threat).
+    if (mood == HEX_WARY) { masc_block(2, 1, c); masc_block(7, 1, c); }
+
+    // Mouth: smile (excited), open (hungry), or flat (calm/wary).
+    if (mood == HEX_EXCITED) {
+        masc_block(3, 5, c); masc_block(6, 5, c); masc_block(4, 6, c); masc_block(5, 6, c);
+    } else if (mood == HEX_HUNGRY) {
+        masc_block(4, 5, c); masc_block(5, 5, c); masc_block(4, 6, c); masc_block(5, 6, c);
+    } else {
+        masc_block(3, 5, c); masc_block(4, 5, c); masc_block(5, 5, c); masc_block(6, 5, c);
+    }
+}
+
+// Redraw + repush the mascot image if the mood changed. Cheap on a no-op.
+static void update_sprite(uint8_t mood)
+{
+    if (!s_sprite || !s_masc_buf || mood == s_masc_mood) return;
+    s_masc_mood = mood;
+    draw_mascot(mood);
+    lv_image_set_src(s_sprite, NULL);
+    lv_image_set_src(s_sprite, &s_masc_dsc);
+    lv_obj_invalidate(s_sprite);
 }
 
 static void refresh()
@@ -84,8 +141,8 @@ static void refresh()
     const HexHoundState &st = hexhound_state();
     lv_color_t accent = mood_color(st.mood);
 
-    // Swap to this stage's HD sprite (no-op unless the stage changed).
-    update_sprite(st.stage);
+    // Redraw the mascot face for the current mood (no-op unless it changed).
+    update_sprite(st.mood);
 
     // Sonar rings track mood: calm steel-blue, or HADES-red on a confirmed
     // threat. With the creature now a fixed sprite, the rings are the pet's
@@ -210,12 +267,26 @@ void pet_screen_create()
         lv_obj_align(s_ring[i], LV_ALIGN_CENTER, 0, -74);
     }
 
-    // Per-stage HD sprite (SD /HexHound/<stage>.png), placed directly on the
-    // screen (no wrapper container - a container clips the sprite to its box,
-    // cutting off any HD art larger than it). It floats over the sonar rings and
-    // is bobbed directly by on_anim(). The source is set per stage by
-    // update_sprite() in refresh(); a missing card/asset just leaves it blank.
+    // 8-bit mascot face: an ARGB buffer in PSRAM shown as an lv_image, floating
+    // over the sonar rings and bobbed directly by on_anim(). Drawn on-device by
+    // update_sprite()/draw_mascot() (no SD, no PNG decode — that decode was what
+    // froze the menu -> HexHound transition). If the PSRAM alloc fails the image
+    // simply stays empty rather than crashing.
     s_sprite = lv_image_create(s_screen);
+    if (!s_masc_buf)
+        s_masc_buf = (uint32_t *)heap_caps_malloc((size_t)MASC_W * (size_t)MASC_H * 4u, MALLOC_CAP_SPIRAM);
+    if (s_masc_buf) {
+        memset(s_masc_buf, 0, (size_t)MASC_W * (size_t)MASC_H * 4u);
+        s_masc_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        s_masc_dsc.header.cf     = LV_COLOR_FORMAT_ARGB8888;
+        s_masc_dsc.header.flags  = 0;
+        s_masc_dsc.header.w      = MASC_W;
+        s_masc_dsc.header.h      = MASC_H;
+        s_masc_dsc.header.stride = MASC_W * 4;
+        s_masc_dsc.data_size     = (uint32_t)((size_t)MASC_W * (size_t)MASC_H * 4u);
+        s_masc_dsc.data          = (const uint8_t *)s_masc_buf;
+        lv_image_set_src(s_sprite, &s_masc_dsc);
+    }
     lv_obj_align(s_sprite, LV_ALIGN_CENTER, 0, -74);
 
     // Speech line.
