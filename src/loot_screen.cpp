@@ -62,7 +62,7 @@ static void add_dir_header(const char *caption, int file_count,
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *cap = lv_label_create(row);
-    lv_obj_set_style_text_font(cap, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(cap, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(cap, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);
     lv_label_set_text(cap, caption);
     lv_obj_align(cap, LV_ALIGN_LEFT_MID, 0, 0);
@@ -72,14 +72,14 @@ static void add_dir_header(const char *caption, int file_count,
     if (file_count > 0) snprintf(tot, sizeof(tot), "%d - %s", file_count, sz);
     else                snprintf(tot, sizeof(tot), "empty");
     lv_obj_t *t = lv_label_create(row);
-    lv_obj_set_style_text_font(t, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(t, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(t, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(t, tot);
     lv_obj_align(t, LV_ALIGN_RIGHT_MID, -56, 0);
 
     if (file_count > 0) {
         lv_obj_t *w = lv_label_create(row);
-        lv_obj_set_style_text_font(w, &font_argus_label_14, LV_PART_MAIN);
+        lv_obj_set_style_text_font(w, theme_text_font(14), LV_PART_MAIN);
         lv_obj_set_style_text_color(w, HADES_RED, LV_PART_MAIN);
         lv_label_set_text(w, "Wipe");
         lv_obj_align(w, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -104,7 +104,7 @@ static void add_file_row(const char *name, uint64_t bytes)
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *nlab = lv_label_create(row);
-    lv_obj_set_style_text_font(nlab, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(nlab, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(nlab, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_long_mode(nlab, LV_LABEL_LONG_DOT);
     lv_obj_set_width(nlab, 280);
@@ -114,7 +114,7 @@ static void add_file_row(const char *name, uint64_t bytes)
     char sz[24];
     fmt_size(bytes, sz, sizeof(sz));
     lv_obj_t *s = lv_label_create(row);
-    lv_obj_set_style_text_font(s, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(s, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(s, sz);
     lv_obj_align(s, LV_ALIGN_RIGHT_MID, -4, 0);
@@ -169,7 +169,7 @@ static void rebuild()
     if (busy) {
         lv_label_set_text(loot_summary, "Card mounted over USB");
         lv_obj_t *l = lv_label_create(loot_list);
-        lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(l, ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_obj_set_width(l, 360);
         lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
@@ -181,7 +181,7 @@ static void rebuild()
     if (!card) {
         lv_label_set_text(loot_summary, "No SD card");
         lv_obj_t *l = lv_label_create(loot_list);
-        lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(l, ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_label_set_text(l, "No SD card inserted.");
         if (wipe_all_btn) lv_obj_add_state(wipe_all_btn, LV_STATE_DISABLED);
@@ -280,12 +280,12 @@ void loot_screen_create()
 
     loot_title = lv_label_create(loot_screen);
     lv_obj_set_style_text_color(loot_title, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(loot_title, &font_argus_label_28, LV_PART_MAIN);   // Orbitron
+    lv_obj_set_style_text_font(loot_title, theme_text_font(28), LV_PART_MAIN);   // Orbitron
     lv_label_set_text(loot_title, "LOOT");
     lv_obj_align(loot_title, LV_ALIGN_TOP_MID, 0, 12);
 
     loot_summary = lv_label_create(loot_screen);
-    lv_obj_set_style_text_font(loot_summary, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(loot_summary, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(loot_summary, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(loot_summary, "");
     lv_obj_align(loot_summary, LV_ALIGN_TOP_MID, 0, 66);
@@ -314,7 +314,7 @@ void loot_screen_create()
     lv_obj_t *ol = lv_label_create(offload_btn);
     lv_label_set_text(ol, "OFFLOAD");
     lv_obj_set_style_text_color(ol, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(ol, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ol, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(ol);
 
     wipe_all_btn = lv_button_create(loot_screen);
@@ -328,7 +328,7 @@ void loot_screen_create()
     lv_obj_t *wl = lv_label_create(wipe_all_btn);
     lv_label_set_text(wl, "WIPE ALL");
     lv_obj_set_style_text_color(wl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(wl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(wl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(wl);
 
     // Confirm modal (Cancel / Wipe), hidden until loot_show_confirm() pops it.
@@ -358,7 +358,7 @@ void loot_screen_create()
     confirm_text = lv_label_create(panel);
     lv_obj_set_width(confirm_text, lv_pct(100));
     lv_obj_set_style_text_color(confirm_text, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(confirm_text, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(confirm_text, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_align(confirm_text, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(confirm_text, LV_LABEL_LONG_WRAP);
     lv_label_set_text(confirm_text, "Wipe loot?");
@@ -373,7 +373,7 @@ void loot_screen_create()
     lv_obj_t *cl = lv_label_create(cancel_btn);
     lv_label_set_text(cl, "Cancel");
     lv_obj_set_style_text_color(cl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(cl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(cl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(cl);
 
     lv_obj_t *wipe_btn = lv_button_create(panel);
@@ -385,7 +385,7 @@ void loot_screen_create()
     lv_obj_t *wb = lv_label_create(wipe_btn);
     lv_label_set_text(wb, "Wipe");
     lv_obj_set_style_text_color(wb, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(wb, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(wb, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(wb);
 
     lv_obj_add_event_cb(loot_screen, on_gesture, LV_EVENT_GESTURE, NULL);

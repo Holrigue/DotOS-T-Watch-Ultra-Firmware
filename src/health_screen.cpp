@@ -122,14 +122,14 @@ lv_obj_t *make_row(int y, const char *name)
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *lbl = lv_label_create(row);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl, c_dim(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(lbl, 2, LV_PART_MAIN);
     lv_label_set_text(lbl, name);
     lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 0, 6);
 
     lv_obj_t *val = lv_label_create(row);
-    lv_obj_set_style_text_font(val, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(val, theme_text_font(28), LV_PART_MAIN);
     lv_obj_set_style_text_color(val, c_gray(), LV_PART_MAIN);
     lv_label_set_text(val, "--");
     lv_obj_align(val, LV_ALIGN_BOTTOM_LEFT, 0, -2);
@@ -189,7 +189,7 @@ void build_overlays()
     s_load_card = lcard;   // start_refresh() spawns the spinner in here
 
     lv_obj_t *ll = lv_label_create(lcard);
-    lv_obj_set_style_text_font(ll, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ll, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(ll, c_dim(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(ll, 2, LV_PART_MAIN);
     lv_label_set_text(ll, "REFRESHING");
@@ -210,14 +210,14 @@ void build_overlays()
     lv_obj_clear_flag(ecard, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *etitle = lv_label_create(ecard);
-    lv_obj_set_style_text_font(etitle, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(etitle, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(etitle, c_red(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(etitle, 2, LV_PART_MAIN);
     lv_label_set_text(etitle, "REFRESH FAILED");
     lv_obj_align(etitle, LV_ALIGN_TOP_MID, 0, 40);
 
     lv_obj_t *edetail = lv_label_create(ecard);
-    lv_obj_set_style_text_font(edetail, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(edetail, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(edetail, c_dim(), LV_PART_MAIN);
     lv_obj_set_style_text_align(edetail, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(edetail, LV_LABEL_LONG_WRAP);
@@ -237,7 +237,7 @@ void build_overlays()
     lv_obj_add_flag(xbtn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(xbtn, err_close_cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *xl = lv_label_create(xbtn);
-    lv_obj_set_style_text_font(xl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(xl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(xl, c_white(), LV_PART_MAIN);
     lv_label_set_text(xl, "X");
     lv_obj_center(xl);
@@ -255,7 +255,7 @@ void health_screen_create()
     lv_obj_add_event_cb(s_screen, on_gesture, LV_EVENT_GESTURE, NULL);
 
     lv_obj_t *title = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(28), LV_PART_MAIN);
     lv_obj_set_style_text_color(title, c_white(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(title, 4, LV_PART_MAIN);
     lv_label_set_text(title, "HEALTH");
@@ -272,7 +272,7 @@ void health_screen_create()
     s_sync_lbl = lv_label_create(s_screen);
     lv_obj_set_width(s_sync_lbl, 300);   // fixed width + center so it stays centered
     lv_obj_set_style_text_align(s_sync_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_text_font(s_sync_lbl, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_sync_lbl, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_sync_lbl, c_gray(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(s_sync_lbl, 1, LV_PART_MAIN);
     lv_label_set_text(s_sync_lbl, "Last sync: --");

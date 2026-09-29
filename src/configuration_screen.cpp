@@ -330,7 +330,7 @@ static lv_obj_t *make_field(const char *caption, int y, int max_len)
 {
     lv_obj_t *lbl = lv_label_create(cfg_screen);
     lv_obj_set_style_text_color(lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(lbl, caption);
     lv_obj_align(lbl, LV_ALIGN_TOP_MID, -185, y);
     lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
@@ -340,7 +340,7 @@ static lv_obj_t *make_field(const char *caption, int y, int max_len)
     lv_textarea_set_max_length(ta, max_len);
     lv_obj_set_size(ta, 380, 48);
     lv_obj_align(ta, LV_ALIGN_TOP_MID, 0, y + 28);
-    lv_obj_set_style_text_font(ta, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ta, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_bg_color(ta, lv_color_make(0x11, 0x11, 0x11), LV_PART_MAIN);
     lv_obj_set_style_text_color(ta, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_color(ta, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
@@ -360,7 +360,7 @@ void configuration_screen_create()
     lv_obj_t *title = lv_label_create(cfg_screen);
     s_cfg_title = title;
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "CONFIGURATION");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
 
@@ -386,7 +386,7 @@ void configuration_screen_create()
 
     lv_obj_t *gps_lbl = lv_label_create(gps_status_row);
     lv_obj_set_style_text_color(gps_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(gps_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(gps_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(gps_lbl, "GPS");
     lv_obj_align(gps_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -407,7 +407,7 @@ void configuration_screen_create()
 
     lv_obj_t *bc_lbl = lv_label_create(broadcast_row);
     lv_obj_set_style_text_color(bc_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(bc_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(bc_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(bc_lbl, "Broadcast Location");
     lv_obj_align(bc_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -430,7 +430,7 @@ void configuration_screen_create()
 
     lv_obj_t *iv_lbl = lv_label_create(interval_row);
     lv_obj_set_style_text_color(iv_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(iv_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(iv_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(iv_lbl, "Broadcast Interval");
     lv_obj_align(iv_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -447,7 +447,7 @@ void configuration_screen_create()
     lv_obj_add_event_cb(interval_dropdown, on_interval_changed,
                         LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_set_size(interval_dropdown, 195, 38);
-    lv_obj_set_style_text_font(interval_dropdown, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(interval_dropdown, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_bg_color(interval_dropdown, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
     lv_obj_set_style_text_color(interval_dropdown, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_color(interval_dropdown, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
@@ -456,7 +456,7 @@ void configuration_screen_create()
     lv_obj_t *iv_list = lv_dropdown_get_list(interval_dropdown);
     lv_obj_set_style_bg_color(iv_list, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
     lv_obj_set_style_text_color(iv_list, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(iv_list, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(iv_list, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_border_color(iv_list, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
     lv_obj_align(interval_dropdown, LV_ALIGN_RIGHT_MID, 0, 0);
 
@@ -471,7 +471,7 @@ void configuration_screen_create()
 
     lv_obj_t *rb_lbl = lv_label_create(rebroadcast_row);
     lv_obj_set_style_text_color(rb_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(rb_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(rb_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(rb_lbl, "Rebroadcast Packets");
     lv_obj_align(rb_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -496,7 +496,7 @@ void configuration_screen_create()
 
     lv_obj_t *vd_lbl = lv_label_create(vib_dm_row);
     lv_obj_set_style_text_color(vd_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(vd_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(vd_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(vd_lbl, "Vibrate on DM");
     lv_obj_align(vd_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -519,7 +519,7 @@ void configuration_screen_create()
 
     lv_obj_t *vb_lbl = lv_label_create(vib_bc_row);
     lv_obj_set_style_text_color(vb_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(vb_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(vb_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(vb_lbl, "Vibrate on Broadcast");
     lv_obj_align(vb_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -545,7 +545,7 @@ void configuration_screen_create()
 
     lv_obj_t *an_lbl = lv_label_create(announce_row);
     lv_obj_set_style_text_color(an_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(an_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(an_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(an_lbl, "Announce Node");
     lv_obj_align(an_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -568,7 +568,7 @@ void configuration_screen_create()
 
     lv_obj_t *ai_lbl = lv_label_create(announce_int_row);
     lv_obj_set_style_text_color(ai_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(ai_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ai_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(ai_lbl, "Announce Interval");
     lv_obj_align(ai_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -582,7 +582,7 @@ void configuration_screen_create()
     lv_obj_add_event_cb(announce_int_dropdown, on_announce_interval_changed,
                         LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_set_size(announce_int_dropdown, 175, 38);
-    lv_obj_set_style_text_font(announce_int_dropdown, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(announce_int_dropdown, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_bg_color(announce_int_dropdown, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
     lv_obj_set_style_text_color(announce_int_dropdown, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_color(announce_int_dropdown, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
@@ -615,13 +615,13 @@ void configuration_screen_create()
     lv_obj_t *ch_lbl = lv_label_create(ch_link);
     lv_label_set_text(ch_lbl, "Channels");
     lv_obj_set_style_text_color(ch_lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(ch_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ch_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_align(ch_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *ch_chev = lv_label_create(ch_link);
     lv_label_set_text(ch_chev, ">");
     lv_obj_set_style_text_color(ch_chev, lv_color_make(0x0A, 0x84, 0xFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(ch_chev, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ch_chev, theme_text_font(20), LV_PART_MAIN);
     lv_obj_align(ch_chev, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Invisible spacer below the Channels link to extend the scroll

@@ -119,7 +119,8 @@ ARGUS_CXX := $(SRC)/theme.cpp $(SRC)/argus_mode.cpp $(SRC)/time_screen.cpp \
 # tools_screen.cpp used to be the heavy one (the 27-tile detector grid); it is
 # now a thin forwarder to apps_screen.cpp, so it builds here with the launcher
 # stubs in stubs_tools.cpp and pulls in no detector code.
-ARGUS_C   := $(wildcard $(SRC)/font_argus_*.c)
+ARGUS_C   := $(wildcard $(SRC)/font_argus_*.c) \
+             $(wildcard $(SRC)/font_roboto_*.c) $(wildcard $(SRC)/font_inter_*.c)
 SIM_CXX   := shim/shim.cpp stubs.cpp stubs_tools.cpp main_sim.cpp
 
 A_OBJS := $(patsubst %,$(OBJ)/%.o,$(notdir $(basename $(ARGUS_CXX)))) \

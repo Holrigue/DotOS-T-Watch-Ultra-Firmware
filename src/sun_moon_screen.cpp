@@ -170,13 +170,13 @@ static lv_obj_t *make_row(lv_obj_t *list, const char *caption, lv_color_t cap_co
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *cap = lv_label_create(row);
-    lv_obj_set_style_text_font(cap, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(cap, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(cap, cap_col, LV_PART_MAIN);
     lv_label_set_text(cap, caption);
     lv_obj_align(cap, LV_ALIGN_LEFT_MID, 16, 0);
 
     lv_obj_t *val = lv_label_create(row);
-    lv_obj_set_style_text_font(val, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(val, theme_text_font(28), LV_PART_MAIN);
     lv_obj_set_style_text_color(val, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(val, "--");
     lv_obj_align(val, LV_ALIGN_RIGHT_MID, -16, 0);
@@ -191,7 +191,7 @@ void sun_moon_screen_create()
 
     lv_obj_t *title = lv_label_create(sun_moon_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "SUN & MOON");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
@@ -211,10 +211,10 @@ void sun_moon_screen_create()
     val_daylen  = make_row(list, "Daylight",  ARGUS_ACCENT);
     val_moon    = make_row(list, "Moon",      ARGUS_ACCENT);
     // Moon phase names are long — give that value its own smaller font.
-    lv_obj_set_style_text_font(val_moon, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(val_moon, theme_text_font(16), LV_PART_MAIN);
 
     val_loc = lv_label_create(list);
-    lv_obj_set_style_text_font(val_loc, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(val_loc, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(val_loc, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(val_loc, "");
 

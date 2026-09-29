@@ -128,7 +128,7 @@ static void build()
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(screen);
-    lv_obj_set_style_text_font(title, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(title, PG, LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(title, 3, LV_PART_MAIN);
     lv_label_set_text(title, "PRESENCE");
@@ -178,7 +178,7 @@ static void build()
     lv_obj_align(s_count_lbl, LV_ALIGN_BOTTOM_MID, 0, -46);
 
     s_status_lbl = lv_label_create(screen);
-    lv_obj_set_style_text_font(s_status_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_status_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_status_lbl, PG, LV_PART_MAIN);
     lv_label_set_text(s_status_lbl, "scanning \xE2\x80\xA2 no bearing");
     lv_obj_align(s_status_lbl, LV_ALIGN_BOTTOM_MID, 0, -18);

@@ -140,3 +140,35 @@ void argus_keyboard_fit(lv_obj_t *kb, int height)
     lv_obj_set_size(kb, ARGUS_KB_SAFE_W, height);
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -ARGUS_KB_BOTTOM_INSET);
 }
+
+// ---- "Global text" font selection (Facewatch) -------------------------------
+// Body labels and titles resolve their font through these instead of naming the
+// Orbitron/Saira brand fonts directly, so the wearer's Facewatch choice
+// (Default / Roboto / Inter) applies system-wide. Default returns the exact
+// brand fonts, so it is a no-op; a screen picks up a change the next time it is
+// (re)built. The clock hour and the Dot date line are intentionally NOT routed
+// through here — they keep their own fonts.
+const lv_font_t *theme_text_font(int px)
+{
+    FaceTextFont fam = face_text_font();
+    switch (px) {
+    case 14: return fam == FACE_TEXT_ROBOTO ? &font_roboto_14
+                  : fam == FACE_TEXT_INTER  ? &font_inter_14  : &font_argus_label_14;
+    case 16: return fam == FACE_TEXT_ROBOTO ? &font_roboto_16
+                  : fam == FACE_TEXT_INTER  ? &font_inter_16  : &font_argus_label_16;
+    case 28: return fam == FACE_TEXT_ROBOTO ? &font_roboto_28
+                  : fam == FACE_TEXT_INTER  ? &font_inter_28  : &font_argus_label_28;
+    case 20:
+    default: return fam == FACE_TEXT_ROBOTO ? &font_roboto_20
+                  : fam == FACE_TEXT_INTER  ? &font_inter_20  : &font_argus_label_20;
+    }
+}
+
+const lv_font_t *theme_title_font()
+{
+    switch (face_text_font()) {
+    case FACE_TEXT_ROBOTO: return &font_roboto_32;
+    case FACE_TEXT_INTER:  return &font_inter_32;
+    default:               return &font_argus_ui;
+    }
+}

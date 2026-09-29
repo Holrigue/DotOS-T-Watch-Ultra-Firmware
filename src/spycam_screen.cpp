@@ -19,7 +19,7 @@ static void rebuild()
 
     if (n == 0) {
         lv_obj_t *l = lv_label_create(spycam_list);
-        lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(l, ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_obj_set_width(l, 360);
         lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
@@ -44,7 +44,7 @@ static void rebuild()
         else if (!strcmp(cn, "MED"))  cc = lv_color_make(0xF0, 0xB4, 0x30);
 
         lv_obj_t *cls = lv_label_create(row);
-        lv_obj_set_style_text_font(cls, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(cls, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(cls, cc, LV_PART_MAIN);
         lv_label_set_text(cls, spycam_class_name(hits[i].cls));
         lv_obj_align(cls, LV_ALIGN_TOP_LEFT, 4, 2);
@@ -53,7 +53,7 @@ static void rebuild()
         snprintf(sub, sizeof(sub), "%s   %s   %ddBm",
                  hits[i].ssid[0] ? hits[i].ssid : "(hidden)", cn, hits[i].rssi);
         lv_obj_t *s = lv_label_create(row);
-        lv_obj_set_style_text_font(s, &font_argus_label_14, LV_PART_MAIN);
+        lv_obj_set_style_text_font(s, theme_text_font(14), LV_PART_MAIN);
         lv_obj_set_style_text_color(s, ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_label_set_text(s, sub);
         lv_obj_align(s, LV_ALIGN_BOTTOM_LEFT, 4, -2);
@@ -79,7 +79,7 @@ void spycam_screen_create()
 
     lv_obj_t *title = lv_label_create(spycam_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "SPYCAM");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 

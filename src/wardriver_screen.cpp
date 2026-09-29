@@ -617,7 +617,7 @@ static void make_status_row(lv_obj_t *screen, const char *field,
 
     lv_obj_t *lbl = lv_label_create(row);
     lv_obj_set_style_text_color(lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(lbl, field);
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -643,7 +643,7 @@ static void make_toggle_row(lv_obj_t *screen, const char *field,
 
     lv_obj_t *lbl = lv_label_create(row);
     lv_obj_set_style_text_color(lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(lbl, field);
     lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -673,7 +673,7 @@ void wardriver_screen_create()
     lv_obj_t *title = lv_label_create(wardriver_screen);
     s_ward_title = title;
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "WARDRIVER");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 25);
 
@@ -688,7 +688,7 @@ void wardriver_screen_create()
 
     device_count_label = lv_label_create(wardriver_screen);
     lv_obj_set_style_text_color(device_count_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(device_count_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(device_count_label, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(device_count_label, "WiFi: 0  BT: 0");
     lv_obj_align(device_count_label, LV_ALIGN_TOP_MID, 0, 340);
 

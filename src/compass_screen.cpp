@@ -213,7 +213,7 @@ static void build()
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(screen);
-    lv_obj_set_style_text_font(title, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(title, NG, LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(title, 3, LV_PART_MAIN);
     lv_label_set_text(title, "COMPASS");

@@ -130,7 +130,7 @@ static void ps_refresh(lv_timer_t *)
                  devs[i].mac[3], devs[i].mac[4], devs[i].mac[5], (int)devs[i].rssi,
                  devs[i].ssid[0] ? devs[i].ssid : "(any / broadcast)");
         lv_obj_t *l = lv_label_create(row);
-        lv_obj_set_style_text_font(l, &font_argus_label_14, LV_PART_MAIN);
+        lv_obj_set_style_text_font(l, theme_text_font(14), LV_PART_MAIN);
         lv_obj_set_style_text_color(l, devs[i].ssid[0] ? ARGUS_OFFENSE_ACCENT : ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_label_set_text(l, t);
     }
@@ -161,13 +161,13 @@ void probe_sniffer_screen_create()
 
     lv_obj_t *title = lv_label_create(ps_screen);
     lv_obj_set_style_text_color(title, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(title, "PROBES");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
     ps_count = lv_label_create(ps_screen);
     lv_obj_set_style_text_color(ps_count, lv_color_make(0x3C, 0xDC, 0x78), LV_PART_MAIN);
-    lv_obj_set_style_text_font(ps_count, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ps_count, theme_text_font(16), LV_PART_MAIN);
     lv_label_set_text(ps_count, "idle - press START");
     lv_obj_align(ps_count, LV_ALIGN_TOP_MID, 0, 54);
 
@@ -191,7 +191,7 @@ void probe_sniffer_screen_create()
     lv_obj_add_event_cb(ps_toggle_btn, ps_on_toggle, LV_EVENT_CLICKED, NULL);
     ps_toggle_lbl = lv_label_create(ps_toggle_btn);
     lv_obj_set_style_text_color(ps_toggle_lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(ps_toggle_lbl, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ps_toggle_lbl, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(ps_toggle_lbl, "START");
     lv_obj_center(ps_toggle_lbl);
 

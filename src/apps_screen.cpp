@@ -164,7 +164,7 @@ static lv_obj_t *make_list(lv_obj_t *screen, const char *title, lv_obj_t **title
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *hdr = lv_label_create(screen);
-    lv_obj_set_style_text_font(hdr, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(hdr, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(hdr, AG, LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(hdr, 3, LV_PART_MAIN);
     lv_label_set_text(hdr, title);
@@ -350,7 +350,7 @@ static void show_offense_consent()
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 6);
 
     lv_obj_t *body = lv_label_create(card);
-    lv_obj_set_style_text_font(body, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(body, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(body, AG, LV_PART_MAIN);
     lv_obj_set_width(body, 288);
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
@@ -367,7 +367,7 @@ static void show_offense_consent()
     lv_obj_set_style_radius(acc, 12, LV_PART_MAIN);
     lv_obj_add_event_cb(acc, offense_modal_accept, LV_EVENT_CLICKED, NULL);
     lv_obj_t *al = lv_label_create(acc);
-    lv_obj_set_style_text_font(al, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(al, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(al, AW, LV_PART_MAIN);
     lv_label_set_text(al, "Accept");
     lv_obj_center(al);

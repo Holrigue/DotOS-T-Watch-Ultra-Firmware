@@ -58,7 +58,7 @@ static void add_node(const TrThreat *t)
              threatradar_category_name(t->category),
              threatradar_level_name(t->level));
     lv_obj_t *h = lv_label_create(row);
-    lv_obj_set_style_text_font(h, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(h, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(h, col, LV_PART_MAIN);
     lv_label_set_text(h, head);
     lv_obj_align(h, LV_ALIGN_TOP_LEFT, 0, 0);
@@ -71,7 +71,7 @@ static void add_node(const TrThreat *t)
              t->active ? "  -  near" : "",
              t->familiar ? "  (familiar)" : "");
     lv_obj_t *b = lv_label_create(row);
-    lv_obj_set_style_text_font(b, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(b, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(b, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(b, body);
     lv_obj_align(b, LV_ALIGN_TOP_LEFT, 0, 22);
@@ -98,7 +98,7 @@ static void rebuild()
 
     if (n == 0) {
         lv_obj_t *l = lv_label_create(tl_list);
-        lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(l, ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_obj_set_width(l, 360);
         lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
@@ -131,7 +131,7 @@ void tracker_timeline_screen_create()
 
     lv_obj_t *title = lv_label_create(tl_screen);
     lv_obj_set_style_text_color(title, ARGUS_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(title, "TAIL TIMELINE");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
 
@@ -144,7 +144,7 @@ void tracker_timeline_screen_create()
     lv_obj_clear_flag(tl_banner, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *bl = lv_label_create(tl_banner);
     lv_obj_set_style_text_color(bl, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(bl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(bl, theme_text_font(16), LV_PART_MAIN);
     lv_label_set_text(bl, LV_SYMBOL_OK "  No sustained tail");
     lv_obj_center(bl);
 
@@ -169,7 +169,7 @@ void tracker_timeline_screen_create()
     lv_obj_t *cl = lv_label_create(clear_btn);
     lv_label_set_text(cl, "CLEAR");
     lv_obj_set_style_text_color(cl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(cl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(cl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_center(cl);
 
     lv_obj_add_event_cb(tl_screen, on_gesture, LV_EVENT_GESTURE, NULL);

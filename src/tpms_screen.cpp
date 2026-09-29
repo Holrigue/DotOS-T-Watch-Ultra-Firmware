@@ -257,7 +257,7 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, lv_coord_t x, lv_c
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(lbl);
 
     return btn;
@@ -283,7 +283,7 @@ static void make_cell(lv_obj_t *parent, int idx, lv_coord_t x, lv_coord_t y)
     // Wheel position label (FL / FR / RL / RR)
     lv_obj_t *pos_lbl = lv_label_create(c);
     lv_obj_set_style_text_color(pos_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(pos_lbl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(pos_lbl, theme_text_font(16), LV_PART_MAIN);
     lv_label_set_text(pos_lbl, WHEEL_LABEL[idx]);
     lv_obj_align(pos_lbl, LV_ALIGN_TOP_MID, 0, 2);
 
@@ -341,7 +341,7 @@ void tpms_screen_create()
     // as siblings at the same hierarchy.
     lv_obj_t *title = lv_label_create(tpms_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "TPMS");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
@@ -359,7 +359,7 @@ void tpms_screen_create()
 
     // Status line — sits just below the single button row (ends y=102).
     status_label = lv_label_create(tpms_screen);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(status_label, "Scanner off");
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 110);

@@ -225,7 +225,7 @@ static lv_obj_t *make_label(const char *text, int y)
 {
     lv_obj_t *lbl = lv_label_create(wr_screen);
     lv_obj_set_style_text_color(lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(lbl, text);
     lv_obj_align(lbl, LV_ALIGN_TOP_MID, -150, y);
     return lbl;
@@ -233,7 +233,7 @@ static lv_obj_t *make_label(const char *text, int y)
 
 static void style_dropdown(lv_obj_t *dd)
 {
-    lv_obj_set_style_text_font(dd, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dd, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_bg_color(dd, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
     lv_obj_set_style_text_color(dd, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_color(dd, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
@@ -241,12 +241,12 @@ static void style_dropdown(lv_obj_t *dd)
     lv_obj_t *list = lv_dropdown_get_list(dd);
     lv_obj_set_style_bg_color(list, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
     lv_obj_set_style_text_color(list, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(list, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(list, theme_text_font(16), LV_PART_MAIN);
 }
 
 static void style_textarea(lv_obj_t *ta)
 {
-    lv_obj_set_style_text_font(ta, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ta, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_bg_color(ta, lv_color_make(0x11, 0x11, 0x11), LV_PART_MAIN);
     lv_obj_set_style_text_color(ta, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_color(ta, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
@@ -261,7 +261,7 @@ void nfc_write_screen_create()
 
     lv_obj_t *title = lv_label_create(wr_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "NFC WRITE");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
@@ -317,14 +317,14 @@ void nfc_write_screen_create()
     lv_obj_add_event_cb(write_btn, on_write_btn, LV_EVENT_CLICKED, NULL);
 
     write_btn_label = lv_label_create(write_btn);
-    lv_obj_set_style_text_font(write_btn_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(write_btn_label, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(write_btn_label, lv_color_white(), LV_PART_MAIN);
     lv_label_set_text(write_btn_label, "Write");
     lv_obj_center(write_btn_label);
 
     // Status feedback
     status_label = lv_label_create(wr_screen);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_width(status_label, 390);
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);

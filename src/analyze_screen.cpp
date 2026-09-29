@@ -237,7 +237,7 @@ void analyze_screen_create()
 
     title_label = lv_label_create(screen);
     lv_obj_set_style_text_color(title_label, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title_label, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title_label, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title_label, "WiFi");
     // Anchored at the top centre to match the PAGER / TPMS / SETTINGS
     // screens. font_48 extends to ~y=56 from this origin; status/legend
@@ -246,13 +246,13 @@ void analyze_screen_create()
 
     status_label = lv_label_create(screen);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(14), LV_PART_MAIN);
     lv_label_set_text(status_label, "starting...");
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 88);
 
     legend_label = lv_label_create(screen);
     lv_obj_set_style_text_color(legend_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(legend_label, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(legend_label, theme_text_font(14), LV_PART_MAIN);
     lv_label_set_text(legend_label, "");
     lv_obj_align(legend_label, LV_ALIGN_TOP_MID, 0, 108);
 

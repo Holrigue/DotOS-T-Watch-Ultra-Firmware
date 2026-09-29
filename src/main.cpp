@@ -579,7 +579,7 @@ static void build_dot_accent_date(lv_obj_t *parent)
     lv_obj_clear_flag(dot_accent_fill, LV_OBJ_FLAG_CLICKABLE);
 
     dot_date_label = lv_label_create(parent);
-    lv_obj_set_style_text_font(dot_date_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dot_date_label, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_date_label, lv_color_hex(0x9A9A9A), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(dot_date_label, 3, LV_PART_MAIN);
     lv_label_set_text(dot_date_label, "");
@@ -1401,7 +1401,7 @@ static void open_tile_picker(int slot)
     lv_obj_set_style_border_width(card, 1, LV_PART_MAIN);
 
     lv_obj_t *title = lv_label_create(card);
-    lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(title, dot_gray(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(title, 2, LV_PART_MAIN);
     lv_label_set_text(title, slot == 0 ? "LEFT SLOT" : "RIGHT SLOT");
@@ -1435,7 +1435,7 @@ static void open_tile_picker(int slot)
                             (void *)(intptr_t)((slot << 8) | (int)k));
 
         lv_obj_t *rl = lv_label_create(row);
-        lv_obj_set_style_text_font(rl, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(rl, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(rl, clear_row ? dot_gray() : lv_color_white(), LV_PART_MAIN);
         lv_label_set_text(rl, label);
         lv_obj_align(rl, LV_ALIGN_LEFT_MID, 14, 0);
@@ -1542,7 +1542,7 @@ static void build_dot_bottom(lv_obj_t *parent)
     dot_bat_pct = lv_label_create(parent);
     lv_obj_set_width(dot_bat_pct, 50);
     lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_text_font(dot_bat_pct, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dot_bat_pct, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_bat_pct, lv_color_hex(0x8A8A8A), LV_PART_MAIN);
     lv_label_set_text(dot_bat_pct, "");
     lv_obj_set_pos(dot_bat_pct, 306, 427);
@@ -2786,7 +2786,7 @@ static void show_dim_gate()
     lv_obj_align(s_dim_arrow, LV_ALIGN_TOP_MID, 0, 14);
 
     lv_obj_t *txt = lv_label_create(s_dim_card);
-    lv_obj_set_style_text_font(txt, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(txt, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(txt, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(txt, 2, LV_PART_MAIN);
     lv_label_set_text(txt, "swipe up to wake");
@@ -3548,7 +3548,7 @@ void setup()
     lv_obj_t *boot_sub = lv_label_create(boot_splash);
     lv_label_set_text(boot_sub, "DotOS");
     lv_obj_set_style_text_color(boot_sub, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(boot_sub, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(boot_sub, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(boot_sub, 4, LV_PART_MAIN);
     lv_obj_align_to(boot_sub, boot_brand, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
 
@@ -3612,7 +3612,7 @@ void setup()
     lv_label_set_text(wardriver_wifi_label, LV_SYMBOL_EYE_OPEN);
 
     wardriver_bt_label = lv_label_create(wardriver_container);
-    lv_obj_set_style_text_font(wardriver_bt_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(wardriver_bt_label, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(wardriver_bt_label, lv_color_make(0x55, 0x99, 0xFF), LV_PART_MAIN);
     lv_label_set_text(wardriver_bt_label, "");
     lv_obj_add_flag(wardriver_bt_label, LV_OBJ_FLAG_HIDDEN);
@@ -3694,7 +3694,7 @@ void setup()
 
     date_label = lv_label_create(clock_screen);
     lv_obj_set_style_text_color(date_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(date_label, &font_argus_label_20, LV_PART_MAIN);   // Orbitron (brand label)
+    lv_obj_set_style_text_font(date_label, theme_text_font(20), LV_PART_MAIN);   // Orbitron (brand label)
     lv_obj_set_style_text_align(date_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_text(date_label, "");
     lv_obj_align(date_label, LV_ALIGN_CENTER, 0, 60);
@@ -3765,7 +3765,7 @@ void setup()
 
     // Discovery count
     airtag_count_label = lv_label_create(airtag_indicator);
-    lv_obj_set_style_text_font(airtag_count_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(airtag_count_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(airtag_count_label, lv_color_white(), LV_PART_MAIN);
     lv_label_set_text(airtag_count_label, "0");
 
@@ -3807,7 +3807,7 @@ void setup()
     lv_obj_align(flipper_eye, LV_ALIGN_LEFT_MID, 4, -1);
 
     flipper_count_label = lv_label_create(flipper_indicator);
-    lv_obj_set_style_text_font(flipper_count_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(flipper_count_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(flipper_count_label, lv_color_make(0xFF, 0x88, 0x00), LV_PART_MAIN);
     lv_label_set_text(flipper_count_label, "0");
 
@@ -3839,12 +3839,12 @@ void setup()
     lv_obj_clear_flag(sk_badge, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *sk_lbl = lv_label_create(sk_badge);
-    lv_obj_set_style_text_font(sk_lbl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(sk_lbl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(sk_lbl, lv_color_white(), LV_PART_MAIN);
     lv_label_set_text(sk_lbl, "SK");
 
     skimmer_count_label = lv_label_create(skimmer_indicator);
-    lv_obj_set_style_text_font(skimmer_count_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(skimmer_count_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(skimmer_count_label, lv_color_make(0xFF, 0x66, 0x66), LV_PART_MAIN);
     lv_label_set_text(skimmer_count_label, "0");
 
@@ -3878,12 +3878,12 @@ void setup()
     lv_obj_clear_flag(et_badge, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *et_lbl = lv_label_create(et_badge);
-    lv_obj_set_style_text_font(et_lbl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(et_lbl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(et_lbl, lv_color_white(), LV_PART_MAIN);
     lv_label_set_text(et_lbl, "ET");
 
     evil_twin_count_label = lv_label_create(evil_twin_indicator);
-    lv_obj_set_style_text_font(evil_twin_count_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(evil_twin_count_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(evil_twin_count_label, lv_color_make(0xFF, 0x88, 0x00), LV_PART_MAIN);
     lv_label_set_text(evil_twin_count_label, "0");
 
@@ -3908,7 +3908,7 @@ void setup()
     lv_label_set_text(flock_icon, LV_SYMBOL_WARNING);
 
     flock_count_label = lv_label_create(flock_indicator);
-    lv_obj_set_style_text_font(flock_count_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(flock_count_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(flock_count_label, lv_color_make(0xFF, 0x88, 0x00), LV_PART_MAIN);
     lv_label_set_text(flock_count_label, "0");
 
@@ -4276,7 +4276,7 @@ void low_mem_show_dialog(const char *msg)
     lv_obj_add_event_cb(btn, low_mem_dialog_ok, LV_EVENT_CLICKED, NULL);
     lv_obj_t *btn_lbl = lv_label_create(btn);
     lv_label_set_text(btn_lbl, "OK");
-    lv_obj_set_style_text_font(btn_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(btn_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(btn_lbl, lv_color_white(), LV_PART_MAIN);
     lv_obj_center(btn_lbl);
 }

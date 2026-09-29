@@ -116,13 +116,13 @@ static void show_banner(const notify::Notification &n)
 
     // Header: bell + app/source name in the accent colour.
     lv_obj_t *app = lv_label_create(s_banner);
-    lv_obj_set_style_text_font(app, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(app, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(app, NOTHING_GREY, LV_PART_MAIN);
     lv_label_set_text_fmt(app, LV_SYMBOL_BELL "  %s", n.app[0] ? n.app : "Notification");
 
     if (n.title[0]) {
         lv_obj_t *title = lv_label_create(s_banner);
-        lv_obj_set_style_text_font(title, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(title, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(title, NOTHING_WHITE, LV_PART_MAIN);
         lv_obj_set_width(title, LV_PCT(100));
         lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);   // one-line, ellipsized
@@ -130,7 +130,7 @@ static void show_banner(const notify::Notification &n)
     }
     if (n.body[0]) {
         lv_obj_t *body = lv_label_create(s_banner);
-        lv_obj_set_style_text_font(body, &font_argus_label_14, LV_PART_MAIN);
+        lv_obj_set_style_text_font(body, theme_text_font(14), LV_PART_MAIN);
         lv_obj_set_style_text_color(body, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
@@ -148,7 +148,7 @@ static void show_banner(const notify::Notification &n)
         lv_obj_set_style_margin_top(mute, 6, LV_PART_MAIN);
         lv_obj_add_event_cb(mute, on_mute_click, LV_EVENT_CLICKED, NULL);
         lv_obj_t *ml = lv_label_create(mute);
-        lv_obj_set_style_text_font(ml, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(ml, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(ml, NOTHING_WHITE, LV_PART_MAIN);
         lv_label_set_text(ml, LV_SYMBOL_MUTE "  Mute");
         lv_obj_center(ml);

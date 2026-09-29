@@ -371,7 +371,7 @@ static lv_obj_t *make_band_btn()
     band_btn_label = lv_label_create(b);
     lv_label_set_text(band_btn_label, s_bands[s_band].short_label);
     lv_obj_set_style_text_color(band_btn_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(band_btn_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(band_btn_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_center(band_btn_label);
     return b;
 }
@@ -388,7 +388,7 @@ void lora_analyze_screen_create()
 
     title_label = lv_label_create(screen);
     lv_obj_set_style_text_color(title_label, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title_label, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title_label, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title_label, "LoRa");
     // Anchored at the top centre to match the PAGER / TPMS / SETTINGS
     // screens. font_48 extends to ~y=56 from this origin; status/legend
@@ -397,13 +397,13 @@ void lora_analyze_screen_create()
 
     status_label = lv_label_create(screen);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(14), LV_PART_MAIN);
     lv_label_set_text(status_label, "starting...");
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 88);
 
     legend_label = lv_label_create(screen);
     lv_obj_set_style_text_color(legend_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(legend_label, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(legend_label, theme_text_font(14), LV_PART_MAIN);
     lv_label_set_text(legend_label, "");
     lv_obj_align(legend_label, LV_ALIGN_TOP_MID, 0, 108);
 
@@ -443,7 +443,7 @@ void lora_analyze_screen_create()
 
     lv_obj_t *axis_hint = lv_label_create(screen);
     lv_obj_set_style_text_color(axis_hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(axis_hint, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(axis_hint, theme_text_font(14), LV_PART_MAIN);
     lv_label_set_text(axis_hint, "MHz   -   tap band to switch");
     lv_obj_align(axis_hint, LV_ALIGN_BOTTOM_MID, 0, -100);
 

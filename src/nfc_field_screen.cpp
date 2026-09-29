@@ -84,24 +84,24 @@ void nfc_field_screen_create()
 
     lv_obj_t *title = lv_label_create(nfc_field_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "NFC FIELD");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     status_label = lv_label_create(nfc_field_screen);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(28), LV_PART_MAIN);
     lv_obj_set_style_text_color(status_label, ARGUS_ACCENT, LV_PART_MAIN);
     lv_label_set_text(status_label, "Clear");
     lv_obj_align(status_label, LV_ALIGN_CENTER, 0, -20);
 
     sub_label = lv_label_create(nfc_field_screen);
-    lv_obj_set_style_text_font(sub_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(sub_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(sub_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(sub_label, "scanning for a reader field...");
     lv_obj_align(sub_label, LV_ALIGN_CENTER, 0, 26);
 
     lv_obj_t *hint = lv_label_create(nfc_field_screen);
-    lv_obj_set_style_text_font(hint, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(hint, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_obj_set_width(hint, 380);
     lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);

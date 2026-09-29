@@ -71,7 +71,7 @@ void deauth_screen_create()
 
     lv_obj_t *title = lv_label_create(deauth_screen);
     lv_obj_set_style_text_color(title, ARGUS_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(title, "DEAUTH WATCH");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
 
@@ -84,7 +84,7 @@ void deauth_screen_create()
     lv_obj_clear_flag(banner, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *blab = lv_label_create(banner);
     lv_obj_set_style_text_color(blab, lv_color_black(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(blab, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(blab, theme_text_font(16), LV_PART_MAIN);
     lv_label_set_text(blab, LV_SYMBOL_OK "  Clear");
     lv_obj_center(blab);
 
@@ -96,13 +96,13 @@ void deauth_screen_create()
 
     rate_unit = lv_label_create(deauth_screen);
     lv_obj_set_style_text_color(rate_unit, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(rate_unit, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(rate_unit, theme_text_font(16), LV_PART_MAIN);
     lv_label_set_text(rate_unit, "deauth + disassoc / min");
     lv_obj_align(rate_unit, LV_ALIGN_TOP_MID, 0, 218);
 
     detail_label = lv_label_create(deauth_screen);
     lv_obj_set_style_text_color(detail_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(detail_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(detail_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_align(detail_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_text(detail_label, "");
     lv_obj_align(detail_label, LV_ALIGN_TOP_MID, 0, 262);

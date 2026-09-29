@@ -201,7 +201,7 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *text,
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(lbl);
     return btn;
 }
@@ -215,7 +215,7 @@ void usb_sd_screen_create()
     // Title — font_48 to match the PAGER / TPMS / SETTINGS headers.
     lv_obj_t *title = lv_label_create(usb_sd_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "USB SD");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
 
@@ -225,14 +225,14 @@ void usb_sd_screen_create()
 
     // Status line
     status_label = lv_label_create(usb_sd_screen);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(status_label, "Ready");
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 84);
 
     // Card capacity
     card_label = lv_label_create(usb_sd_screen);
-    lv_obj_set_style_text_font(card_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(card_label, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(card_label, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(card_label, "Card: none");
     lv_obj_align(card_label, LV_ALIGN_TOP_MID, 0, 116);
@@ -242,7 +242,7 @@ void usb_sd_screen_create()
     // recomputes (only screen-open + after-unmount do, see
     // recompute_usage()), so this row has zero ongoing SD-I/O cost.
     usage_label = lv_label_create(usb_sd_screen);
-    lv_obj_set_style_text_font(usage_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(usage_label, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(usage_label, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(usage_label, "Usage: --");
     lv_obj_align(usage_label, LV_ALIGN_TOP_MID, 0, 144);
@@ -256,7 +256,7 @@ void usb_sd_screen_create()
 
     // Explanatory note
     lv_obj_t *note = lv_label_create(usb_sd_screen);
-    lv_obj_set_style_text_font(note, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(note, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(note, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(note, 360);

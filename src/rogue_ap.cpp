@@ -78,7 +78,7 @@ static void ra_build_list()
             ra_start_ssid(ssid);
         }, LV_EVENT_CLICKED, NULL);
         lv_obj_t *l = lv_label_create(row);
-        lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(l, ARGUS_TEXT, LV_PART_MAIN);
         lv_label_set_text(l, SSIDS[i]);
         lv_obj_center(l);
@@ -123,13 +123,13 @@ void rogue_ap_screen_create()
 
     lv_obj_t *title = lv_label_create(ra_screen);
     lv_obj_set_style_text_color(title, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(title, "ROGUE AP");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
 
     lv_obj_t *warn = lv_label_create(ra_screen);
     lv_obj_set_style_text_color(warn, HADES_RED, LV_PART_MAIN);
-    lv_obj_set_style_text_font(warn, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(warn, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_align(warn, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_width(warn, 380);
     lv_label_set_long_mode(warn, LV_LABEL_LONG_WRAP);
@@ -151,7 +151,7 @@ void rogue_ap_screen_create()
 
     ra_status = lv_label_create(ra_screen);
     lv_obj_set_style_text_color(ra_status, lv_color_make(0x3C, 0xDC, 0x78), LV_PART_MAIN);
-    lv_obj_set_style_text_font(ra_status, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ra_status, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_align(ra_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_text(ra_status, "");
     lv_obj_align(ra_status, LV_ALIGN_CENTER, 0, -10);
@@ -165,7 +165,7 @@ void rogue_ap_screen_create()
     lv_obj_add_event_cb(ra_stop_btn, ra_on_stop, LV_EVENT_CLICKED, NULL);
     lv_obj_t *sl = lv_label_create(ra_stop_btn);
     lv_obj_set_style_text_color(sl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(sl, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(sl, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(sl, "STOP");
     lv_obj_center(sl);
     lv_obj_add_flag(ra_stop_btn, LV_OBJ_FLAG_HIDDEN);

@@ -69,7 +69,7 @@ static lv_obj_t *make_tile(lv_obj_t *parent, const char *label_text)
 
     lv_obj_t *lbl = lv_label_create(tile);
     lv_obj_set_style_text_color(lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_14, LV_PART_MAIN);   // Orbitron (fits 118px tile)
+    lv_obj_set_style_text_font(lbl, theme_text_font(14), LV_PART_MAIN);   // Orbitron (fits 118px tile)
     lv_label_set_text(lbl, label_text);
     lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -6);
 
@@ -817,7 +817,7 @@ void time_screen_create()
     lv_obj_t *title = lv_label_create(time_screen);
     s_time_title = title;
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "TOOLS");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 

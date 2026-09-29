@@ -256,7 +256,7 @@ static lv_obj_t *make_btn(lv_obj_t *parent, const char *text, int x_ofs, int y_o
     lv_obj_align(btn, LV_ALIGN_TOP_MID, x_ofs, y_ofs);
 
     lv_obj_t *lbl = lv_label_create(btn);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(lbl, text);
     lv_obj_center(lbl);
@@ -275,7 +275,7 @@ void nfc_screen_create()
     // Title
     lv_obj_t *title = lv_label_create(nfc_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "NFC");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 5);
 
@@ -291,7 +291,7 @@ void nfc_screen_create()
     // Status label (right of toggle)
     status_label = lv_label_create(nfc_screen);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(20), LV_PART_MAIN);
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 60, 87);
 
     // Read / Write buttons — gray until NFC is on
@@ -315,14 +315,14 @@ void nfc_screen_create()
     data_label = lv_label_create(data_panel);
     lv_obj_set_width(data_label, lv_pct(100));
     lv_obj_set_style_text_color(data_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(data_label, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(data_label, theme_text_font(14), LV_PART_MAIN);
     lv_label_set_long_mode(data_label, LV_LABEL_LONG_WRAP);
     lv_label_set_text(data_label, "");
 
     // Navigation hint
     lv_obj_t *hint = lv_label_create(nfc_screen);
     lv_obj_set_style_text_color(hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(hint, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(hint, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_text(hint, "Boot button to return");
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -8);

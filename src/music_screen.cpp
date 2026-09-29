@@ -54,7 +54,7 @@ static void fmt_time(float seconds, char *out, size_t out_len)
 static lv_obj_t *make_title(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *t = lv_label_create(parent);
-    lv_obj_set_style_text_font(t, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(t, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(t, NG, LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(t, 2, LV_PART_MAIN);
     lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
@@ -97,7 +97,7 @@ static lv_obj_t *make_row(lv_obj_t *parent, const char *text)
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *l = lv_label_create(row);
-    lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(l, NW, LV_PART_MAIN);
     lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
     lv_obj_set_width(l, LV_PCT(90));
@@ -110,7 +110,7 @@ static lv_obj_t *make_row(lv_obj_t *parent, const char *text)
 static lv_obj_t *make_empty_msg(lv_obj_t *parent, const char *text)
 {
     lv_obj_t *l = lv_label_create(parent);
-    lv_obj_set_style_text_font(l, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(l, NG, LV_PART_MAIN);
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
@@ -264,7 +264,7 @@ static void now_playing_screen_build()
     lv_obj_clear_flag(s_playing_scr, LV_OBJ_FLAG_SCROLLABLE);
 
     s_np_title = lv_label_create(s_playing_scr);
-    lv_obj_set_style_text_font(s_np_title, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_np_title, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_np_title, NW, LV_PART_MAIN);
     lv_label_set_long_mode(s_np_title, LV_LABEL_LONG_DOT);
     lv_obj_set_width(s_np_title, 320);
@@ -273,7 +273,7 @@ static void now_playing_screen_build()
     lv_obj_align(s_np_title, LV_ALIGN_TOP_MID, 0, 90);
 
     s_np_artist = lv_label_create(s_playing_scr);
-    lv_obj_set_style_text_font(s_np_artist, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_np_artist, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_np_artist, NG, LV_PART_MAIN);
     lv_label_set_text(s_np_artist, music_player_current_artist());
     lv_obj_align(s_np_artist, LV_ALIGN_TOP_MID, 0, 120);
@@ -286,7 +286,7 @@ static void now_playing_screen_build()
     lv_obj_set_style_radius(s_np_bar, 3, LV_PART_MAIN);
 
     s_np_time = lv_label_create(s_playing_scr);
-    lv_obj_set_style_text_font(s_np_time, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_np_time, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_np_time, NG, LV_PART_MAIN);
     lv_label_set_text(s_np_time, "0:00 / 0:00");
     lv_obj_align(s_np_time, LV_ALIGN_TOP_MID, 0, 204);
@@ -337,7 +337,7 @@ static void now_playing_screen_build()
     lv_obj_set_style_radius(stop, 8, LV_PART_MAIN);
     lv_obj_add_event_cb(stop, on_stop_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *stop_l = lv_label_create(stop);
-    lv_obj_set_style_text_font(stop_l, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(stop_l, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(stop_l, NR, LV_PART_MAIN);
     lv_label_set_text(stop_l, "STOP");
     lv_obj_center(stop_l);

@@ -86,7 +86,7 @@ static void add_text(lv_obj_t *card, const char *txt, const lv_font_t *font, lv_
 static void placeholder(const char *txt)
 {
     lv_obj_t *l = lv_label_create(list_box);
-    lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(l, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(l, txt);
     // float out of the flex flow so we can centre absolutely in the list box.
@@ -534,7 +534,7 @@ static lv_obj_t *make_button(lv_obj_t *parent, lv_coord_t w, lv_coord_t h,
     lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_t *l = lv_label_create(b);
     lv_obj_set_style_text_color(l, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(l, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(l);
     if (label_out) *label_out = l;
     return b;
@@ -550,19 +550,19 @@ void wifi_screen_create()
     // Title — font_48 to match the PAGER / TPMS / SETTINGS / analyze headers.
     lv_obj_t *title = lv_label_create(wifi_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "WiFi");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
     status_label = lv_label_create(wifi_screen);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(status_label, "Tap SCAN to survey nearby networks");
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 56);
 
     // Password field (hidden until a secured network is chosen)
     pw_label = lv_label_create(wifi_screen);
-    lv_obj_set_style_text_font(pw_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(pw_label, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(pw_label, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(pw_label, "Password");
     lv_obj_align(pw_label, LV_ALIGN_TOP_MID, 0, 78);
@@ -574,7 +574,7 @@ void wifi_screen_create()
     lv_textarea_set_max_length(pw_ta, 63);
     lv_obj_set_size(pw_ta, 376, 44);
     lv_obj_align(pw_ta, LV_ALIGN_TOP_MID, 0, 100);
-    lv_obj_set_style_text_font(pw_ta, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(pw_ta, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_bg_color(pw_ta, lv_color_make(0x11, 0x11, 0x11), LV_PART_MAIN);
     lv_obj_set_style_text_color(pw_ta, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_border_color(pw_ta, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);

@@ -198,7 +198,7 @@ void pet_screen_create()
 
     // Title.
     lv_obj_t *name = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(name, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(name, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(name, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(name, "HEXHOUND");
     lv_obj_align(name, LV_ALIGN_TOP_MID, 0, 20);
@@ -220,27 +220,27 @@ void pet_screen_create()
 
     // Speech line.
     s_speech = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_speech, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_speech, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_speech, ARGUS_ACCENT_ACTIVE, LV_PART_MAIN);
     lv_label_set_text(s_speech, "...tick... incubating...");
     lv_obj_align(s_speech, LV_ALIGN_CENTER, 0, 66);
 
     // Stage name + ability.
     s_stage_lbl = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_stage_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_stage_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_stage_lbl, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(s_stage_lbl, "Egg");
     lv_obj_align(s_stage_lbl, LV_ALIGN_CENTER, 0, 92);
 
     s_ability = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_ability, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_ability, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_ability, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(s_ability, "INCUBATING");
     lv_obj_align(s_ability, LV_ALIGN_CENTER, 0, 116);
 
     // Level + XP-into-stage bar.
     s_lvl = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_lvl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_lvl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_lvl, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(s_lvl, "LVL 1");
     lv_obj_align(s_lvl, LV_ALIGN_CENTER, -150, 138);
@@ -255,7 +255,7 @@ void pet_screen_create()
 
     // Stats line.
     s_stats = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_stats, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_stats, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_stats, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_obj_set_style_text_align(s_stats, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_text(s_stats, "HUN 0   ENR 0   BND 0   PWND 0\nPEERS 0      XP 0");
@@ -263,7 +263,7 @@ void pet_screen_create()
 
     // Evolution banner (hidden until an evolution fires).
     s_banner = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_banner, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_banner, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_banner, ARGUS_ACCENT_ACTIVE, LV_PART_MAIN);
     lv_label_set_text(s_banner, "");
     lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, 48);

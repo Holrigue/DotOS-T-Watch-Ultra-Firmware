@@ -149,13 +149,13 @@ void beacon_spam_screen_create()
 
     lv_obj_t *title = lv_label_create(bs_screen);
     lv_obj_set_style_text_color(title, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(title, "BEACON FLOOD");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 20);
 
     lv_obj_t *warn = lv_label_create(bs_screen);
     lv_obj_set_style_text_color(warn, HADES_RED, LV_PART_MAIN);
-    lv_obj_set_style_text_font(warn, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(warn, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_align(warn, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_width(warn, 380);
     lv_label_set_long_mode(warn, LV_LABEL_LONG_WRAP);
@@ -165,7 +165,7 @@ void beacon_spam_screen_create()
 
     bs_count_lbl = lv_label_create(bs_screen);
     lv_obj_set_style_text_color(bs_count_lbl, lv_color_make(0x3C, 0xDC, 0x78), LV_PART_MAIN);
-    lv_obj_set_style_text_font(bs_count_lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(bs_count_lbl, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(bs_count_lbl, "idle");
     lv_obj_align(bs_count_lbl, LV_ALIGN_CENTER, 0, 20);
 
@@ -177,7 +177,7 @@ void beacon_spam_screen_create()
     lv_obj_add_event_cb(bs_toggle_btn, bs_on_toggle, LV_EVENT_CLICKED, NULL);
     bs_toggle_lbl = lv_label_create(bs_toggle_btn);
     lv_obj_set_style_text_color(bs_toggle_lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(bs_toggle_lbl, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(bs_toggle_lbl, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(bs_toggle_lbl, "START");
     lv_obj_center(bs_toggle_lbl);
 

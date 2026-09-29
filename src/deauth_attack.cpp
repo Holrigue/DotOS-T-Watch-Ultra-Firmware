@@ -183,7 +183,7 @@ static void da_add_pick_row(const char *text, int sel)
         deauth_select(sel);
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_t *l = lv_label_create(row);
-    lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(l, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(l, text);
     lv_obj_center(l);
@@ -201,7 +201,7 @@ static void da_build_list()
     }
     if (s_target_n == 0) {
         lv_obj_t *l = lv_label_create(da_list);
-        lv_obj_set_style_text_font(l, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(l, ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_label_set_text(l, "No APs found - try again");
         lv_obj_center(l);
@@ -269,13 +269,13 @@ void deauth_attack_screen_create()
 
     lv_obj_t *title = lv_label_create(da_screen);
     lv_obj_set_style_text_color(title, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(title, "DEAUTH");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 16);
 
     lv_obj_t *warn = lv_label_create(da_screen);
     lv_obj_set_style_text_color(warn, HADES_RED, LV_PART_MAIN);
-    lv_obj_set_style_text_font(warn, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(warn, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_align(warn, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_width(warn, 380);
     lv_label_set_long_mode(warn, LV_LABEL_LONG_WRAP);
@@ -298,7 +298,7 @@ void deauth_attack_screen_create()
 
     da_status = lv_label_create(da_screen);
     lv_obj_set_style_text_color(da_status, lv_color_make(0x3C, 0xDC, 0x78), LV_PART_MAIN);
-    lv_obj_set_style_text_font(da_status, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(da_status, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_align(da_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_text(da_status, "idle");
     lv_obj_align(da_status, LV_ALIGN_CENTER, 0, 10);
@@ -311,7 +311,7 @@ void deauth_attack_screen_create()
     lv_obj_add_event_cb(da_toggle_btn, da_on_toggle, LV_EVENT_CLICKED, NULL);
     da_toggle_lbl = lv_label_create(da_toggle_btn);
     lv_obj_set_style_text_color(da_toggle_lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(da_toggle_lbl, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(da_toggle_lbl, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(da_toggle_lbl, "START");
     lv_obj_center(da_toggle_lbl);
 

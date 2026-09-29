@@ -128,7 +128,7 @@ static void on_lap(lv_event_t *)
 
     lv_obj_t *entry = lv_label_create(lap_list);
     lv_obj_set_style_text_color(entry, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(entry, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(entry, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_pad_all(entry, 2, LV_PART_MAIN);
     lv_obj_set_width(entry, 360);
     lv_label_set_text(entry, line);
@@ -198,7 +198,7 @@ void stopwatch_screen_create()
     // Title
     lv_obj_t *title = lv_label_create(stopwatch_screen);
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "STOPWATCH");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
@@ -212,7 +212,7 @@ void stopwatch_screen_create()
     // Lap time display (smaller, below main time)
     lap_label = lv_label_create(stopwatch_screen);
     lv_obj_set_style_text_color(lap_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(lap_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lap_label, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(lap_label, "");
     lv_obj_align(lap_label, LV_ALIGN_TOP_MID, 0, 120);
 
@@ -254,7 +254,7 @@ void stopwatch_screen_create()
     // "No laps" placeholder — floated out of the flex flow so we can centre it.
     lv_obj_t *placeholder = lv_label_create(lap_list);
     lv_obj_set_style_text_color(placeholder, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(placeholder, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(placeholder, theme_text_font(16), LV_PART_MAIN);
     lv_label_set_text(placeholder, "No laps recorded");
     lv_obj_add_flag(placeholder, LV_OBJ_FLAG_FLOATING);
     lv_obj_center(placeholder);

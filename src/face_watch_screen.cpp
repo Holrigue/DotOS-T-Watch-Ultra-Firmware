@@ -28,6 +28,7 @@ static lv_obj_t *hour_dd;
 static lv_obj_t *date_dd;
 static lv_obj_t *time_dd;
 static lv_obj_t *order_dd;
+static lv_obj_t *text_dd;
 static lv_obj_t *wall_sw;
 static lv_obj_t *accent_dots[FACE_ACC__COUNT];
 
@@ -62,6 +63,16 @@ static void on_hour_changed(lv_event_t *)
 static void on_date_changed(lv_event_t *)
 {
     face_set_date_font((FaceDateFont)lv_dropdown_get_selected(date_dd));
+    clock_screen_apply_face_custom();
+}
+
+// "Global text" family for titles + body labels + notifications (not the clock
+// hour or the date line). Screens re-read the choice via theme_text_font()/
+// theme_title_font() the next time they are built, so the change propagates as
+// the wearer navigates; the Dot face repaints immediately.
+static void on_text_changed(lv_event_t *)
+{
+    face_set_text_font((FaceTextFont)lv_dropdown_get_selected(text_dd));
     clock_screen_apply_face_custom();
 }
 
@@ -105,7 +116,7 @@ static void on_accent_clicked(lv_event_t *e)
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, int y)
 {
     lv_obj_t *l = lv_label_create(parent);
-    lv_obj_set_style_text_font(l, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(l, NW, LV_PART_MAIN);
     lv_label_set_text(l, text);
     lv_obj_align(l, LV_ALIGN_TOP_LEFT, 24, y + 8);
@@ -136,7 +147,7 @@ void face_watch_screen_create()
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(screen);
-    lv_obj_set_style_text_font(title, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(title, NG, LV_PART_MAIN);
     lv_obj_set_style_text_letter_space(title, 3, LV_PART_MAIN);
     lv_label_set_text(title, "FACE");
@@ -180,6 +191,10 @@ void face_watch_screen_create()
     make_label(screen, "Date order", 356);
     order_dd = make_dropdown(screen, "DD/MM\nMM/DD\nYYYY-MM-DD\nDD Mon", 356, on_order_changed);
     lv_dropdown_set_selected(order_dd, (uint32_t)face_date_order());
+
+    make_label(screen, "Global text", 408);
+    text_dd = make_dropdown(screen, "Default\nRoboto\nInter", 408, on_text_changed);
+    lv_dropdown_set_selected(text_dd, (uint32_t)face_text_font());
 
     lv_obj_add_event_cb(screen, on_gesture, LV_EVENT_GESTURE, NULL);
 }

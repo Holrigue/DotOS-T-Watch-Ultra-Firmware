@@ -80,7 +80,7 @@ static void add_row(const TrThreat *t)
 
     // Footer: first-seen time, proximity (RSSI), MAC tail.
     lv_obj_t *f = lv_label_create(row);
-    lv_obj_set_style_text_font(f, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(f, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(f, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text_fmt(f, "first %s  -  %d dBm  -  ..%02X:%02X:%02X",
         t->first_time, (int)t->best_rssi, t->mac[3], t->mac[4], t->mac[5]);
@@ -119,7 +119,7 @@ static void refresh()
 
     if (n == 0) {
         lv_obj_t *empty = lv_label_create(s_list);
-        lv_obj_set_style_text_font(empty, &font_argus_label_16, LV_PART_MAIN);
+        lv_obj_set_style_text_font(empty, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(empty, ARGUS_TEXT_DIM, LV_PART_MAIN);
         lv_label_set_text(empty,
             "No co-moving devices.\n\n"
@@ -168,7 +168,7 @@ void threat_radar_screen_create()
     // a tail is flagged (repainted each refresh() below) and returns to calm
     // steel-blue when clear.
     s_title = lv_label_create(s_screen);
-    lv_obj_set_style_text_font(s_title, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_title, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_title, argus_accent(), LV_PART_MAIN);
     lv_label_set_text(s_title, "THREAT RADAR");
     lv_obj_align(s_title, LV_ALIGN_TOP_MID, 0, 28);
@@ -182,7 +182,7 @@ void threat_radar_screen_create()
     lv_obj_clear_flag(s_banner, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, 58);
     s_banner_lbl = lv_label_create(s_banner);
-    lv_obj_set_style_text_font(s_banner_lbl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_banner_lbl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_banner_lbl, lv_color_white(), LV_PART_MAIN);
     lv_obj_center(s_banner_lbl);
 

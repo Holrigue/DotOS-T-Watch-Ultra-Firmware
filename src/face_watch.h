@@ -32,6 +32,14 @@ enum FaceDateOrder : uint8_t {
     FACE_ORDER__COUNT
 };
 
+// "Global text" family for UI titles + body labels + notifications. Default
+// keeps the ARGUS brand fonts (Saira titles / Orbitron labels); Roboto and Inter
+// are the Nothing-OS-style alternates. The clock hour and the date line are NOT
+// affected. theme_text_font() / theme_title_font() (theme.h) read this.
+enum FaceTextFont : uint8_t {
+    FACE_TEXT_DEFAULT = 0, FACE_TEXT_ROBOTO, FACE_TEXT_INTER, FACE_TEXT__COUNT
+};
+
 // Load the saved choices from NVS. Call once at boot, after Preferences is up.
 void face_watch_boot_restore();
 
@@ -39,12 +47,14 @@ FaceHourFont  face_hour_font();
 FaceDateFont  face_date_font();
 FaceAccent    face_accent();
 FaceDateOrder face_date_order();
+FaceTextFont  face_text_font();
 
 // Set + persist. main.cpp re-applies the look via clock_screen_apply_face_custom().
 void face_set_hour_font(FaceHourFont v);
 void face_set_date_font(FaceDateFont v);
 void face_set_accent(FaceAccent v);
 void face_set_date_order(FaceDateOrder v);
+void face_set_text_font(FaceTextFont v);
 
 // The current accent colour as a 0xRRGGBB value.
 uint32_t face_accent_rgb();

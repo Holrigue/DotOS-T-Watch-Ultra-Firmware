@@ -131,19 +131,19 @@ void pin_pad_screen_create()
 
     title_label = lv_label_create(pin_pad_screen);
     lv_obj_set_style_text_color(title_label, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);  // Offense unlock: red-team
-    lv_obj_set_style_text_font(title_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title_label, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(title_label, "ENTER PIN");
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 14);
 
     dots_label = lv_label_create(pin_pad_screen);
     lv_obj_set_style_text_color(dots_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(dots_label, &font_argus_label_28, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dots_label, theme_text_font(28), LV_PART_MAIN);
     lv_label_set_text(dots_label, "");
     lv_obj_align(dots_label, LV_ALIGN_TOP_MID, 0, 48);
 
     msg_label = lv_label_create(pin_pad_screen);
     lv_obj_set_style_text_color(msg_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(msg_label, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(msg_label, theme_text_font(14), LV_PART_MAIN);
     lv_label_set_text(msg_label, "");
     lv_obj_align(msg_label, LV_ALIGN_TOP_MID, 0, 84);
 

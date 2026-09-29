@@ -11,6 +11,7 @@ FaceHourFont  s_hour  = FACE_HOUR_DOTS;
 FaceDateFont  s_date  = FACE_DATE_ORBITRON;
 FaceAccent    s_acc   = FACE_ACC_RED;
 FaceDateOrder s_order = FACE_ORDER_DMY;
+FaceTextFont  s_text  = FACE_TEXT_DEFAULT;
 
 template <typename E>
 E sane(uint8_t v, uint8_t count, E dflt)
@@ -26,6 +27,7 @@ void persist()
         p.putUChar("date",  (uint8_t)s_date);
         p.putUChar("acc",   (uint8_t)s_acc);
         p.putUChar("order", (uint8_t)s_order);
+        p.putUChar("text",  (uint8_t)s_text);
         p.end();
     }
 }
@@ -40,6 +42,7 @@ void face_watch_boot_restore()
         s_date  = sane<FaceDateFont>(p.getUChar("date",  FACE_DATE_ORBITRON), FACE_DATE__COUNT,  FACE_DATE_ORBITRON);
         s_acc   = sane<FaceAccent>  (p.getUChar("acc",   FACE_ACC_RED),       FACE_ACC__COUNT,   FACE_ACC_RED);
         s_order = sane<FaceDateOrder>(p.getUChar("order", FACE_ORDER_DMY),    FACE_ORDER__COUNT, FACE_ORDER_DMY);
+        s_text  = sane<FaceTextFont> (p.getUChar("text",  FACE_TEXT_DEFAULT), FACE_TEXT__COUNT,  FACE_TEXT_DEFAULT);
         p.end();
     }
 }
@@ -48,11 +51,13 @@ FaceHourFont  face_hour_font()  { return s_hour; }
 FaceDateFont  face_date_font()  { return s_date; }
 FaceAccent    face_accent()     { return s_acc; }
 FaceDateOrder face_date_order() { return s_order; }
+FaceTextFont  face_text_font()  { return s_text; }
 
 void face_set_hour_font(FaceHourFont v)  { s_hour  = (v < FACE_HOUR__COUNT)  ? v : FACE_HOUR_DOTS;     persist(); }
 void face_set_date_font(FaceDateFont v)  { s_date  = (v < FACE_DATE__COUNT)  ? v : FACE_DATE_ORBITRON; persist(); }
 void face_set_accent(FaceAccent v)       { s_acc   = (v < FACE_ACC__COUNT)   ? v : FACE_ACC_RED;       persist(); }
 void face_set_date_order(FaceDateOrder v){ s_order = (v < FACE_ORDER__COUNT) ? v : FACE_ORDER_DMY;     persist(); }
+void face_set_text_font(FaceTextFont v)  { s_text  = (v < FACE_TEXT__COUNT)  ? v : FACE_TEXT_DEFAULT;  persist(); }
 
 uint32_t face_accent_rgb()
 {

@@ -151,7 +151,7 @@ static lv_obj_t *make_button(lv_obj_t *parent, const char *text,
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, text);
     lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(lbl, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(lbl, theme_text_font(20), LV_PART_MAIN);
     lv_obj_center(lbl);
     return btn;
 }
@@ -168,13 +168,13 @@ void mouse_screen_create()
     // Title
     lv_obj_t *title = lv_label_create(mouse_screen);
     lv_obj_set_style_text_color(title, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);  // Offense-only: red-team
-    lv_obj_set_style_text_font(title, &font_argus_ui, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
     lv_label_set_text(title, "MOUSE");
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 12);
 
     // Status line
     status_label = lv_label_create(mouse_screen);
-    lv_obj_set_style_text_font(status_label, &font_argus_label_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(status_label, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_label_set_text(status_label, "Stopped");
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 56);
@@ -203,7 +203,7 @@ void mouse_screen_create()
 
     hint_label = lv_label_create(trackpad);
     lv_obj_set_style_text_color(hint_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(hint_label, &font_argus_label_20, LV_PART_MAIN);
+    lv_obj_set_style_text_font(hint_label, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(hint_label, "(not connected)");
     lv_obj_center(hint_label);
 
