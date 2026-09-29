@@ -75,8 +75,8 @@ static const lv_color_t AOFF = lv_color_make(0x2A, 0x2A, 0x2A);  // toggle OFF p
 
 namespace {
 
-enum Cat { CAT_TRACKING = 0, CAT_DEFENSE, CAT_OFFENSE, CAT_APPS, CAT_COUNT };
-const char *CAT_NAME[CAT_COUNT] = { "TRACKING", "DEFENSE", "OFFENSE", "APPS" };
+enum Cat { CAT_TRACKING = 0, CAT_DEFENSE, CAT_OFFENSE, CAT_APPS, CAT_TIMECLOCK, CAT_COUNT };
+const char *CAT_NAME[CAT_COUNT] = { "TRACKING", "DEFENSE", "OFFENSE", "APPS", "TIME & CLOCK" };
 
 struct Entry {
     const char *title;
@@ -132,19 +132,20 @@ const Entry ENTRIES[] = {
     L("Find",             CAT_APPS, find_screen_show),
     L("HexHound",         CAT_APPS, pet_screen_show),
     L("Health",           CAT_APPS, health_screen_show),
-    L("Alarm",            CAT_APPS, alarm_screen_show),
-    L("Stopwatch",        CAT_APPS, stopwatch_screen_show),
-    L("Timer",            CAT_APPS, timer_screen_show),
-    L("Calendar",         CAT_APPS, calendar_screen_show),
-    L("World Clock",      CAT_APPS, world_clock_screen_show),
-    L("Sun / Moon",       CAT_APPS, sun_moon_screen_show),
     L("Flashlight",       CAT_APPS, flashlight_screen_show),
     L("Meshtastic",       CAT_APPS, meshtastic_screen_show),
     L("Pager 13:37",      CAT_APPS, pager_screen_show),
     L("LoRa APRS",        CAT_APPS, aprs_screen_show),
     L("TPMS",             CAT_APPS, tpms_screen_show),
-    L("USB SD",           CAT_APPS, usb_sd_screen_show),
-    L("Watch Face",       CAT_APPS, face_watch_screen_show),
+
+    // --- Time & Clock ----------------------------------------------------
+    L("Alarm",            CAT_TIMECLOCK, alarm_screen_show),
+    L("Stopwatch",        CAT_TIMECLOCK, stopwatch_screen_show),
+    L("Timer",            CAT_TIMECLOCK, timer_screen_show),
+    L("Calendar",         CAT_TIMECLOCK, calendar_screen_show),
+    L("World Clock",      CAT_TIMECLOCK, world_clock_screen_show),
+    L("Sun / Moon",       CAT_TIMECLOCK, sun_moon_screen_show),
+    // USB SD and Facewatch now live inside Settings (pinned gear), not here.
 };
 #undef L
 #undef T
@@ -326,6 +327,7 @@ static void build()
     make_row(hlist, "Defense",  LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_DEFENSE);
     make_row(hlist, "Offense",  LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_OFFENSE);
     make_row(hlist, "Apps",     LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_APPS);
+    make_row(hlist, "Time & Clock", LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TIMECLOCK);
     add_gear(s_home);
     lv_obj_add_event_cb(s_home, on_home_gesture, LV_EVENT_GESTURE, NULL);
 

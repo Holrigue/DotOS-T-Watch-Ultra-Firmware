@@ -22,6 +22,7 @@
 void main_loop_request_lvgl_priority(int cycles);
 void low_mem_show_dialog(const char *msg);   // modal dialog defined in main.cpp
 void clock_screen_show();                    // go home to the watch face
+void face_watch_screen_show();               // Dot watchface customization (Settings entry)
 void clock_screen_set_analog_face(bool analog);
 void clock_screen_set_face(int mode);        // 0 Digital, 1 Analog, 2 Dot
 void clock_screen_set_12h(bool use_12h);
@@ -1753,6 +1754,23 @@ void settings_screen_create()
     lv_label_set_text(usbsd_lbl, "USB SD card reader");
     lv_obj_center(usbsd_lbl);
     lv_obj_add_event_cb(usbsd_btn, [](lv_event_t *) { usb_sd_screen_show(); },
+                        LV_EVENT_CLICKED, NULL);
+
+    // "Facewatch" - customise the Dot watchface. Moved here out of the Apps
+    // launcher so watchface tuning lives with the other device settings.
+    lv_obj_t *face_btn = lv_button_create(settings_screen);
+    lv_obj_set_size(face_btn, 380, 64);
+    lv_obj_set_style_bg_color(face_btn, lv_color_make(0x1E, 0x1E, 0x1E), LV_PART_MAIN);
+    lv_obj_set_style_border_color(face_btn, ARGUS_TEXT_DIM, LV_PART_MAIN);
+    lv_obj_set_style_border_width(face_btn, 1, LV_PART_MAIN);
+    lv_obj_align(face_btn, LV_ALIGN_TOP_MID, 0, 2400);
+    register_shiftable(face_btn, 2400);
+    lv_obj_t *face_lbl = lv_label_create(face_btn);
+    lv_obj_set_style_text_font(face_lbl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(face_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_label_set_text(face_lbl, "Facewatch");
+    lv_obj_center(face_lbl);
+    lv_obj_add_event_cb(face_btn, [](lv_event_t *) { face_watch_screen_show(); },
                         LV_EVENT_CLICKED, NULL);
 
     lv_obj_add_event_cb(s_ofs_btn, [](lv_event_t *) {
