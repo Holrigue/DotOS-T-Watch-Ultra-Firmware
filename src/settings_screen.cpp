@@ -1758,19 +1758,19 @@ void settings_screen_create()
 
     // "Facewatch" - customise the Dot watchface. Moved here out of the Apps
     // launcher so watchface tuning lives with the other device settings.
-    lv_obj_t *face_btn = lv_button_create(settings_screen);
-    lv_obj_set_size(face_btn, 380, 64);
-    lv_obj_set_style_bg_color(face_btn, lv_color_make(0x1E, 0x1E, 0x1E), LV_PART_MAIN);
-    lv_obj_set_style_border_color(face_btn, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_border_width(face_btn, 1, LV_PART_MAIN);
-    lv_obj_align(face_btn, LV_ALIGN_TOP_MID, 0, 2400);
-    register_shiftable(face_btn, 2400);
-    lv_obj_t *face_lbl = lv_label_create(face_btn);
-    lv_obj_set_style_text_font(face_lbl, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(face_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_label_set_text(face_lbl, "Facewatch");
-    lv_obj_center(face_lbl);
-    lv_obj_add_event_cb(face_btn, [](lv_event_t *) { face_watch_screen_show(); },
+    lv_obj_t *facewatch_btn = lv_button_create(settings_screen);
+    lv_obj_set_size(facewatch_btn, 380, 64);
+    lv_obj_set_style_bg_color(facewatch_btn, lv_color_make(0x1E, 0x1E, 0x1E), LV_PART_MAIN);
+    lv_obj_set_style_border_color(facewatch_btn, ARGUS_TEXT_DIM, LV_PART_MAIN);
+    lv_obj_set_style_border_width(facewatch_btn, 1, LV_PART_MAIN);
+    lv_obj_align(facewatch_btn, LV_ALIGN_TOP_MID, 0, 2400);
+    register_shiftable(facewatch_btn, 2400);
+    lv_obj_t *facewatch_lbl = lv_label_create(facewatch_btn);
+    lv_obj_set_style_text_font(facewatch_lbl, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(facewatch_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_label_set_text(facewatch_lbl, "Facewatch");
+    lv_obj_center(facewatch_lbl);
+    lv_obj_add_event_cb(facewatch_btn, [](lv_event_t *) { face_watch_screen_show(); },
                         LV_EVENT_CLICKED, NULL);
 
     lv_obj_add_event_cb(s_ofs_btn, [](lv_event_t *) {
