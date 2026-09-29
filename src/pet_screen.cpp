@@ -24,8 +24,7 @@
 // state through the hexhound_*() accessors; no game logic lives here.
 
 static lv_obj_t  *s_screen    = nullptr;
-static lv_obj_t  *s_dog       = nullptr;   // container bobbed by the idle anim
-static lv_obj_t  *s_sprite    = nullptr;   // per-stage HD sprite image
+static lv_obj_t  *s_sprite    = nullptr;   // per-stage HD sprite image (bobbed directly)
 static uint8_t    s_sprite_stage = 0xFF;   // stage whose sprite is loaded (0xFF=none)
 static lv_obj_t  *s_ring[3]   = { nullptr, nullptr, nullptr };  // sonar sweep
 static lv_obj_t  *s_stage_lbl = nullptr;
@@ -137,7 +136,7 @@ static void on_anim(lv_timer_t *)
     s_phase++;
 
     int dy = (int)(6.0f * sinf(s_phase * 0.16f));
-    lv_obj_align(s_dog, LV_ALIGN_CENTER, 0, -74 + dy);
+    lv_obj_align(s_sprite, LV_ALIGN_CENTER, 0, -74 + dy);
 
     // Rings expand/fade in sequence to read as an outward recon sweep.
     for (int i = 0; i < 3; i++) {
@@ -147,15 +146,16 @@ static void on_anim(lv_timer_t *)
     }
 }
 
-static void on_gesture(lv_event_t *e)
+// Clean up on ANY exit (swipe to Apps, swipe to the clock, or the auto-return
+// to the clock on dim) - not just one gesture. Powers the WiFi scanner back
+// down, saves the pet, stops the timers, so nothing leaks in the background.
+static void on_unload(lv_event_t *)
 {
-    lv_indev_t *indev = lv_event_get_indev(e);
-    if (lv_indev_get_gesture_dir(indev) == LV_DIR_TOP) {
-        s_active = false;
-        hexhound_save();
-        wifi_beacon_remove(pet_wifi_cb);
-        tools_screen_show();
-    }
+    s_active = false;
+    hexhound_save();
+    wifi_beacon_remove(pet_wifi_cb);
+    if (s_timer) { lv_timer_del(s_timer); s_timer = nullptr; }
+    if (s_anim)  { lv_timer_del(s_anim);  s_anim  = nullptr; }
 }
 
 // ── little primitive helpers ───────────────────────────────────────────────
@@ -194,7 +194,7 @@ void pet_screen_create()
     lv_obj_set_style_bg_color(s_screen, lv_color_make(0x06, 0x0B, 0x11), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(s_screen, on_gesture, LV_EVENT_GESTURE, NULL);
+    lv_obj_add_event_cb(s_screen, on_unload, LV_EVENT_SCREEN_UNLOAD_START, NULL);
 
     // Title.
     lv_obj_t *name = lv_label_create(s_screen);
@@ -210,20 +210,13 @@ void pet_screen_create()
         lv_obj_align(s_ring[i], LV_ALIGN_CENTER, 0, -74);
     }
 
-    // The pet — a container so the whole sprite bobs as one.
-    s_dog = lv_obj_create(s_screen);
-    lv_obj_set_size(s_dog, 200, 200);
-    lv_obj_set_style_bg_opa(s_dog, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(s_dog, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(s_dog, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(s_dog, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(s_dog, LV_ALIGN_CENTER, 0, -74);
-
-    // Per-stage HD sprite (SD /HexHound/<stage>.png), transparent so it floats
-    // over the sonar rings. The source is set per stage by update_sprite() in
-    // refresh(); a missing card/asset just leaves it blank (no crash).
-    s_sprite = lv_image_create(s_dog);
-    lv_obj_center(s_sprite);
+    // Per-stage HD sprite (SD /HexHound/<stage>.png), placed directly on the
+    // screen (no wrapper container - a container clips the sprite to its box,
+    // cutting off any HD art larger than it). It floats over the sonar rings and
+    // is bobbed directly by on_anim(). The source is set per stage by
+    // update_sprite() in refresh(); a missing card/asset just leaves it blank.
+    s_sprite = lv_image_create(s_screen);
+    lv_obj_align(s_sprite, LV_ALIGN_CENTER, 0, -74);
 
     // Speech line.
     s_speech = lv_label_create(s_screen);
@@ -275,9 +268,8 @@ void pet_screen_create()
     lv_label_set_text(s_banner, "");
     lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, 48);
     lv_obj_add_flag(s_banner, LV_OBJ_FLAG_HIDDEN);
-
-    s_timer = lv_timer_create(on_tick, 1000, NULL);
-    s_anim  = lv_timer_create(on_anim, 80,   NULL);
+    // Timers are created in pet_screen_show() and deleted in on_unload() so they
+    // only run while the screen is open (they used to run from boot forever).
 }
 
 void pet_screen_show()
@@ -286,6 +278,9 @@ void pet_screen_show()
     hexhound_init();
     s_active = true;
     wifi_beacon_add(pet_wifi_cb);   // power the scanner so we meet peers/APs live
+    // Start the engine tick + idle animation (deleted again on exit, on_unload).
+    if (!s_timer) s_timer = lv_timer_create(on_tick, 1000, NULL);
+    if (!s_anim)  s_anim  = lv_timer_create(on_anim, 80,   NULL);
     hexhound_update();
     refresh();
     lv_scr_load(s_screen);

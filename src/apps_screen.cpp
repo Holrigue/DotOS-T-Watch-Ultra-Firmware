@@ -228,24 +228,25 @@ static void set_pill(lv_obj_t *pill, bool on)
     lv_obj_set_style_pad_ver(pill, 3, LV_PART_MAIN);
 }
 
-// A pinned Settings gear in the top-right corner (overlay on the menu pages).
-static void add_gear(lv_obj_t *screen)
+// A fixed "Settings" footer pinned to the bottom of the menu page. It is a
+// direct child of the screen (NOT inside the scrolling list), created last so
+// it renders above the list, and opaque so rows scroll under it cleanly.
+static void add_settings_footer(lv_obj_t *screen)
 {
-    lv_obj_t *g = lv_obj_create(screen);
-    lv_obj_remove_style_all(g);
-    lv_obj_set_size(g, 46, 46);
-    lv_obj_align(g, LV_ALIGN_TOP_RIGHT, -24, 30);
-    lv_obj_set_style_radius(g, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(g, AROW, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(g, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_clear_flag(g, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(g, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(g, [](lv_event_t *) { settings_screen_show(); }, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *ic = lv_label_create(g);
-    lv_obj_set_style_text_font(ic, &lv_font_montserrat_20, LV_PART_MAIN);
-    lv_obj_set_style_text_color(ic, AG, LV_PART_MAIN);
-    lv_label_set_text(ic, LV_SYMBOL_SETTINGS);
-    lv_obj_center(ic);
+    lv_obj_t *f = lv_button_create(screen);
+    lv_obj_set_size(f, 344, 52);
+    lv_obj_align(f, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_set_style_bg_color(f, AROW, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(f, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(f, 14, LV_PART_MAIN);
+    lv_obj_set_style_border_width(f, 0, LV_PART_MAIN);
+    lv_obj_add_event_cb(f, [](lv_event_t *) { settings_screen_show(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *l = lv_label_create(f);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, AW, LV_PART_MAIN);
+    lv_label_set_text(l, "Settings");
+    lv_obj_center(l);
+    lv_obj_move_foreground(f);   // stay above the scrolling list (z-order)
 }
 
 // ---- callbacks --------------------------------------------------------------
@@ -420,7 +421,6 @@ static void build_category_screen(Cat c)
                      on_launch, (void *)(intptr_t)i);
         }
     }
-    add_gear(scr);
     lv_obj_add_event_cb(scr, on_cat_gesture, LV_EVENT_GESTURE, NULL);
     s_cat_screen[c] = scr;
 }
@@ -436,7 +436,9 @@ static void build()
     make_row(hlist, "Offense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_OFFENSE);
     make_row(hlist, "Apps",         LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_APPS);
     make_row(hlist, "Time & Clock", LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TIMECLOCK);
-    add_gear(s_home);
+    // Shrink the list so it ends above the fixed Settings footer (no overlap).
+    lv_obj_set_height(hlist, 348);
+    add_settings_footer(s_home);
     lv_obj_add_event_cb(s_home, on_home_gesture, LV_EVENT_GESTURE, NULL);
 
     // One pre-built screen per category (no rebuilding during a tap).
