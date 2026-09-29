@@ -23,7 +23,6 @@
 #include "evil_twin.h"
 #include "handshake.h"
 #include "tracker_sweep.h"
-#include "device_mode.h"
 
 // Defined in main.cpp.
 void clock_screen_show();
@@ -88,12 +87,6 @@ struct Entry {
     bool      (*t_running)();
 };
 
-// Notify (phone mirror) is a DeviceMode switch; thin wrappers give it the
-// uniform toggle shape.
-bool notify_running() { return device_mode_is_daily_wear(); }
-bool notify_start()   { device_mode_set(DeviceMode::DailyWear); return device_mode_is_daily_wear(); }
-void notify_stop()    { device_mode_set(DeviceMode::FieldTool); }
-
 #define L(title, cat, fn)              { title, cat, false, fn, nullptr, nullptr, nullptr }
 #define T(title, cat, st, sp, run)     { title, cat, true, nullptr, st, sp, run }
 
@@ -109,7 +102,8 @@ const Entry ENTRIES[] = {
     // --- Defense: activations + defensive sensing ------------------------
     L("Presence Radar",   CAT_DEFENSE, presence_screen_show),
     T("Card Skimmers",    CAT_DEFENSE, skimmer_start, skimmer_stop, skimmer_is_running),
-    T("Notify (phone)",   CAT_DEFENSE, notify_start,  notify_stop,  notify_running),
+    // Notify (phone mirror) is not a menu entry: its on/off toggle already lives
+    // in the swipe-down notifications shade, so putting it here just duplicated it.
     L("NFC Field",        CAT_DEFENSE, nfc_field_screen_show),
     L("WiFi Survey",      CAT_DEFENSE, wifi_screen_show),
     L("WiFi Analyze",     CAT_DEFENSE, analyze_screen_show),
