@@ -293,7 +293,97 @@ static void open_category(Cat c)
     lv_scr_load(s_cat);
 }
 
-static void on_cat_row(lv_event_t *e) { open_category((Cat)(intptr_t)lv_event_get_user_data(e)); }
+// Offense holds active RF/network attack tools, so opening it requires explicit
+// consent: a "Red team" modal the user must Accept, or dismiss with X to back
+// out. Deliberately shown every time - it is a use-authorisation gate, not a
+// one-off notice.
+static lv_obj_t *s_offense_modal = nullptr;
+static bool      s_offense_ok    = false;   // consent given this boot (resets on reboot)
+
+static void offense_modal_close(lv_event_t *)
+{
+    if (s_offense_modal) { lv_obj_del(s_offense_modal); s_offense_modal = nullptr; }
+}
+
+static void offense_modal_accept(lv_event_t *)
+{
+    if (s_offense_modal) { lv_obj_del(s_offense_modal); s_offense_modal = nullptr; }
+    s_offense_ok = true;   // don't nag again until the watch reboots
+    open_category(CAT_OFFENSE);
+}
+
+static void show_offense_consent()
+{
+    if (s_offense_modal) return;
+    lv_obj_t *scrim = lv_obj_create(lv_layer_top());
+    s_offense_modal = scrim;
+    lv_obj_remove_style_all(scrim);
+    lv_obj_set_size(scrim, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(scrim, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(scrim, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_add_flag(scrim, LV_OBJ_FLAG_CLICKABLE);   // swallow taps on the menu behind
+    lv_obj_clear_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *card = lv_obj_create(scrim);
+    lv_obj_remove_style_all(card);
+    lv_obj_set_size(card, 324, 324);
+    lv_obj_center(card);
+    lv_obj_set_style_bg_color(card, lv_color_hex(0x141414), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(card, 18, LV_PART_MAIN);
+    lv_obj_set_style_border_color(card, AR, LV_PART_MAIN);
+    lv_obj_set_style_border_width(card, 2, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(card, 18, LV_PART_MAIN);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *x = lv_button_create(card);
+    lv_obj_set_size(x, 42, 42);
+    lv_obj_align(x, LV_ALIGN_TOP_RIGHT, 6, -6);
+    lv_obj_set_style_radius(x, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(x, AOFF, LV_PART_MAIN);
+    lv_obj_add_event_cb(x, offense_modal_close, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *xl = lv_label_create(x);
+    lv_obj_set_style_text_color(xl, AW, LV_PART_MAIN);
+    lv_label_set_text(xl, LV_SYMBOL_CLOSE);
+    lv_obj_center(xl);
+
+    lv_obj_t *title = lv_label_create(card);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, AR, LV_PART_MAIN);
+    lv_label_set_text(title, "Red team");
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 6);
+
+    lv_obj_t *body = lv_label_create(card);
+    lv_obj_set_style_text_font(body, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(body, AG, LV_PART_MAIN);
+    lv_obj_set_width(body, 288);
+    lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(body,
+        "Active RF and network tools.\n\n"
+        "Use them only on devices and networks you own or are explicitly "
+        "authorized to test. Misuse may be illegal.");
+    lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, 52);
+
+    lv_obj_t *acc = lv_button_create(card);
+    lv_obj_set_size(acc, 288, 58);
+    lv_obj_align(acc, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(acc, AR, LV_PART_MAIN);
+    lv_obj_set_style_radius(acc, 12, LV_PART_MAIN);
+    lv_obj_add_event_cb(acc, offense_modal_accept, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *al = lv_label_create(acc);
+    lv_obj_set_style_text_font(al, &font_argus_label_16, LV_PART_MAIN);
+    lv_obj_set_style_text_color(al, AW, LV_PART_MAIN);
+    lv_label_set_text(al, "Accept");
+    lv_obj_center(al);
+}
+
+static void on_cat_row(lv_event_t *e)
+{
+    Cat c = (Cat)(intptr_t)lv_event_get_user_data(e);
+    // Offense needs consent once per boot; after Accept, open it directly.
+    if (c == CAT_OFFENSE && !s_offense_ok) show_offense_consent();
+    else                                   open_category(c);
+}
 static void on_notifications(lv_event_t *) { notifications_screen_show(); }
 
 // Nav convention: LEFT -> home clock. On a category page, UP (or RIGHT) goes
