@@ -4836,6 +4836,20 @@ void loop()
         }
     }
 
+    // Auto-return to the home clock after inactivity, INDEPENDENT of the dim
+    // timer (fixed 1 minute). Keep-awake screens (compass / presence radar) and
+    // any modal/overlay are exempt so nothing is torn down under the user.
+    {
+        const uint32_t AUTO_HOME_MS = 60000;
+        if (!s_keep_awake && !notify_popup_is_showing() &&
+            lv_screen_active() != clock_screen &&
+            !pin_pad_screen_is_active() && !notifications_screen_is_active() &&
+            s_low_mem_dialog == nullptr && !alarm_is_ringing() &&
+            millis() - s_last_activity_ms >= AUTO_HOME_MS) {
+            clock_screen_show();
+        }
+    }
+
     // Dim timer: check every loop iteration for low latency
     // Never dim under a notification banner: it is boosted on purpose so the
     // message is readable, and dims back on its own once it is dismissed.
@@ -4847,14 +4861,8 @@ void loop()
             s_is_dimmed    = true;
             s_dimmed_at_ms = millis();
             instance.setBrightness(s_dim_brightness);
-            // After inactivity, fall back to the home clock (still dimmed) so the
-            // time is glanceable again - unless a modal/overlay is up that must
-            // not be torn down under the user.
-            if (lv_screen_active() != clock_screen &&
-                !pin_pad_screen_is_active() && !notifications_screen_is_active() &&
-                s_low_mem_dialog == nullptr && !alarm_is_ringing()) {
-                clock_screen_show();
-            }
+            // Home-return is no longer coupled to dimming - it is handled by the
+            // independent 1-minute auto-home timer above (AUTO_HOME_MS).
             // Raise the swipe-to-wake gate so a stray touch cannot wake it.
             // It starts unarmed: for the first 15 s a tap still wakes.
             show_dim_gate();
