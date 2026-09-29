@@ -742,3 +742,101 @@ bool map_screen_available()
     if (!instance.isCardReady()) return false;
     return SD.exists("/map");
 }
+
+// ---- GPX picker -------------------------------------------------------------
+// A simple full-screen list of the .gpx files in /gpx on the SD card. Tapping a
+// row loads that track and jumps to the map; a "Clear track" row removes the
+// overlay. Rebuilt fresh on each open (the previous one is async-deleted, so no
+// object is cleaned from inside a click handler). Reachable as its own launcher
+// entry ("GPX Track").
+#define GPX_MAX_FILES 20
+static char      s_gpx_paths[GPX_MAX_FILES][96];   // persistent row payloads
+static lv_obj_t *s_picker = nullptr;
+
+static void on_pick_clicked(lv_event_t *e)
+{
+    const char *path = (const char *)lv_event_get_user_data(e);
+    map_screen_load_gpx((path && path[0]) ? path : nullptr);
+    map_screen_show();
+}
+
+static void picker_row(lv_obj_t *parent, const char *text, const char *path)
+{
+    lv_obj_t *b = lv_obj_create(parent);
+    lv_obj_set_width(b, LV_PCT(100));
+    lv_obj_set_height(b, 48);
+    lv_obj_set_style_bg_color(b, lv_color_hex(0x1A1A1A), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(b, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(b, 8, LV_PART_MAIN);
+    lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(b, on_pick_clicked, LV_EVENT_CLICKED, (void *)path);
+
+    lv_obj_t *l = lv_label_create(b);
+    lv_obj_set_style_text_color(l, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(20), LV_PART_MAIN);
+    lv_label_set_text(l, text);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 8, 0);
+}
+
+static void on_picker_gesture(lv_event_t *e)
+{
+    lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(e));
+    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT || dir == LV_DIR_TOP) map_screen_show();
+}
+
+void map_gpx_picker_show()
+{
+    lv_obj_t *scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(scr, on_picker_gesture, LV_EVENT_GESTURE, NULL);
+
+    lv_obj_t *title = lv_label_create(scr);
+    lv_obj_set_style_text_font(title, theme_text_font(20), LV_PART_MAIN);
+    lv_obj_set_style_text_color(title, lv_color_hex(0x9A9A9A), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(title, 3, LV_PART_MAIN);
+    lv_label_set_text(title, "GPX TRACKS");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 30);
+
+    lv_obj_t *list = lv_obj_create(scr);
+    lv_obj_remove_style_all(list);
+    lv_obj_set_size(list, 360, 384);
+    lv_obj_align(list, LV_ALIGN_TOP_MID, 0, 70);
+    lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(list, 8, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(list, LV_DIR_VER);
+
+    s_gpx_paths[0][0] = '\0';
+    picker_row(list, "Clear track", s_gpx_paths[0]);
+
+    int idx = 1;
+    if (instance.isCardReady() && SD.exists("/gpx")) {
+        File dir = SD.open("/gpx");
+        if (dir) {
+            for (File e = dir.openNextFile(); e && idx < GPX_MAX_FILES; e = dir.openNextFile()) {
+                const char *nm    = e.name();
+                const char *slash = strrchr(nm, '/');
+                const char *base  = slash ? slash + 1 : nm;
+                if (!e.isDirectory() && ends_with_gpx(base)) {
+                    snprintf(s_gpx_paths[idx], sizeof(s_gpx_paths[idx]), "/gpx/%s", base);
+                    picker_row(list, base, s_gpx_paths[idx]);
+                    idx++;
+                }
+                e.close();
+            }
+            dir.close();
+        }
+    }
+    if (idx == 1) {
+        lv_obj_t *empty = lv_label_create(list);
+        lv_obj_set_style_text_color(empty, lv_color_hex(0x9A9A9A), LV_PART_MAIN);
+        lv_obj_set_style_text_font(empty, theme_text_font(16), LV_PART_MAIN);
+        lv_label_set_text(empty, "No .gpx in /gpx on the SD card.");
+    }
+
+    lv_scr_load(scr);
+    if (s_picker) lv_obj_delete_async(s_picker);
+    s_picker = scr;
+}
