@@ -13,3 +13,8 @@ bool map_screen_is_active();
 // True only when /sd/map exists; the mesh screens use this to decide whether
 // to insert the map screen into their swipe navigation.
 bool map_screen_available();
+
+// Load a GPX track to overlay/follow on the map (Arduino-SD path, e.g.
+// "/gpx/hike.gpx"); null or "" clears it. Refreshes the overlay if the map is
+// built. The map also auto-loads the first /gpx/*.gpx on first open.
+void map_screen_load_gpx(const char *sd_path);

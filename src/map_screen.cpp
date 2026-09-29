@@ -2,10 +2,12 @@
 #include "theme.h"
 #include "gps_screen.h"
 #include "meshtastic.h"
+#include "gpx_track.h"
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 // Defined by their respective screens. The map sits between send_message
 // and configuration in the swipe chain (LEFT = back to send, RIGHT = on
@@ -43,6 +45,18 @@ static lv_obj_t *node_labels[MESH_MAX_NODES];
 
 // Per-tile path buffers — kept alive while LVGL uses them as the image source.
 static char  s_paths[TILES][80];
+
+// GPX track overlay (hiking follow). One lv_line polyline, projected from the
+// loaded track each refresh so it tracks pan/zoom like the peer dots. The point
+// array is capped (the whole track is decimated to fit) and must stay alive
+// while LVGL references it, so it is file-scope. A small badge shows distance
+// remaining while a track is loaded.
+#define TRACK_MAXPTS 400
+static lv_obj_t          *track_line = nullptr;
+static lv_point_precise_t s_track_pts[TRACK_MAXPTS];
+static lv_obj_t          *dist_badge = nullptr;
+static lv_obj_t          *dist_label = nullptr;
+static bool               s_gpx_autoload_tried = false;
 
 static int    s_zoom        = 6;
 static int    s_zoom_min    = 1;
@@ -266,6 +280,41 @@ static void hide_peer_nodes()
     }
 }
 
+// Project the loaded GPX track onto the screen and draw it as one polyline,
+// using the same slippy projection as the peer dots so it tracks pan/zoom. The
+// whole track is decimated to <= TRACK_MAXPTS vertices and each is clamped to a
+// sane pixel range (a track far from the view must not make a giant line).
+static void render_gpx_track(double view_lat, double view_lon)
+{
+    if (!track_line) return;
+    int n = gpx::count();
+    if (n < 2) { lv_obj_add_flag(track_line, LV_OBJ_FLAG_HIDDEN); return; }
+
+    double lon_dpp = lon_per_px(s_zoom);
+    double lat_dpp = lat_per_px(s_zoom, view_lat);
+    int stride = (n + TRACK_MAXPTS - 1) / TRACK_MAXPTS;   // >= 1
+    if (stride < 1) stride = 1;
+
+    auto project = [&](int i, int slot) {
+        double dx =  (gpx::lon(i) - view_lon) / lon_dpp;
+        double dy = -(gpx::lat(i) - view_lat) / lat_dpp;
+        long sx = (long)(MAP_W / 2.0 + dx);
+        long sy = (long)(MAP_H / 2.0 + dy);
+        if (sx < -2000) sx = -2000; else if (sx > 2000) sx = 2000;
+        if (sy < -2000) sy = -2000; else if (sy > 2000) sy = 2000;
+        s_track_pts[slot].x = (int32_t)sx;
+        s_track_pts[slot].y = (int32_t)sy;
+    };
+
+    int m = 0;
+    for (int i = 0; i < n && m < TRACK_MAXPTS - 1; i += stride) project(i, m++);
+    project(n - 1, m++);   // always land exactly on the last point
+
+    if (m < 2) { lv_obj_add_flag(track_line, LV_OBJ_FLAG_HIDDEN); return; }
+    lv_line_set_points(track_line, s_track_pts, m);
+    lv_obj_clear_flag(track_line, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void refresh(bool force)
 {
     // Three-source fallback chain for the map centre:
@@ -359,6 +408,21 @@ static void refresh(bool force)
     // depending on s_manual_pan), so peer dots track pan and zoom
     // without any extra work.
     render_peer_nodes(lat, lon);
+
+    // GPX track overlay + distance badge (hiking follow).
+    render_gpx_track(lat, lon);
+    if (gpx::loaded()) {
+        char db[48];
+        if (src == Source::LIVE)
+            snprintf(db, sizeof(db), "%s  %.1f km left",
+                     gpx::name(), gpx::remaining_km(gps_lat, gps_lon));
+        else
+            snprintf(db, sizeof(db), "%s  %.1f km", gpx::name(), gpx::total_km());
+        lv_label_set_text(dist_label, db);
+        lv_obj_clear_flag(dist_badge, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(dist_badge, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // ---- events ----------------------------------------------------------------
@@ -482,6 +546,20 @@ void map_screen_create()
         s_paths[i][0] = '\0';
     }
 
+    // GPX track polyline — created after the tiles (draws over them) but before
+    // the markers below (they draw over it). Full-screen so projected pixel
+    // coordinates map 1:1; points are set each refresh by render_gpx_track().
+    track_line = lv_line_create(map_screen);
+    lv_obj_set_pos(track_line, 0, 0);
+    lv_obj_set_size(track_line, MAP_W, MAP_H);
+    lv_obj_set_style_line_color(track_line, lv_color_make(0xFF, 0x7A, 0x00), LV_PART_MAIN); // orange
+    lv_obj_set_style_line_width(track_line, 5, LV_PART_MAIN);
+    lv_obj_set_style_line_rounded(track_line, true, LV_PART_MAIN);
+    lv_obj_set_style_line_opa(track_line, LV_OPA_90, LV_PART_MAIN);
+    lv_obj_clear_flag(track_line, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(track_line, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(track_line, LV_OBJ_FLAG_HIDDEN);
+
     // Centre marker — sits exactly over the watch's GPS location.
     marker = lv_obj_create(map_screen);
     lv_obj_set_size(marker, 14, 14);
@@ -540,6 +618,26 @@ void map_screen_create()
     lv_label_set_text(info_label, "MAP");
     lv_obj_center(info_label);
 
+    // Distance-remaining badge, just under the info badge; shown only while a
+    // GPX track is loaded (orange text to echo the track colour).
+    dist_badge = lv_obj_create(map_screen);
+    lv_obj_set_size(dist_badge, LV_SIZE_CONTENT, 26);
+    lv_obj_set_style_bg_color(dist_badge, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dist_badge, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_border_width(dist_badge, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(dist_badge, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(dist_badge, 10, LV_PART_MAIN);
+    lv_obj_set_style_pad_ver(dist_badge, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(dist_badge, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(dist_badge, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_add_flag(dist_badge, LV_OBJ_FLAG_HIDDEN);
+
+    dist_label = lv_label_create(dist_badge);
+    lv_obj_set_style_text_color(dist_label, lv_color_make(0xFF, 0xB0, 0x50), LV_PART_MAIN);
+    lv_obj_set_style_text_font(dist_label, theme_text_font(14), LV_PART_MAIN);
+    lv_label_set_text(dist_label, "");
+    lv_obj_center(dist_label);
+
     // Status overlay shown when there is no GPS fix.
     status_label = lv_label_create(map_screen);
     lv_obj_set_style_text_color(status_label, ARGUS_TEXT, LV_PART_MAIN);
@@ -572,10 +670,58 @@ void map_screen_create()
     lv_timer_create(on_timer, 2000, NULL);
 }
 
+// Case-insensitive ".gpx" suffix test.
+static bool ends_with_gpx(const char *s)
+{
+    size_t L = strlen(s);
+    if (L < 4) return false;
+    const char *e = s + L - 4;
+    return e[0] == '.' &&
+           (e[1] == 'g' || e[1] == 'G') &&
+           (e[2] == 'p' || e[2] == 'P') &&
+           (e[3] == 'x' || e[3] == 'X');
+}
+
+// Load a specific GPX file and refresh the overlay. Public so a picker (later
+// lot) can drive it; empty/null path clears the track.
+void map_screen_load_gpx(const char *sd_path)
+{
+    if (sd_path && sd_path[0]) gpx::load(sd_path);
+    else                       gpx::clear();
+    if (map_screen) refresh(true);
+}
+
+// Auto-load the first /gpx/*.gpx once per boot so the overlay works without a
+// picker; a picker can later override via map_screen_load_gpx().
+static void autoload_gpx()
+{
+    if (s_gpx_autoload_tried || gpx::loaded()) return;
+    s_gpx_autoload_tried = true;
+    if (!instance.isCardReady() || !SD.exists("/gpx")) return;
+    File dir = SD.open("/gpx");
+    if (!dir) return;
+    for (File e = dir.openNextFile(); e; e = dir.openNextFile()) {
+        const char *nm    = e.name();
+        const char *slash = strrchr(nm, '/');
+        const char *base  = slash ? slash + 1 : nm;
+        if (!e.isDirectory() && ends_with_gpx(base)) {
+            char path[96];
+            snprintf(path, sizeof(path), "/gpx/%s", base);
+            e.close();
+            dir.close();
+            gpx::load(path);
+            return;
+        }
+        e.close();
+    }
+    dir.close();
+}
+
 void map_screen_show()
 {
     main_loop_request_lvgl_priority(12);
     detect_zooms();
+    autoload_gpx();
     if (s_zoom < s_zoom_min) s_zoom = s_zoom_min;
     if (s_zoom > s_zoom_max) s_zoom = s_zoom_max;
     // Pull the persisted last-known fix once (no-op on subsequent
