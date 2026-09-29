@@ -145,7 +145,8 @@ static lv_obj_t *matrix_switch;
 static lv_obj_t *matrix_val_label;
 static lv_obj_t *wallpaper_switch;
 static lv_obj_t *wallpaper_val_label;
-static lv_obj_t *dim_dropdown;
+static lv_obj_t *dim_timeout_slider;
+static lv_obj_t *dim_timeout_val_label;
 static lv_obj_t *dim_brightness_slider;
 static lv_obj_t *dim_brightness_val_label;
 static int32_t   s_dim_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL / 4;
@@ -367,13 +368,23 @@ static void on_wallpaper_changed(lv_event_t *e)
     settings_save_to_sd();
 }
 
-static const uint32_t DIM_TIMEOUT_MS[] = { 0, 5000, 30000, 60000, 300000 };
+// Format the dim-timeout value label (0 = OFF, else s / m / m ss).
+static void dim_timeout_show(uint32_t sec)
+{
+    char buf[16];
+    if (sec == 0)           snprintf(buf, sizeof buf, "OFF");
+    else if (sec < 60)      snprintf(buf, sizeof buf, "%us", (unsigned)sec);
+    else if (sec % 60 == 0) snprintf(buf, sizeof buf, "%um", (unsigned)(sec / 60));
+    else                    snprintf(buf, sizeof buf, "%um%02us", (unsigned)(sec / 60), (unsigned)(sec % 60));
+    if (dim_timeout_val_label) lv_label_set_text(dim_timeout_val_label, buf);
+}
 
 static void on_dim_timeout_changed(lv_event_t *e)
 {
-    uint32_t idx = lv_dropdown_get_selected(dim_dropdown);
-    clock_screen_set_dim_timeout(DIM_TIMEOUT_MS[idx]);
-    settings_save_to_sd();
+    (void)e;
+    uint32_t sec = (uint32_t)lv_slider_get_value(dim_timeout_slider);
+    clock_screen_set_dim_timeout(sec * 1000);
+    dim_timeout_show(sec);   // live; saved on release (on_slider_released)
 }
 
 static void on_dim_brightness_changed(lv_event_t *e)
@@ -1046,23 +1057,24 @@ void settings_screen_create()
     lv_label_set_text(dim_lbl, "Dim Timer");
     lv_obj_align(dim_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
-    dim_dropdown = lv_dropdown_create(dim_row);
-    lv_dropdown_set_options(dim_dropdown, "OFF\n5 Seconds\n30 Seconds\n1 Minute\n5 Minutes");
-    lv_dropdown_set_selected(dim_dropdown, 0);
-    lv_obj_set_size(dim_dropdown, 185, 34);
-    lv_obj_set_style_text_font(dim_dropdown, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(dim_dropdown, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
-    lv_obj_set_style_text_color(dim_dropdown, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_border_color(dim_dropdown, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
-    lv_obj_set_style_border_width(dim_dropdown, 1, LV_PART_MAIN);
-    // Style the drop-down list
-    lv_obj_t *dd_list = lv_dropdown_get_list(dim_dropdown);
-    lv_obj_set_style_bg_color(dd_list, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
-    lv_obj_set_style_text_color(dd_list, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(dd_list, &font_argus_label_16, LV_PART_MAIN);
-    lv_obj_set_style_border_color(dd_list, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
-    lv_obj_add_event_cb(dim_dropdown, on_dim_timeout_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(dim_dropdown, LV_ALIGN_RIGHT_MID, 0, 0);
+    // Precise dim-timeout SLIDER (0..300 s, 0 = OFF) with a live value label,
+    // both fitted in the row's right side so no other row's position shifts.
+    dim_timeout_val_label = lv_label_create(dim_row);
+    lv_obj_set_style_text_color(dim_timeout_val_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(dim_timeout_val_label, &font_argus_label_16, LV_PART_MAIN);
+    lv_label_set_text(dim_timeout_val_label, "OFF");
+    lv_obj_align(dim_timeout_val_label, LV_ALIGN_RIGHT_MID, 0, 0);
+
+    dim_timeout_slider = lv_slider_create(dim_row);
+    lv_obj_set_size(dim_timeout_slider, 150, 14);
+    lv_obj_align(dim_timeout_slider, LV_ALIGN_RIGHT_MID, -72, 0);
+    lv_slider_set_range(dim_timeout_slider, 0, 300);
+    lv_slider_set_value(dim_timeout_slider, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(dim_timeout_slider, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(dim_timeout_slider, ARGUS_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(dim_timeout_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_add_event_cb(dim_timeout_slider, on_dim_timeout_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(dim_timeout_slider, on_slider_released,      LV_EVENT_RELEASED,      NULL);
 
     // Dimmed Brightness row: label on left, percentage on right
     lv_obj_t *dbr_row = lv_obj_create(settings_screen);
@@ -1875,7 +1887,7 @@ static void settings_save_to_sd()
     f.printf("show_day=%d\n",        lv_obj_has_state(show_day_switch,    LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_date=%d\n",       lv_obj_has_state(show_date_switch,   LV_STATE_CHECKED) ? 1 : 0);
     f.printf("vibrate=%d\n",         lv_obj_has_state(vibrate_switch,     LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("dim_timeout_idx=%lu\n",(unsigned long)lv_dropdown_get_selected(dim_dropdown));
+    f.printf("dim_timeout_sec=%lu\n",(unsigned long)lv_slider_get_value(dim_timeout_slider));
     f.printf("dim_brightness=%d\n",  (int)s_dim_brightness);
     f.printf("motion_wake=%d\n",     lv_obj_has_state(motion_wake_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("motion_sens=%d\n",     (int)lv_slider_get_value(motion_sens_slider));
@@ -1964,11 +1976,12 @@ void settings_screen_load()
         } else if (key == "vibrate") {
             apply_switch(vibrate_switch, b);
             clock_screen_set_vibrate(b);
-        } else if (key == "dim_timeout_idx") {
-            uint32_t idx = (uint32_t)v;
-            if (idx >= (sizeof(DIM_TIMEOUT_MS)/sizeof(DIM_TIMEOUT_MS[0]))) idx = 0;
-            lv_dropdown_set_selected(dim_dropdown, idx);
-            clock_screen_set_dim_timeout(DIM_TIMEOUT_MS[idx]);
+        } else if (key == "dim_timeout_sec") {
+            if (v < 0)   v = 0;
+            if (v > 300) v = 300;
+            lv_slider_set_value(dim_timeout_slider, (int32_t)v, LV_ANIM_OFF);
+            dim_timeout_show((uint32_t)v);
+            clock_screen_set_dim_timeout((uint32_t)v * 1000);
         } else if (key == "dim_brightness") {
             if (v < 1) v = 1;
             if (v > DEVICE_MAX_BRIGHTNESS_LEVEL) v = DEVICE_MAX_BRIGHTNESS_LEVEL;
