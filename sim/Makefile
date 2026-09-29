@@ -116,10 +116,10 @@ ARGUS_CXX := $(SRC)/theme.cpp $(SRC)/argus_mode.cpp $(SRC)/time_screen.cpp \
 # alarm_screen.cpp is NOT here on purpose: it needs 18 alarm_* entry points
 # from alarm.cpp, and alarm.cpp pulls in ESP-IDF driver/i2s.h plus
 # SD.open/mkdir - and its screen would render nothing but defaults anyway.
-# tools_screen.cpp is out for the same class of reason: 34 includes, i.e.
-# the entire detector suite.
-# Real generated art for the Flipper tile, compiled rather than stubbed.
-ARGUS_C   := $(wildcard $(SRC)/font_argus_*.c) $(SRC)/flipper_logo_img.c
+# tools_screen.cpp used to be the heavy one (the 27-tile detector grid); it is
+# now a thin forwarder to apps_screen.cpp, so it builds here with the launcher
+# stubs in stubs_tools.cpp and pulls in no detector code.
+ARGUS_C   := $(wildcard $(SRC)/font_argus_*.c)
 SIM_CXX   := shim/shim.cpp stubs.cpp stubs_tools.cpp main_sim.cpp
 
 A_OBJS := $(patsubst %,$(OBJ)/%.o,$(notdir $(basename $(ARGUS_CXX)))) \

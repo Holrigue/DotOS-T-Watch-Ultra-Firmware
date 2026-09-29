@@ -1,15 +1,15 @@
 #pragma once
 #include <lvgl.h>
 
+// The RECON/TOOLS grid was merged into the unified Apps launcher
+// (apps_screen.cpp). These are the surviving entry points:
+//   - _create() is now a no-op (the launcher is built by apps_screen_create());
+//   - _show()/_is_active() forward to the launcher.
 void tools_screen_create();
 void tools_screen_show();
 bool tools_screen_is_active();
 
-// Show/hide the Tools tiles for the current ArgusMode (Daily hides all, Defense
-// shows Daily+Defense tiles, Offense shows all). Idempotent; safe to call on any
-// mode change and on Tools-screen entry. Defined in tools_screen.cpp.
-void tools_apply_mode();
-
-// Attach a swipe-down->Tools shortcut to a sub-screen (radio/menu pages). Gated
-// to Defense/Offense. Call once in the screen's _create(). Defined in tools_screen.cpp.
+// Attach a swipe-down->Apps-launcher shortcut to a sub-screen (radio/menu
+// pages). Gated to Defense/Offense. Call once in the screen's _create().
+// Defined in tools_screen.cpp.
 void tools_attach_jump_gesture(lv_obj_t *screen);

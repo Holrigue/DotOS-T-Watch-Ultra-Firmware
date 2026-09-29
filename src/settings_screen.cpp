@@ -1725,8 +1725,9 @@ void settings_screen_create()
     // the utility lives here and the disguise stays intact.
     //
     // Notify and LoRa APRS sit in the same neutral class and are still
-    // Tools-only; APRS at least is an RF transmitter, so whether it belongs in
-    // Daily is a real question rather than an oversight. See tools_apply_mode().
+    // launcher-only; APRS at least is an RF transmitter, so whether it belongs
+    // in Daily is a real question rather than an oversight (the launcher's
+    // category gating in apps_screen.cpp now owns that classification).
     // CLOCK TRUST. The watch used to present whatever the RTC held with exactly
     // as much confidence as a fresh GPS lock, which is how a Pacific-time RTC
     // rode home from DEF CON and silently misdated weeks of SD log stamps. This
