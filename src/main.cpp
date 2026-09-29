@@ -169,6 +169,7 @@ static const lv_font_t *dot_date_lvfont();
 void clock_screen_apply_face_custom();   // re-apply Face-watch look (fonts/accent/order)
 static void build_dot_bottom(lv_obj_t *parent);
 static void build_dot_badges(lv_obj_t *parent);
+static void build_dot_notif(lv_obj_t *parent);
 static void update_dot_status();
 static void dot_face_tick();
 void main_loop_request_lvgl_priority(int cycles);   // defined with the main loop below
@@ -205,13 +206,21 @@ static lv_obj_t *dot_time_label = nullptr;  // font-mode hour (shown instead of 
 // is externed again lower down next to the digital face.
 extern "C" const lv_font_t lv_font_montserrat_clock_96;
 // Status row: the six line-art icons are rasterised into one ARGB8888 sprite;
-// NFC and the Meshtastic unread count stay LVGL labels, the mesh badge a pill.
+// the NFC state stays an LVGL label.
 static lv_obj_t *dot_status_img = nullptr;
 static uint32_t *dot_status_buf = nullptr;
 static lv_image_dsc_t dot_status_dsc;
 static lv_obj_t *dot_nfc_label  = nullptr;
-static lv_obj_t *dot_mesh_pill  = nullptr;
-static lv_obj_t *dot_mesh_count = nullptr;
+
+// Notifications button: a persistent accent-coloured square in the bottom-left
+// corner of the Dot face, always visible and always tappable (opens the
+// notifications screen). A white envelope glyph appears inside it while there
+// are unread notifications (phone notifs beyond the last-seen baseline, or
+// unread Meshtastic messages) and clears once they are marked read. Replaces the
+// old top-right red count pill.
+static lv_obj_t *dot_notif_btn = nullptr;
+static lv_obj_t *dot_notif_env = nullptr;
+static uint32_t  s_notif_seen  = 0;   // notify::center().count() acknowledged on the last open
 
 // Watch face selection. DotOS is now the only face; FACE_DIGITAL is kept solely
 // as a safety fallback if the Dot layer fails to build (it needs a PSRAM ARGB
@@ -691,6 +700,7 @@ static void build_dot_face(lv_obj_t *screen)
     build_dot_accent_date(dot_container);
     build_dot_bottom(dot_container);
     build_dot_badges(dot_container);
+    build_dot_notif(dot_container);
 
     clock_screen_apply_face_custom();   // accent colour + date font from saved state
 }
@@ -870,25 +880,43 @@ static void build_dot_status_row(lv_obj_t *parent)
     lv_label_set_text(dot_nfc_label, "NFC");
     lv_obj_align(dot_nfc_label, LV_ALIGN_TOP_MID, 146 - 205, 50);
 
-    // Consolidated unread-notifications badge: a red circle with a white count,
-    // sitting in the empty space to the right of the clock digits (which end near
-    // x=351) and bottom-aligned with them (digits' bottom ~y=279). It counts
-    // phone notifications plus Meshtastic unread, and is hidden while the total is
-    // 0. Driven by update_dot_status().
-    dot_mesh_pill = lv_obj_create(parent);
-    lv_obj_remove_style_all(dot_mesh_pill);
-    lv_obj_set_size(dot_mesh_pill, 30, 30);
-    lv_obj_set_pos(dot_mesh_pill, 360, 249);
-    lv_obj_set_style_radius(dot_mesh_pill, 15, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(dot_mesh_pill, dot_red(), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(dot_mesh_pill, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_SCROLLABLE);
-    dot_mesh_count = lv_label_create(dot_mesh_pill);
-    lv_obj_set_style_text_font(dot_mesh_count, &font_argus_mono_16, LV_PART_MAIN);
-    lv_obj_set_style_text_color(dot_mesh_count, dot_white(), LV_PART_MAIN);
-    lv_label_set_text(dot_mesh_count, "0");
-    lv_obj_center(dot_mesh_count);
-    lv_obj_add_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+    // The unread indicator moved out of the status row into a persistent
+    // bottom-left notifications button (build_dot_notif); nothing else lives here.
+}
+
+// Persistent notifications button: bottom-left accent square, always visible and
+// tappable (opens the notifications screen). A white envelope shows inside while
+// there are unread notifications; tapping marks the current batch seen so the
+// envelope clears on return. Accent colour is re-applied by
+// clock_screen_apply_face_custom().
+static void on_dot_notif_clicked(lv_event_t *)
+{
+    // Acknowledge the current batch (mark read) before opening the list, so the
+    // envelope is clear when the wearer returns home; new arrivals re-light it.
+    s_notif_seen = (uint32_t)notify::center().count();
+    meshtastic_mark_read();
+    notifications_screen_show();
+}
+
+static void build_dot_notif(lv_obj_t *parent)
+{
+    dot_notif_btn = lv_obj_create(parent);
+    lv_obj_remove_style_all(dot_notif_btn);
+    lv_obj_set_size(dot_notif_btn, 46, 46);
+    lv_obj_set_pos(dot_notif_btn, 22, 418);
+    lv_obj_set_style_radius(dot_notif_btn, 8, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(dot_notif_btn, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_notif_btn, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_notif_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(dot_notif_btn, on_dot_notif_clicked, LV_EVENT_CLICKED, NULL);
+
+    dot_notif_env = lv_label_create(dot_notif_btn);
+    lv_obj_set_style_text_font(dot_notif_env, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_notif_env, dot_white(), LV_PART_MAIN);
+    lv_label_set_text(dot_notif_env, LV_SYMBOL_ENVELOPE);
+    lv_obj_center(dot_notif_env);
+    lv_obj_add_flag(dot_notif_env, LV_OBJ_FLAG_HIDDEN);   // shown by update_dot_status when unread
 }
 
 // Recolours the status icons from the same live predicates the stock status
@@ -908,14 +936,19 @@ static void update_dot_status()
     bool wd   = wardriver_is_running();
     bool gps  = gps_screen_is_powered();
     bool hlth = health_data_fresh();
-    // Consolidated unread: phone notifications + Meshtastic unread.
-    int  unread = meshtastic_get_unread() + (int)notify::center().count();
-    if (unread < 0) unread = 0;
+    // Unread indicator (drives the bottom-left envelope): phone notifications
+    // beyond the last-seen baseline, or any unread Meshtastic message. The
+    // baseline can only be as high as the current stored count (notifs may be
+    // retracted or cleared), so clamp it down first.
+    int notify_cnt = (int)notify::center().count();
+    if (notify_cnt < 0) notify_cnt = 0;
+    if ((uint32_t)notify_cnt < s_notif_seen) s_notif_seen = (uint32_t)notify_cnt;
+    bool has_unread = ((uint32_t)notify_cnt > s_notif_seen) || (meshtastic_get_unread() > 0);
 
     uint32_t state = (uint32_t)lora | (uint32_t)bt << 1 | (uint32_t)wifi << 2
                    | (uint32_t)sd << 3 | (uint32_t)nfc << 4 | (uint32_t)wd << 5
-                   | (uint32_t)gps << 6 | ((uint32_t)(unread & 0x3FF)) << 7
-                   | (uint32_t)hlth << 17;
+                   | (uint32_t)gps << 6 | (uint32_t)has_unread << 7
+                   | (uint32_t)hlth << 8;
     static uint32_t last_state = 0xFFFFFFFFu;
     if (state == last_state) return;
     last_state = state;
@@ -935,12 +968,11 @@ static void update_dot_status()
 
     lv_obj_set_style_text_color(dot_nfc_label, nfc ? dot_white() : dot_gray(), LV_PART_MAIN);
 
-    if (unread > 0) {
-        if (unread > 99) lv_label_set_text(dot_mesh_count, "99+");
-        else             lv_label_set_text_fmt(dot_mesh_count, "%d", unread);
-        lv_obj_clear_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(dot_mesh_pill, LV_OBJ_FLAG_HIDDEN);
+    // Envelope glyph on the persistent notifications button: shown while unread,
+    // hidden once the batch has been marked seen. No count — a plain mail icon.
+    if (dot_notif_env) {
+        if (has_unread) lv_obj_clear_flag(dot_notif_env, LV_OBJ_FLAG_HIDDEN);
+        else            lv_obj_add_flag(dot_notif_env, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -1421,10 +1453,16 @@ static void open_tile_picker(int slot)
 // gray when idle. Battery is 13 discrete segments (11 px wide, 3 px gap, from
 // x=140), white when filled, #3A3A3A when empty; the percentage is anchored on
 // its RIGHT edge at x=350.88 so it stays aligned from "0%" to "100%".
-static constexpr int DOT_BOT_X = 52;
-static constexpr int DOT_BOT_Y = 424;
-static constexpr int DOT_BOT_W = 78;    // covers x 52..130
-static constexpr int DOT_BOT_H = 26;    // covers y 424..450
+// Stopwatch / timer / alarm-bell status icons. Moved up beside the date row
+// (was the bottom-left corner at 52,424) so they sit to the RIGHT of the date;
+// the freed bottom-left corner now holds the notifications button. The icon
+// shapes are drawn at raster-local (absolute - origin), so origin and every
+// absolute literal in the three draw helpers below shifted by the same delta
+// (+198, -106): the sprite renders identically, only relocated.
+static constexpr int DOT_BOT_X = 250;   // covers x 250..328 (right of the date)
+static constexpr int DOT_BOT_Y = 318;   // covers y 318..344 (date-row level)
+static constexpr int DOT_BOT_W = 78;
+static constexpr int DOT_BOT_H = 26;
 static constexpr int DOT_BAT_SEGS = 12;   // 12 (was 13): one fewer frees room for the % text
 
 static lv_obj_t *dot_bot_img = nullptr;
@@ -1445,26 +1483,26 @@ static void dot_fill_rect(uint32_t *b, int w, int h, int x0, int y0, int x1, int
 static void dot_draw_stopwatch(uint32_t *b, int w, int h, uint32_t c)   // chronometre, cx=63
 {
     const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
-    dot_plot_arc(b, w, h, 63 - ox, 438 - oy, 8.0f, 0, 360, 1.6f, c);
-    dot_plot_seg(b, w, h, 63 - ox, 438 - oy, 67 - ox, 433 - oy, 1.6f, c);
+    dot_plot_arc(b, w, h, 261 - ox, 332 - oy, 8.0f, 0, 360, 1.6f, c);
+    dot_plot_seg(b, w, h, 261 - ox, 332 - oy, 265 - ox, 327 - oy, 1.6f, c);
 }
 
 static void dot_draw_timer(uint32_t *b, int w, int h, uint32_t c)       // minuteur, cx=89
 {
     const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
-    dot_plot_arc(b, w, h, 89 - ox, 438 - oy, 8.0f, 0, 360, 1.6f, c);
-    dot_fill_rect(b, w, h, 85 - DOT_BOT_X, 427 - DOT_BOT_Y, 93 - DOT_BOT_X, 430 - DOT_BOT_Y, c);   // cap
-    dot_plot_seg(b, w, h, 89 - ox, 438 - oy, 85 - ox, 433 - oy, 1.6f, c);
+    dot_plot_arc(b, w, h, 287 - ox, 332 - oy, 8.0f, 0, 360, 1.6f, c);
+    dot_fill_rect(b, w, h, 283 - DOT_BOT_X, 321 - DOT_BOT_Y, 291 - DOT_BOT_X, 324 - DOT_BOT_Y, c);   // cap
+    dot_plot_seg(b, w, h, 287 - ox, 332 - oy, 283 - ox, 327 - oy, 1.6f, c);
 }
 
 static void dot_draw_bell(uint32_t *b, int w, int h, uint32_t c)        // alarme, x=118
 {
     const float ox = DOT_BOT_X, oy = DOT_BOT_Y;
-    dot_plot_disc(b, w, h, 118 - ox, 436 - oy, 6.0f, c);                              // dome
-    dot_fill_rect(b, w, h, 112 - DOT_BOT_X, 436 - DOT_BOT_Y, 124 - DOT_BOT_X, 440 - DOT_BOT_Y, c); // body
-    dot_fill_tri (b, w, h, 112 - ox, 440 - oy, 124 - ox, 440 - oy, 126 - ox, 443 - oy, c);   // flare
-    dot_fill_tri (b, w, h, 112 - ox, 440 - oy, 126 - ox, 443 - oy, 110 - ox, 443 - oy, c);
-    dot_plot_disc(b, w, h, 118 - ox, 445 - oy, 1.6f, c);                              // clapper
+    dot_plot_disc(b, w, h, 316 - ox, 330 - oy, 6.0f, c);                              // dome
+    dot_fill_rect(b, w, h, 310 - DOT_BOT_X, 330 - DOT_BOT_Y, 322 - DOT_BOT_X, 334 - DOT_BOT_Y, c); // body
+    dot_fill_tri (b, w, h, 310 - ox, 334 - oy, 322 - ox, 334 - oy, 324 - ox, 337 - oy, c);   // flare
+    dot_fill_tri (b, w, h, 310 - ox, 334 - oy, 324 - ox, 337 - oy, 308 - ox, 337 - oy, c);
+    dot_plot_disc(b, w, h, 316 - ox, 339 - oy, 1.6f, c);                              // clapper
 }
 
 static void build_dot_bottom(lv_obj_t *parent)
@@ -1545,8 +1583,9 @@ static void update_dot_bottom()
 
 // ---- Detection badges -----------------------------------------------------------
 //
-// Five always-visible badges at the fixed dotface_final.svg positions (y=365),
-// each bound to one detector through detector_toggle, the same control point the
+// Five always-visible badges, centred in the gap between the date and the
+// battery bar (row at y=372, enlarged from the original y=365 dotface_final.svg
+// placement), each bound to one detector through detector_toggle, the same control point the
 // Tools tiles use, so the two surfaces always agree. Three states:
 //   off      gray #5C5C5C outline + label, no count
 //   armed    white outline + label, no count (running, nothing seen yet)
@@ -1556,15 +1595,15 @@ static void update_dot_bottom()
 struct DotBadgeSpec {
     Detector    det;
     const char *text;
-    int         pill_x, pill_w;   // pill rect (y=365, h=19)
+    int         pill_x, pill_w;   // pill rect (y=372, h=26)
     int         count_x;          // count text left edge
 };
 static const DotBadgeSpec kDotBadges[] = {
-    { Detector::Flock,    "Flock",  62, 40, 106 },
-    { Detector::EvilTwin, "EvilT", 124, 40, 168 },
-    { Detector::AirTag,   "AirT",  186, 34, 224 },
-    { Detector::Flipper,  "Flip",  242, 34, 280 },
-    { Detector::Skimmer,  "Skim",  298, 38, 340 },
+    { Detector::Flock,    "Flock",  40, 50,  92 },
+    { Detector::EvilTwin, "EvilT", 110, 50, 162 },
+    { Detector::AirTag,   "AirT",  180, 50, 232 },
+    { Detector::Flipper,  "Flip",  250, 50, 302 },
+    { Detector::Skimmer,  "Skim",  320, 50, 372 },
 };
 static constexpr int DOT_BADGE_N = sizeof(kDotBadges) / sizeof(kDotBadges[0]);
 
@@ -1596,25 +1635,28 @@ static void build_dot_badges(lv_obj_t *parent)
         const DotBadgeSpec &s = kDotBadges[i];
         DotBadge &b = dot_badges[i];
         // Invisible hit area around pill + count: a finger-sized tap target.
-        const int hx = s.pill_x - 4, hy = 358;
+        // Row dropped to y=372 (pill h=26) so it sits centred in the gap between
+        // the date (~y324) and the battery bar (~y430), and enlarged for
+        // readability (label font 10 -> 14).
+        const int hx = s.pill_x - 4, hy = 366;
         b.hit = lv_obj_create(parent);
         lv_obj_remove_style_all(b.hit);
         lv_obj_set_pos(b.hit, hx, hy);
-        lv_obj_set_size(b.hit, (s.count_x + 14) - hx, 33);
+        lv_obj_set_size(b.hit, (s.count_x + 14) - hx, 40);
         lv_obj_clear_flag(b.hit, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_flag(b.hit, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(b.hit, on_dot_badge_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)i);
 
         b.pill = lv_obj_create(b.hit);
         lv_obj_remove_style_all(b.pill);
-        lv_obj_set_pos(b.pill, s.pill_x - hx, 365 - hy);
-        lv_obj_set_size(b.pill, s.pill_w, 19);
-        lv_obj_set_style_radius(b.pill, 4, LV_PART_MAIN);
+        lv_obj_set_pos(b.pill, s.pill_x - hx, 372 - hy);
+        lv_obj_set_size(b.pill, s.pill_w, 26);
+        lv_obj_set_style_radius(b.pill, 5, LV_PART_MAIN);
         lv_obj_set_style_border_width(b.pill, 1, LV_PART_MAIN);
         lv_obj_clear_flag(b.pill, LV_OBJ_FLAG_CLICKABLE);   // let the hit area take the tap
 
         b.label = lv_label_create(b.pill);
-        lv_obj_set_style_text_font(b.label, &lv_font_montserrat_10, LV_PART_MAIN);
+        lv_obj_set_style_text_font(b.label, &lv_font_montserrat_14, LV_PART_MAIN);
         lv_label_set_text(b.label, s.text);
         lv_obj_center(b.label);
 
@@ -1622,7 +1664,7 @@ static void build_dot_badges(lv_obj_t *parent)
         lv_obj_set_style_text_font(b.count, &lv_font_montserrat_14, LV_PART_MAIN);
         lv_obj_set_style_text_color(b.count, dot_red(), LV_PART_MAIN);
         lv_label_set_text(b.count, "");
-        lv_obj_set_pos(b.count, s.count_x - hx, 366 - hy);
+        lv_obj_set_pos(b.count, s.count_x - hx, 376 - hy);
         lv_obj_add_flag(b.count, LV_OBJ_FLAG_HIDDEN);
 
         b.shown = -1;
@@ -1697,6 +1739,8 @@ void clock_screen_apply_face_custom()
 {
     if (dot_accent)
         lv_obj_set_style_bg_color(dot_accent, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
+    if (dot_notif_btn)
+        lv_obj_set_style_bg_color(dot_notif_btn, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
     if (dot_date_label)
         lv_obj_set_style_text_font(dot_date_label, dot_date_lvfont(), LV_PART_MAIN);
 
