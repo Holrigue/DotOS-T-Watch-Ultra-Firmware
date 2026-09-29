@@ -300,14 +300,19 @@ static void open_category(Cat c)
 static lv_obj_t *s_offense_modal = nullptr;
 static bool      s_offense_ok    = false;   // consent given this boot (resets on reboot)
 
+// Delete the scrim ASYNC: we are inside a CLICKED callback of a button that is a
+// DESCENDANT of the scrim, so deleting it synchronously here frees the object
+// still dispatching the event - which corrupts LVGL's input state and freezes
+// the touchscreen. lv_obj_delete_async defers the free to after event handling,
+// the same pattern the dim-gate / wake-blocker / find overlays use.
 static void offense_modal_close(lv_event_t *)
 {
-    if (s_offense_modal) { lv_obj_del(s_offense_modal); s_offense_modal = nullptr; }
+    if (s_offense_modal) { lv_obj_delete_async(s_offense_modal); s_offense_modal = nullptr; }
 }
 
 static void offense_modal_accept(lv_event_t *)
 {
-    if (s_offense_modal) { lv_obj_del(s_offense_modal); s_offense_modal = nullptr; }
+    if (s_offense_modal) { lv_obj_delete_async(s_offense_modal); s_offense_modal = nullptr; }
     s_offense_ok = true;   // don't nag again until the watch reboots
     open_category(CAT_OFFENSE);
 }
