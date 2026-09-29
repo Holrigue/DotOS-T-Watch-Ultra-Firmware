@@ -1,6 +1,7 @@
 #include "theme.h"
 #include "threat_radar.h"
 #include "argus_mode.h"
+#include "face_watch.h"   // user-chosen accent colour (Facewatch)
 
 // Runtime, state-aware brand accent (ARGUS -> HADES).
 //
@@ -24,10 +25,13 @@ void argus_set_threat(bool active)
     s_pipeline_threat = active;
 }
 
-// Mode base: steel-blue in Daily/Defense, amber in Offense.
+// System accent = the user's Facewatch colour choice, so every screen title and
+// accent tracks it (the colour cohesion the wearer picks). Threat alerts still
+// flip to HADES_RED on top of this via argus_accent(); Offense is still signalled
+// by its wallpaper/toolset and the mode border, not by recolouring the accent.
 lv_color_t argus_base_accent(void)
 {
-    return argus_mode_current() == ArgusMode::Offense ? ARGUS_OFFENSE_ACCENT : ARGUS_ACCENT;
+    return lv_color_hex(face_accent_rgb());
 }
 
 lv_color_t argus_accent(void)

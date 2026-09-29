@@ -3595,16 +3595,21 @@ void setup()
     // setup (screen construction) and is swapped for the clock below, held to a
     // minimum visible time. Brand typeface is Saira Condensed (src/font_argus_*.c),
     // filled red (#E02020, the Dot-face accent) on black, with a "DotOS" subtitle.
+    // Restore the wearer's Facewatch accent now (before the splash) so the boot
+    // brand uses their chosen colour too. Safe this early: NVS is up from the
+    // start of setup, and a failed read just falls back to the default accent.
+    face_watch_boot_restore();
+
     instance.setBrightness(DEVICE_MAX_BRIGHTNESS_LEVEL);
     lv_obj_t *boot_splash = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(boot_splash, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_border_width(boot_splash, 0, LV_PART_MAIN);
 
 
-    // ARGUS hero.
+    // ARGUS hero, tinted with the user's accent colour.
     lv_obj_t *boot_brand = lv_label_create(boot_splash);
     lv_label_set_text(boot_brand, FW_NAME);   // "ARGUS"
-    lv_obj_set_style_text_color(boot_brand, lv_color_hex(0xE02020), LV_PART_MAIN);   // Dot-face red
+    lv_obj_set_style_text_color(boot_brand, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
     lv_obj_set_style_text_font(boot_brand, &font_argus_argus, LV_PART_MAIN);
     lv_obj_align(boot_brand, LV_ALIGN_CENTER, 0, 8);
 
