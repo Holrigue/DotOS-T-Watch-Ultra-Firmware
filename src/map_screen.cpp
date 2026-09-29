@@ -3,6 +3,7 @@
 #include "gps_screen.h"
 #include "meshtastic.h"
 #include "gpx_track.h"
+#include "gpx_recorder.h"
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <math.h>
@@ -35,6 +36,7 @@ static lv_obj_t *info_badge;
 static lv_obj_t *info_label;
 static lv_obj_t *status_label;
 static lv_obj_t *zoom_in_btn, *zoom_out_btn, *recentre_btn;
+static lv_obj_t *rec_btn, *rec_lbl;   // GPX track-recording toggle
 
 // Peer-node markers - one dot + short_name label per node slot. Pool
 // is sized to MESH_MAX_NODES (20) and lives for the lifetime of the
@@ -497,10 +499,33 @@ static void on_recentre(lv_event_t *)
     refresh(true);
 }
 
+// Reflect the recorder state on the REC button (red + point count while active).
+static void update_rec_btn()
+{
+    if (!rec_btn || !rec_lbl) return;
+    if (gpxrec::active()) {
+        lv_obj_set_style_bg_color(rec_btn, lv_color_make(0xE0, 0x20, 0x20), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(rec_btn, LV_OPA_COVER, LV_PART_MAIN);
+        lv_label_set_text_fmt(rec_lbl, "REC %d", gpxrec::points());
+    } else {
+        lv_obj_set_style_bg_color(rec_btn, lv_color_black(), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(rec_btn, LV_OPA_70, LV_PART_MAIN);
+        lv_label_set_text(rec_lbl, "REC");
+    }
+}
+
+static void on_rec(lv_event_t *)
+{
+    if (gpxrec::active()) gpxrec::stop();
+    else                  gpxrec::start();
+    update_rec_btn();
+}
+
 static void on_timer(lv_timer_t *)
 {
     if (lv_screen_active() != map_screen) return;
     refresh(false);
+    if (gpxrec::active()) update_rec_btn();   // keep the live point count fresh
 }
 
 // ---- layout ----------------------------------------------------------------
@@ -661,6 +686,28 @@ void map_screen_create()
     // GPS pin icon from the built-in LVGL symbol set.
     recentre_btn = make_round_btn(LV_SYMBOL_GPS, LV_ALIGN_CENTER, 0, 215,
                                   on_recentre);
+
+    // Track-recording toggle, top-left (below the corner curve, clear of the
+    // centred info/distance badges). Red with a live point count while active.
+    rec_btn = lv_obj_create(map_screen);
+    lv_obj_set_size(rec_btn, 84, 38);
+    lv_obj_set_style_radius(rec_btn, 8, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(rec_btn, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(rec_btn, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_border_width(rec_btn, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(rec_btn, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(rec_btn, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(rec_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(rec_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(rec_btn, LV_ALIGN_TOP_LEFT, 16, 74);
+    lv_obj_add_event_cb(rec_btn, on_rec, LV_EVENT_CLICKED, NULL);
+
+    rec_lbl = lv_label_create(rec_btn);
+    lv_obj_set_style_text_color(rec_lbl, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(rec_lbl, theme_text_font(14), LV_PART_MAIN);
+    lv_label_set_text(rec_lbl, "REC");
+    lv_obj_center(rec_lbl);
+    update_rec_btn();
 
     lv_obj_add_event_cb(map_screen, on_gesture, LV_EVENT_GESTURE, NULL);
     // Press-and-drag panning runs alongside swipe-nav. Fast directional
