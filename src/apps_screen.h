@@ -14,5 +14,6 @@
 // time_screen_show() forward here, so every sub-screen's "back" gesture lands
 // on this one menu.
 void apps_screen_create();
-void apps_screen_show();
+void apps_screen_show();                 // the "Menu" home (category list)
+void apps_screen_show_apps_category();   // shortcut straight into the "Apps" sub-menu
 bool apps_screen_is_active();

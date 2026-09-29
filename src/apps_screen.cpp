@@ -429,7 +429,7 @@ static void build()
 {
     // Home: Notifications pinned at the top, then the category rows.
     s_home = lv_obj_create(NULL);
-    lv_obj_t *hlist = make_list(s_home, "APPS", NULL);
+    lv_obj_t *hlist = make_list(s_home, "Menu", NULL);
     make_row(hlist, "Notifications", LV_SYMBOL_RIGHT, AR, on_notifications, NULL);
     make_row(hlist, "Tracking",     LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TRACKING);
     make_row(hlist, "Defense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_DEFENSE);
@@ -454,6 +454,16 @@ void apps_screen_show()
     if (!s_home) build();
     main_loop_request_lvgl_priority(12);   // keep the first flick smooth
     lv_scr_load(s_home);
+}
+
+// Shortcut: open the "Apps" category sub-menu directly (the home clock's
+// swipe-up), skipping the category list. The full "Menu" is still one swipe-left
+// away.
+void apps_screen_show_apps_category()
+{
+    if (!s_home) build();
+    main_loop_request_lvgl_priority(12);   // keep the first flick smooth
+    open_category(CAT_APPS);
 }
 
 bool apps_screen_is_active()

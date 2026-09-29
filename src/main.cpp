@@ -2230,15 +2230,13 @@ static void on_clock_gesture(lv_event_t *e)
     // grid are gated to Defense/Offense so a Daily glance/confiscation reveals nothing.
     //
     // Home navigation:
-    //   swipe right-to-left  -> Recon grid (gated in Daily)
-    //   swipe left-to-right  -> Wardriver, then Meshtastic, then Nodes (each a
-    //                           further swipe the same way; Daily skips the
-    //                           gated Wardriver and lands on Meshtastic)
+    //   swipe right-to-left  -> the "Menu" (unified launcher: category list)
+    //   swipe left-to-right  -> Wardriver (recon, gated in Daily -> Meshtastic)
     //   swipe down           -> notification shade (every mode)
-    //   swipe up             -> Tools (clock utilities + Health, every mode)
+    //   swipe up             -> straight into the "Apps" sub-menu (shortcut)
     bool daily = (argus_mode_current() == ArgusMode::Daily);
     if (dir == LV_DIR_LEFT) {
-        apps_screen_show();                    // unified Apps launcher, every mode
+        apps_screen_show();                    // the Menu (category list), every mode
     } else if (dir == LV_DIR_RIGHT) {
         if (!daily) {
             wardriver_screen_show();           // recon, gated in Daily
@@ -2249,7 +2247,7 @@ static void on_clock_gesture(lv_event_t *e)
     } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
         notifications_screen_show();     // shade: notifications + brightness, every mode
     } else if (dir == LV_DIR_TOP) {      // swipe up from clock face
-        apps_screen_show();              // unified Apps launcher, every mode
+        apps_screen_show_apps_category();   // shortcut: the Apps sub-menu directly
     }
 }
 
