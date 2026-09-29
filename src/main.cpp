@@ -4632,10 +4632,39 @@ static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
     }
 }
 
+// Global navigation convention for app screens: swipe UP -> the Apps menu,
+// swipe LEFT -> the home clock. Attached once to each screen the first time it
+// becomes active (below), so every app obeys it without editing each screen's
+// own gesture handler. The clock and the Apps menu are skipped - they run their
+// own gesture scheme.
+static void nav_gesture_cb(lv_event_t *e)
+{
+    lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(e));
+    if (dir == LV_DIR_TOP)       apps_screen_show();
+    else if (dir == LV_DIR_LEFT) clock_screen_show();
+}
+
+static lv_obj_t *s_nav_attached[80];
+static int       s_nav_attached_n = 0;
+
+static void nav_attach_active_screen()
+{
+    lv_obj_t *scr = lv_screen_active();
+    if (!scr || scr == clock_screen) return;   // clock has its own gestures
+    if (apps_screen_is_active())      return;   // Apps menu has its own gestures
+    for (int i = 0; i < s_nav_attached_n; i++)
+        if (s_nav_attached[i] == scr) return;   // already wired
+    if (s_nav_attached_n < (int)(sizeof(s_nav_attached) / sizeof(s_nav_attached[0]))) {
+        lv_obj_add_event_cb(scr, nav_gesture_cb, LV_EVENT_GESTURE, NULL);
+        s_nav_attached[s_nav_attached_n++] = scr;
+    }
+}
+
 void loop()
 {
     instance.loop(); // required for power button and PMU event dispatch
     find_pump();      // act on a pending phone->watch "find" request (LVGL thread)
+    nav_attach_active_screen();   // ensure the active app screen obeys UP/LEFT nav
 
 #ifdef SCREENSHOT_AUTO
     // Fire once, ~6 s after boot, so the UI and SD mount have settled.

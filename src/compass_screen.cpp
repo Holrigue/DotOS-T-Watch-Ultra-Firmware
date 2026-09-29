@@ -203,7 +203,7 @@ static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT) screen_return_to(s_return);
+    if (dir == LV_DIR_RIGHT) screen_return_to(s_return);   // UP/LEFT handled by global nav
 }
 
 static void build()

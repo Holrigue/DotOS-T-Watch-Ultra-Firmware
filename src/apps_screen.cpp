@@ -302,16 +302,19 @@ static void open_category(Cat c)
 static void on_cat_row(lv_event_t *e) { open_category((Cat)(intptr_t)lv_event_get_user_data(e)); }
 static void on_notifications(lv_event_t *) { notifications_screen_show(); }
 
+// Nav convention: LEFT -> home clock. On a category page, UP (or RIGHT) goes
+// back up to the Apps home; on the Apps home itself, LEFT/RIGHT go home.
 static void on_home_gesture(lv_event_t *e)
 {
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(e));
-    if (dir == LV_DIR_RIGHT || dir == LV_DIR_TOP) clock_screen_show();
+    if (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT) clock_screen_show();
 }
 
 static void on_cat_gesture(lv_event_t *e)
 {
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(e));
-    if (dir == LV_DIR_RIGHT || dir == LV_DIR_TOP) lv_scr_load(s_home);
+    if (dir == LV_DIR_LEFT)                        clock_screen_show();
+    else if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT) lv_scr_load(s_home);
 }
 
 // ---- build ------------------------------------------------------------------
