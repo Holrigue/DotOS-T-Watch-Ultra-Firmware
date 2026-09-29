@@ -900,10 +900,13 @@ static void on_dot_notif_clicked(lv_event_t *)
 
 static void build_dot_notif(lv_obj_t *parent)
 {
+    // Bottom-left, vertically centred on the battery-bar row (~y438) and moved
+    // in from the rounded corner (x=44). Battery segments start at x=140, so it
+    // sits clear to their left.
     dot_notif_btn = lv_obj_create(parent);
     lv_obj_remove_style_all(dot_notif_btn);
-    lv_obj_set_size(dot_notif_btn, 46, 46);
-    lv_obj_set_pos(dot_notif_btn, 22, 418);
+    lv_obj_set_size(dot_notif_btn, 44, 44);
+    lv_obj_set_pos(dot_notif_btn, 44, 416);
     lv_obj_set_style_radius(dot_notif_btn, 8, LV_PART_MAIN);
     lv_obj_set_style_bg_color(dot_notif_btn, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(dot_notif_btn, LV_OPA_COVER, LV_PART_MAIN);
@@ -911,12 +914,14 @@ static void build_dot_notif(lv_obj_t *parent)
     lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(dot_notif_btn, on_dot_notif_clicked, LV_EVENT_CLICKED, NULL);
 
+    // Envelope is always drawn so the square reads as a mailbox; update_dot_status
+    // brightens it (opa) when there are unread items and dims it when seen.
     dot_notif_env = lv_label_create(dot_notif_btn);
     lv_obj_set_style_text_font(dot_notif_env, &lv_font_montserrat_24, LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_notif_env, dot_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(dot_notif_env, LV_OPA_40, LV_PART_MAIN);   // dim until unread
     lv_label_set_text(dot_notif_env, LV_SYMBOL_ENVELOPE);
     lv_obj_center(dot_notif_env);
-    lv_obj_add_flag(dot_notif_env, LV_OBJ_FLAG_HIDDEN);   // shown by update_dot_status when unread
 }
 
 // Recolours the status icons from the same live predicates the stock status
@@ -949,9 +954,14 @@ static void update_dot_status()
                    | (uint32_t)sd << 3 | (uint32_t)nfc << 4 | (uint32_t)wd << 5
                    | (uint32_t)gps << 6 | (uint32_t)has_unread << 7
                    | (uint32_t)hlth << 8;
+    // The live heart follows the wearer's Facewatch accent, so a change of accent
+    // must repaint the sprite too — track it alongside the on/off state.
+    uint32_t acc = 0xFF000000u | face_accent_rgb();
     static uint32_t last_state = 0xFFFFFFFFu;
-    if (state == last_state) return;
+    static uint32_t last_acc   = 0u;
+    if (state == last_state && acc == last_acc) return;
     last_state = state;
+    last_acc   = acc;
 
     const uint32_t W = 0xFFFFFFFFu, G = 0xFF5C5C5Cu;   // opaque white / gray
     memset(dot_status_buf, 0, (size_t)DOT_STAT_W * (size_t)DOT_STAT_H * 4u);
@@ -961,19 +971,18 @@ static void update_dot_status()
     dot_draw_wifi (dot_status_buf, DOT_STAT_W, DOT_STAT_H, wifi ? W : G);
     dot_draw_radar(dot_status_buf, DOT_STAT_W, DOT_STAT_H, wd   ? W : G);
     dot_draw_gps  (dot_status_buf, DOT_STAT_W, DOT_STAT_H, gps  ? W : G);
-    dot_draw_heart(dot_status_buf, DOT_STAT_W, DOT_STAT_H, hlth ? 0xFFE53935u : G);   // red when live
+    dot_draw_heart(dot_status_buf, DOT_STAT_W, DOT_STAT_H, hlth ? acc : G);   // accent when live
     lv_image_set_src(dot_status_img, NULL);
     lv_image_set_src(dot_status_img, &dot_status_dsc);
     lv_obj_invalidate(dot_status_img);
 
     lv_obj_set_style_text_color(dot_nfc_label, nfc ? dot_white() : dot_gray(), LV_PART_MAIN);
 
-    // Envelope glyph on the persistent notifications button: shown while unread,
-    // hidden once the batch has been marked seen. No count — a plain mail icon.
-    if (dot_notif_env) {
-        if (has_unread) lv_obj_clear_flag(dot_notif_env, LV_OBJ_FLAG_HIDDEN);
-        else            lv_obj_add_flag(dot_notif_env, LV_OBJ_FLAG_HIDDEN);
-    }
+    // Envelope on the persistent notifications button: always visible (so the
+    // square reads as a mailbox, not a blank block); bright white while there
+    // are unread items, dimmed when the batch has been seen. No count.
+    if (dot_notif_env)
+        lv_obj_set_style_text_opa(dot_notif_env, has_unread ? LV_OPA_COVER : LV_OPA_40, LV_PART_MAIN);
 }
 
 // ---- USB connection indicator ------------------------------------------------
