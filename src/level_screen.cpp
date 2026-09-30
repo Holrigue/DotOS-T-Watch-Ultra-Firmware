@@ -40,6 +40,21 @@ static constexpr float FULLSCALE_DEG = 22.0f; // tilt that pushes the bubble to 
 static constexpr float LEVEL_TOL_DEG = 0.6f;  // "LEVEL" when both axes within this
 static constexpr float EMA_A        = 0.30f;  // low-pass smoothing on the tilt
 
+// Linear "vial" levels flanking the bullseye: a horizontal one below the dial
+// (reads roll / left-right tilt) and a vertical one to the left of the dial
+// (reads pitch / front-back tilt). Like a real spirit level the bubble rises to
+// the HIGH side, i.e. it moves OPPOSITE to the tilt and opposite to the centre
+// bullseye bubble: tilt the right edge down and the horizontal bubble climbs to
+// the left. If a vial reads backwards on hardware, flip its *_SIGN below.
+static constexpr int   VIAL_LEN     = 220;    // horizontal vial long axis (px)
+static constexpr int   VIAL_V_LEN   = 170;    // vertical   vial long axis (px)
+static constexpr int   VIAL_THICK   = 26;     // vial short axis (px)
+static constexpr int   VIAL_BUB     = 20;     // bubble diameter inside a vial (px)
+static constexpr int   VIAL_H_TRAVEL = VIAL_LEN   / 2 - VIAL_BUB / 2 - 4;
+static constexpr int   VIAL_V_TRAVEL = VIAL_V_LEN / 2 - VIAL_BUB / 2 - 4;
+static constexpr float VIAL_H_SIGN  = -1.0f;  // horizontal: air rises (invert roll)
+static constexpr float VIAL_V_SIGN  = +1.0f;  // vertical:   air rises (invert pitch)
+
 static lv_obj_t   *screen        = nullptr;
 static lv_obj_t   *s_return      = nullptr;
 static lv_obj_t   *s_bubble      = nullptr;
@@ -47,6 +62,10 @@ static lv_obj_t   *s_tol_ring    = nullptr;
 static lv_obj_t   *s_status      = nullptr;
 static lv_obj_t   *s_roll_lbl    = nullptr;
 static lv_obj_t   *s_pitch_lbl   = nullptr;
+static lv_obj_t   *s_vial_h      = nullptr;   // horizontal vial (roll)
+static lv_obj_t   *s_vial_h_bub  = nullptr;
+static lv_obj_t   *s_vial_v      = nullptr;   // vertical vial (pitch)
+static lv_obj_t   *s_vial_v_bub  = nullptr;
 static lv_timer_t *s_poll_timer  = nullptr;
 
 static float s_f_roll = 0.0f, s_f_pitch = 0.0f;   // smoothed angles (deg)
@@ -84,7 +103,25 @@ static void on_poll(lv_timer_t *)
     float py = clampf(-s_f_pitch / FULLSCALE_DEG, -1.0f, 1.0f) * TRAVEL_R;
     if (s_bubble) lv_obj_align(s_bubble, LV_ALIGN_CENTER, (int)(px + 0.5f), DIAL_CY + (int)(py + 0.5f));
 
-    bool level = fabsf(s_f_roll) < LEVEL_TOL_DEG && fabsf(s_f_pitch) < LEVEL_TOL_DEG;
+    bool lvl_roll  = fabsf(s_f_roll)  < LEVEL_TOL_DEG;
+    bool lvl_pitch = fabsf(s_f_pitch) < LEVEL_TOL_DEG;
+
+    // Linear vials: the bubble rides to the raised side (opposite the tilt), each
+    // green when its own axis is level. Position is relative to the vial centre.
+    float fr = clampf(s_f_roll  / FULLSCALE_DEG, -1.0f, 1.0f);
+    float fp = clampf(s_f_pitch / FULLSCALE_DEG, -1.0f, 1.0f);
+    if (s_vial_h_bub) {
+        lv_obj_align(s_vial_h_bub, LV_ALIGN_CENTER,
+                     (int)lroundf(VIAL_H_SIGN * fr * VIAL_H_TRAVEL), 0);
+        lv_obj_set_style_bg_color(s_vial_h_bub, lvl_roll ? GRN : NW, LV_PART_MAIN);
+    }
+    if (s_vial_v_bub) {
+        lv_obj_align(s_vial_v_bub, LV_ALIGN_CENTER, 0,
+                     (int)lroundf(VIAL_V_SIGN * fp * VIAL_V_TRAVEL));
+        lv_obj_set_style_bg_color(s_vial_v_bub, lvl_pitch ? GRN : NW, LV_PART_MAIN);
+    }
+
+    bool level = lvl_roll && lvl_pitch;
     lv_color_t c = level ? GRN : NW;
     if (s_bubble)   lv_obj_set_style_bg_color(s_bubble, c, LV_PART_MAIN);
     if (s_tol_ring) lv_obj_set_style_border_color(s_tol_ring, level ? GRN : lv_color_hex(0x444444), LV_PART_MAIN);
@@ -126,6 +163,50 @@ static lv_obj_t *ring(lv_obj_t *parent, int d, lv_color_t col, int border)
     return o;
 }
 
+// A capsule-shaped vial: dark body with a rounded outline. Two faint gate marks
+// straddle the centre so the wearer can read "in the middle" at a glance.
+static lv_obj_t *vial(lv_obj_t *parent, int w, int h)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_style_radius(o, (w < h ? w : h) / 2, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(o, lv_color_hex(0x101010), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(o, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_border_width(o, 2, LV_PART_MAIN);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Centre gate: two thin marks perpendicular to the vial's long axis.
+    bool horiz = w >= h;
+    for (int s = -1; s <= 1; s += 2) {
+        lv_obj_t *m = lv_obj_create(o);
+        lv_obj_remove_style_all(m);
+        if (horiz) lv_obj_set_size(m, 1, h - 8);
+        else       lv_obj_set_size(m, w - 8, 1);
+        lv_obj_set_style_bg_color(m, lv_color_hex(0x3A3A3A), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(m, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(m, LV_OBJ_FLAG_SCROLLABLE);
+        if (horiz) lv_obj_align(m, LV_ALIGN_CENTER, s * (VIAL_BUB / 2 + 2), 0);
+        else       lv_obj_align(m, LV_ALIGN_CENTER, 0, s * (VIAL_BUB / 2 + 2));
+    }
+    return o;
+}
+
+// The moving bubble inside a vial (child, so it aligns to the vial centre).
+static lv_obj_t *vial_bubble(lv_obj_t *vial_obj)
+{
+    lv_obj_t *b = lv_obj_create(vial_obj);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_size(b, VIAL_BUB, VIAL_BUB);
+    lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(b, NW, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(b, LV_ALIGN_CENTER, 0, 0);
+    return b;
+}
+
 static void build()
 {
     screen = lv_obj_create(NULL);
@@ -160,6 +241,16 @@ static void build()
     lv_obj_set_style_bg_color(vbar, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(vbar, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_align(vbar, LV_ALIGN_CENTER, 0, DIAL_CY);
+
+    // Horizontal vial below the dial (reads roll / left-right tilt).
+    s_vial_h = vial(screen, VIAL_LEN, VIAL_THICK);
+    lv_obj_align(s_vial_h, LV_ALIGN_CENTER, 0, DIAL_CY + OUTER_R + 30);
+    s_vial_h_bub = vial_bubble(s_vial_h);
+
+    // Vertical vial to the left of the dial (reads pitch / front-back tilt).
+    s_vial_v = vial(screen, VIAL_THICK, VIAL_V_LEN);
+    lv_obj_align(s_vial_v, LV_ALIGN_CENTER, -(OUTER_R + 28), DIAL_CY);
+    s_vial_v_bub = vial_bubble(s_vial_v);
 
     // The bubble.
     s_bubble = lv_obj_create(screen);

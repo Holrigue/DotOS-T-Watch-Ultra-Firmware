@@ -783,9 +783,24 @@ static constexpr int DOT_STAT_Y = 44;
 static constexpr int DOT_STAT_W = 304;   // covers x 44..348
 static constexpr int DOT_STAT_H = 32;    // covers y 44..76
 
+// Top-align the status icons. Each glyph below was hand-placed at its own SVG y,
+// so their top edges don't line up. We shift every icon vertically so its top
+// edge sits on one common line (DOT_ICON_TOP, the y of the two highest icons,
+// SD & GPS). The shift is folded into each icon's sprite origin oy: raising oy
+// by k draws that icon k px higher. Per-icon natural tops (face-space y) are the
+// DOT_TOP_* values; shift = natural_top - DOT_ICON_TOP.
+static constexpr float DOT_ICON_TOP   = 49.0f;   // common top edge (face-space y)
+static constexpr float DOT_TOP_HEART  = 53.6f;   // heart top lobe
+static constexpr float DOT_TOP_LORA   = 53.0f;   // lora top arc
+static constexpr float DOT_TOP_SD     = 49.0f;   // sd card top edge
+static constexpr float DOT_TOP_BT     = 50.0f;   // bluetooth top vertex
+static constexpr float DOT_TOP_WIFI   = 53.0f;   // wifi outer arc top
+static constexpr float DOT_TOP_RADAR  = 51.0f;   // radar outer ring top
+static constexpr float DOT_TOP_GPS    = 49.0f;   // gps bulb top
+
 static void dot_draw_lora(uint32_t *b, int w, int h, uint32_t c)
 {
-    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y + (DOT_TOP_LORA - DOT_ICON_TOP);
     dot_plot_seg (b, w, h, 107 - ox, 60 - oy, 107 - ox, 70 - oy, 1.8f, c);   // stick
     dot_plot_disc(b, w, h, 107 - ox, 58 - oy, 3.2f, c);                      // ball
     dot_plot_arc (b, w, h, 107 - ox, 58 - oy, 5.0f, 180, 360, 1.8f, c);      // top arc
@@ -793,7 +808,7 @@ static void dot_draw_lora(uint32_t *b, int w, int h, uint32_t c)
 
 static void dot_draw_sd(uint32_t *b, int w, int h, uint32_t c)
 {
-    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y + (DOT_TOP_SD - DOT_ICON_TOP);
     // Card outline with the cut top-right corner (closed polyline).
     const float px[6] = { 184-ox, 192-ox, 196-ox, 196-ox, 184-ox, 184-ox };
     const float py[6] = { 49-oy,  49-oy,  53-oy,  67-oy,  67-oy,  49-oy  };
@@ -804,7 +819,7 @@ static void dot_draw_sd(uint32_t *b, int w, int h, uint32_t c)
 
 static void dot_draw_bt(uint32_t *b, int w, int h, uint32_t c)
 {
-    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y + (DOT_TOP_BT - DOT_ICON_TOP);
     const float ax[4] = { 222-ox, 226-ox, 218-ox, 222-ox }, ay[4] = { 50-oy, 54-oy, 62-oy, 66-oy };
     const float bx[4] = { 222-ox, 218-ox, 226-ox, 222-ox }, by[4] = { 50-oy, 54-oy, 62-oy, 66-oy };
     for (int i = 0; i < 3; i++) dot_plot_seg(b, w, h, ax[i], ay[i], ax[i+1], ay[i+1], 1.6f, c);
@@ -813,7 +828,7 @@ static void dot_draw_bt(uint32_t *b, int w, int h, uint32_t c)
 
 static void dot_draw_wifi(uint32_t *b, int w, int h, uint32_t c)
 {
-    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y + (DOT_TOP_WIFI - DOT_ICON_TOP);
     dot_plot_arc (b, w, h, 258-ox, 62-oy, 9.0f, 180, 360, 1.7f, c);
     dot_plot_arc (b, w, h, 258-ox, 65-oy, 6.0f, 180, 360, 1.7f, c);
     dot_plot_arc (b, w, h, 258-ox, 68-oy, 3.0f, 180, 360, 1.7f, c);
@@ -822,7 +837,7 @@ static void dot_draw_wifi(uint32_t *b, int w, int h, uint32_t c)
 
 static void dot_draw_radar(uint32_t *b, int w, int h, uint32_t c)
 {
-    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y + (DOT_TOP_RADAR - DOT_ICON_TOP);
     dot_plot_arc (b, w, h, 295-ox, 58-oy, 7.0f, 0, 360, 1.4f, c);    // outer ring
     dot_plot_arc (b, w, h, 295-ox, 58-oy, 3.5f, 0, 360, 1.1f, c);    // inner ring
     dot_plot_seg (b, w, h, 295-ox, 58-oy, 301-ox, 54-oy, 1.6f, c);   // sweep
@@ -831,7 +846,7 @@ static void dot_draw_radar(uint32_t *b, int w, int h, uint32_t c)
 
 static void dot_draw_gps(uint32_t *b, int w, int h, uint32_t c)
 {
-    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y + (DOT_TOP_GPS - DOT_ICON_TOP);
     const float cx = 330 - ox, cy = 58 - oy;
     dot_plot_disc(b, w, h, cx, cy - 2, 7.0f, c);                                 // bulb
     dot_fill_tri (b, w, h, cx - 6.0f, cy - 1.0f, cx + 6.0f, cy - 1.0f, cx, cy + 9.0f, c); // point
@@ -845,7 +860,7 @@ static void dot_draw_gps(uint32_t *b, int w, int h, uint32_t c)
 // silhouette.
 static void dot_draw_heart(uint32_t *b, int w, int h, uint32_t c)
 {
-    const float ox = DOT_STAT_X, oy = DOT_STAT_Y;
+    const float ox = DOT_STAT_X, oy = DOT_STAT_Y + (DOT_TOP_HEART - DOT_ICON_TOP);
     const float cx = 63 - ox, cy = 59 - oy;
     dot_plot_disc(b, w, h, cx - 3.0f, cy - 2.0f, 3.4f, c);                        // left lobe
     dot_plot_disc(b, w, h, cx + 3.0f, cy - 2.0f, 3.4f, c);                        // right lobe
