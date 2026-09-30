@@ -897,6 +897,17 @@ static void on_dot_notif_clicked(lv_event_t *)
     notifications_screen_show();
 }
 
+// The square sits at the bottom of the face, right in the swipe-up zone, so an
+// imperfect tap on it is easily read as a swipe-up gesture (which would open the
+// Apps menu) instead of a click. Catch the gesture on the square itself: any
+// touch that lands on it means "open notifications", and stop it bubbling to the
+// clock's swipe handler so it never falls through to Apps.
+static void on_dot_notif_gesture(lv_event_t *e)
+{
+    on_dot_notif_clicked(nullptr);
+    lv_event_stop_bubbling(e);
+}
+
 static void build_dot_notif(lv_obj_t *parent)
 {
     // Bottom-RIGHT, vertically centred on the battery-bar row (~y438) and inset
@@ -914,6 +925,9 @@ static void build_dot_notif(lv_obj_t *parent)
     lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_HIDDEN);   // appears only when unread
     lv_obj_add_event_cb(dot_notif_btn, on_dot_notif_clicked, LV_EVENT_CLICKED, NULL);
+    // Also open on a gesture that starts here, so a tap read as a swipe-up
+    // (the square is in the swipe-up zone) still reaches the notifications.
+    lv_obj_add_event_cb(dot_notif_btn, on_dot_notif_gesture, LV_EVENT_GESTURE, NULL);
 
     // White envelope glyph, full brightness: the square is only ever visible
     // while there is something unread, so no dim state is needed.

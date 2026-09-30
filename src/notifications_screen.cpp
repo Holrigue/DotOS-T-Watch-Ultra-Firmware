@@ -102,8 +102,51 @@ static void update_status()
 }
 
 // ---- notification list -----------------------------------------------------
+const char *notify_glyph_filter(const char *in, const lv_font_t *font,
+                                char *out, size_t outsz)
+{
+    if (!out || outsz == 0) return in ? in : "";
+    if (!in || !font) { out[0] = '\0'; return out; }
+
+    size_t oi = 0;
+    for (size_t i = 0; in[i];) {
+        unsigned char c = (unsigned char)in[i];
+        int      nb;
+        uint32_t cp;
+        if      (c < 0x80)          { nb = 1; cp = c; }
+        else if ((c & 0xE0) == 0xC0){ nb = 2; cp = c & 0x1F; }
+        else if ((c & 0xF0) == 0xE0){ nb = 3; cp = c & 0x0F; }
+        else if ((c & 0xF8) == 0xF0){ nb = 4; cp = c & 0x07; }
+        else { i++; continue; }     // stray continuation / invalid lead byte
+
+        bool ok = true;
+        for (int k = 1; k < nb; k++) {
+            unsigned char cc = (unsigned char)in[i + k];
+            if ((cc & 0xC0) != 0x80) { ok = false; break; }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        if (!ok) { i++; continue; }
+
+        bool keep;
+        if (cp == '\n' || cp == '\r' || cp == '\t' || cp == ' ') {
+            keep = true;
+        } else {
+            lv_font_glyph_dsc_t d;
+            keep = lv_font_get_glyph_dsc(font, &d, cp, 0);
+        }
+        if (keep) {
+            if (oi + (size_t)nb >= outsz) break;   // keep room for the terminator
+            for (int k = 0; k < nb; k++) out[oi++] = in[i + k];
+        }
+        i += nb;
+    }
+    out[oi] = '\0';
+    return out;
+}
+
 void notifications_add_card(lv_obj_t *parent, const notify::Notification *n)
 {
+    char safe[notify::kBodyLen];   // scratch for glyph-filtered text (body is largest)
     lv_obj_t *card = lv_obj_create(parent);
     lv_obj_set_width(card, LV_PCT(100));
     lv_obj_set_height(card, LV_SIZE_CONTENT);
@@ -121,13 +164,13 @@ void notifications_add_card(lv_obj_t *parent, const notify::Notification *n)
         lv_obj_t *app = lv_label_create(card);
         lv_obj_set_style_text_font(app, theme_text_font(14), LV_PART_MAIN);
         lv_obj_set_style_text_color(app, NOTHING_GREY, LV_PART_MAIN);
-        lv_label_set_text(app, n->app);
+        lv_label_set_text(app, notify_glyph_filter(n->app, theme_text_font(14), safe, sizeof safe));
     }
     if (n->title[0]) {
         lv_obj_t *title = lv_label_create(card);
         lv_obj_set_style_text_font(title, theme_text_font(16), LV_PART_MAIN);
         lv_obj_set_style_text_color(title, NOTHING_WHITE, LV_PART_MAIN);
-        lv_label_set_text(title, n->title);
+        lv_label_set_text(title, notify_glyph_filter(n->title, theme_text_font(16), safe, sizeof safe));
     }
     if (n->body[0]) {
         lv_obj_t *body = lv_label_create(card);
@@ -135,7 +178,7 @@ void notifications_add_card(lv_obj_t *parent, const notify::Notification *n)
         lv_obj_set_style_text_color(body, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
-        lv_label_set_text(body, n->body);
+        lv_label_set_text(body, notify_glyph_filter(n->body, theme_text_font(14), safe, sizeof safe));
     }
 }
 

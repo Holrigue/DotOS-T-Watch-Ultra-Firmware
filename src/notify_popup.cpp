@@ -114,11 +114,16 @@ static void show_banner(const notify::Notification &n)
     // banner arriving while one is up must not render behind it.
     lv_obj_move_foreground(s_banner);
 
+    // Glyph-filtered scratch: strip codepoints the watch font can't render so the
+    // banner never shows "[]" tofu boxes for emoji (body is the largest field).
+    char safe[notify::kBodyLen];
+
     // Header: bell + app/source name in the accent colour.
     lv_obj_t *app = lv_label_create(s_banner);
     lv_obj_set_style_text_font(app, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(app, NOTHING_GREY, LV_PART_MAIN);
-    lv_label_set_text_fmt(app, LV_SYMBOL_BELL "  %s", n.app[0] ? n.app : "Notification");
+    lv_label_set_text_fmt(app, LV_SYMBOL_BELL "  %s",
+        n.app[0] ? notify_glyph_filter(n.app, theme_text_font(14), safe, sizeof safe) : "Notification");
 
     if (n.title[0]) {
         lv_obj_t *title = lv_label_create(s_banner);
@@ -126,7 +131,7 @@ static void show_banner(const notify::Notification &n)
         lv_obj_set_style_text_color(title, NOTHING_WHITE, LV_PART_MAIN);
         lv_obj_set_width(title, LV_PCT(100));
         lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);   // one-line, ellipsized
-        lv_label_set_text(title, n.title);
+        lv_label_set_text(title, notify_glyph_filter(n.title, theme_text_font(16), safe, sizeof safe));
     }
     if (n.body[0]) {
         lv_obj_t *body = lv_label_create(s_banner);
@@ -134,7 +139,7 @@ static void show_banner(const notify::Notification &n)
         lv_obj_set_style_text_color(body, NOTHING_GREY, LV_PART_MAIN);
         lv_obj_set_width(body, LV_PCT(100));
         lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
-        lv_label_set_text(body, n.body);
+        lv_label_set_text(body, notify_glyph_filter(n.body, theme_text_font(14), safe, sizeof safe));
     }
 
     // Incoming call: a full-width Mute button that stops the watch buzzing for
