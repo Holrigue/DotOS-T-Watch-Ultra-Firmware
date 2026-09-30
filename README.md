@@ -95,7 +95,7 @@ DotOS is a fork of **[ARGUS](https://github.com/h4d35x0/argus)**, itself a fork 
 
 Additional inspiration and thanks to **[sacriphanius](https://gitlab.com/sacriphanius)** and the **[SCR-Terminal](https://gitlab.com/sacriphanius/scr-terminal)** project, and to **[peter-neu](https://github.com/peter-neu)** and the **[OutdoorWatch](https://github.com/peter-neu/t-watch_ultra)** project.
 
-Star them, build their projects,**THANK THEM.**
+Star them, build their projects, **THANK THEM.**
 
 Thanks also to LILYGO for the hardware, the [Meshtastic](https://meshtastic.org/) project, and the maintainers of LVGL, RadioLib, LilyGoLib, and the other libraries this firmware stands on.
 
