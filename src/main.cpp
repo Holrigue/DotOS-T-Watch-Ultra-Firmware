@@ -212,12 +212,11 @@ static uint32_t *dot_status_buf = nullptr;
 static lv_image_dsc_t dot_status_dsc;
 static lv_obj_t *dot_nfc_label  = nullptr;
 
-// Notifications button: a persistent accent-coloured square in the bottom-left
-// corner of the Dot face, always visible and always tappable (opens the
-// notifications screen). A white envelope glyph appears inside it while there
-// are unread notifications (phone notifs beyond the last-seen baseline, or
-// unread Meshtastic messages) and clears once they are marked read. Replaces the
-// old top-right red count pill.
+// Notifications button: an accent-coloured hard square in the bottom-RIGHT
+// corner of the Dot face, shown (and tappable -> notifications screen) only
+// while there are unread notifications (phone notifs beyond the last-seen
+// baseline, or unread Meshtastic messages), and hidden entirely once they are
+// marked read. Replaces the old top-right red count pill.
 static lv_obj_t *dot_notif_btn = nullptr;
 static lv_obj_t *dot_notif_env = nullptr;
 static uint32_t  s_notif_seen  = 0;   // notify::center().count() acknowledged on the last open
@@ -551,8 +550,8 @@ static void dot_fill_tri(uint32_t *buf, int w, int h,
 // plain red. Driven by update_dot_accent() from the 1 Hz Dot tick.
 //
 // Date: same logic as the stock date_label (honours Show day / Show date), in
-// the Dot face's compact single-line form, e.g. "THUR 15/02" (DD/MM), gray
-// #9A9A9A monospace at x=50, baseline y=338.
+// the Dot face's compact single-line form, e.g. "THUR 15/02" (DD/MM), white
+// (like the hour) at x=50, top y=324.
 static constexpr int DOT_ACCENT_W = 245;
 static lv_obj_t *dot_accent      = nullptr;   // red rail (full width)
 static lv_obj_t *dot_accent_fill = nullptr;   // white step-progress fill
@@ -580,7 +579,7 @@ static void build_dot_accent_date(lv_obj_t *parent)
 
     dot_date_label = lv_label_create(parent);
     lv_obj_set_style_text_font(dot_date_label, theme_text_font(20), LV_PART_MAIN);
-    lv_obj_set_style_text_color(dot_date_label, lv_color_hex(0x9A9A9A), LV_PART_MAIN);
+    lv_obj_set_style_text_color(dot_date_label, dot_white(), LV_PART_MAIN);   // white, like the hour
     lv_obj_set_style_text_letter_space(dot_date_label, 3, LV_PART_MAIN);
     lv_label_set_text(dot_date_label, "");
     lv_obj_set_pos(dot_date_label, 50, 324);
@@ -900,26 +899,28 @@ static void on_dot_notif_clicked(lv_event_t *)
 
 static void build_dot_notif(lv_obj_t *parent)
 {
-    // Bottom-left, vertically centred on the battery-bar row (~y438) and moved
-    // in from the rounded corner (x=44). Battery segments start at x=140, so it
-    // sits clear to their left.
+    // Bottom-RIGHT, vertically centred on the battery-bar row (~y438) and inset
+    // from the rounded corner by the same margin as the left side (mirror of the
+    // old x=44 -> x=410-44-44=322). A hard square (radius 0). Hidden entirely
+    // when there is nothing unread, shown only when a notification is waiting.
     dot_notif_btn = lv_obj_create(parent);
     lv_obj_remove_style_all(dot_notif_btn);
     lv_obj_set_size(dot_notif_btn, 44, 44);
-    lv_obj_set_pos(dot_notif_btn, 44, 416);
-    lv_obj_set_style_radius(dot_notif_btn, 8, LV_PART_MAIN);
+    lv_obj_set_pos(dot_notif_btn, 322, 416);
+    lv_obj_set_style_radius(dot_notif_btn, 0, LV_PART_MAIN);   // fully square, no rounded corners
     lv_obj_set_style_bg_color(dot_notif_btn, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(dot_notif_btn, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(dot_notif_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_HIDDEN);   // appears only when unread
     lv_obj_add_event_cb(dot_notif_btn, on_dot_notif_clicked, LV_EVENT_CLICKED, NULL);
 
-    // Envelope is always drawn so the square reads as a mailbox; update_dot_status
-    // brightens it (opa) when there are unread items and dims it when seen.
+    // White envelope glyph, full brightness: the square is only ever visible
+    // while there is something unread, so no dim state is needed.
     dot_notif_env = lv_label_create(dot_notif_btn);
     lv_obj_set_style_text_font(dot_notif_env, &lv_font_montserrat_24, LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_notif_env, dot_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_opa(dot_notif_env, LV_OPA_40, LV_PART_MAIN);   // dim until unread
+    lv_obj_set_style_text_opa(dot_notif_env, LV_OPA_COVER, LV_PART_MAIN);
     lv_label_set_text(dot_notif_env, LV_SYMBOL_ENVELOPE);
     lv_obj_center(dot_notif_env);
 }
@@ -978,11 +979,12 @@ static void update_dot_status()
 
     lv_obj_set_style_text_color(dot_nfc_label, nfc ? dot_white() : dot_gray(), LV_PART_MAIN);
 
-    // Envelope on the persistent notifications button: always visible (so the
-    // square reads as a mailbox, not a blank block); bright white while there
-    // are unread items, dimmed when the batch has been seen. No count.
-    if (dot_notif_env)
-        lv_obj_set_style_text_opa(dot_notif_env, has_unread ? LV_OPA_COVER : LV_OPA_40, LV_PART_MAIN);
+    // Notifications button: shown only while there is something unread, hidden
+    // entirely otherwise (cleaner + more intuitive than a permanent blank square).
+    if (dot_notif_btn) {
+        if (has_unread) lv_obj_clear_flag(dot_notif_btn, LV_OBJ_FLAG_HIDDEN);
+        else            lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // ---- USB connection indicator ------------------------------------------------
@@ -1459,14 +1461,14 @@ static void open_tile_picker(int slot)
 // Same state as the stock face (stopwatch_is_running, timer_is_running,
 // alarm_is_enabled, PMU battery %), but at the fixed Dot positions instead of
 // the stock right-to-left packing: icons are always drawn, white when active,
-// gray when idle. Battery is 13 discrete segments (11 px wide, 3 px gap, from
-// x=140), white when filled, #3A3A3A when empty; the percentage is anchored on
-// its RIGHT edge at x=350.88 so it stays aligned from "0%" to "100%".
-// Stopwatch / timer / alarm-bell status icons. Moved up beside the date row
-// (was the bottom-left corner at 52,424) so they sit to the RIGHT of the date;
-// the freed bottom-left corner now holds the notifications button. The icon
-// shapes are drawn at raster-local (absolute - origin), so origin and every
-// absolute literal in the three draw helpers below shifted by the same delta
+// gray when idle. Battery is 12 discrete segments (11 px wide, 3 px gap) that
+// now start flush-left at x=50 (aligned with the date/accent), white when
+// filled, #3A3A3A when empty; the percentage is left-aligned just past the bar
+// at x=222. The notifications square lives at the bottom-RIGHT (x=322).
+// Stopwatch / timer / alarm-bell status icons sit to the RIGHT of the date and
+// are vertically centred on the date line at build time. The icon shapes are
+// drawn at raster-local (absolute - origin), so origin and every absolute
+// literal in the three draw helpers below shifted by the same delta
 // (+198, -106): the sprite renders identically, only relocated.
 static constexpr int DOT_BOT_X = 250;   // covers x 250..328 (right of the date)
 static constexpr int DOT_BOT_Y = 318;   // covers y 318..344 (date-row level)
@@ -1530,31 +1532,34 @@ static void build_dot_bottom(lv_obj_t *parent)
         dot_bot_dsc.data          = (const uint8_t *)dot_bot_buf;
         dot_bot_img = lv_image_create(parent);
         lv_image_set_src(dot_bot_img, &dot_bot_dsc);
-        lv_obj_set_pos(dot_bot_img, DOT_BOT_X, DOT_BOT_Y);
+        // Vertically centre the icon cluster (it sits mid-buffer) on the date
+        // text's optical centre so the three icons share the date's line, rather
+        // than the fixed DOT_BOT_Y which rode a few px high.
+        const lv_font_t *df = theme_text_font(20);
+        int date_cy = 324 + (int)lv_font_get_line_height(df) / 2;   // date label top y=324
+        lv_obj_set_pos(dot_bot_img, DOT_BOT_X, date_cy - DOT_BOT_H / 2);
     }
 
     for (int i = 0; i < DOT_BAT_SEGS; i++) {
         lv_obj_t *s = lv_obj_create(parent);
         lv_obj_remove_style_all(s);
         lv_obj_set_size(s, 11, 16);
-        lv_obj_set_pos(s, 140 + i * 14, 430);
+        lv_obj_set_pos(s, 50 + i * 14, 430);   // left-aligned with the date/accent (x=50)
         lv_obj_set_style_bg_color(s, dot_seg_empty(), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(s, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_clear_flag(s, LV_OBJ_FLAG_CLICKABLE);
         dot_bat_seg[i] = s;
     }
 
-    // Percentage centered in the gap to the right of the 12-segment bar (which
-    // ends at x=305). A center-aligned box over x 306..356 keeps "9%" and "100%"
-    // alike balanced in that gap instead of drifting against the bar, and its y
-    // lines the text up with the bar row (bar center y=438).
+    // Percentage left-aligned just to the right of the 12-segment bar (segments
+    // now run x=50..215; number hugs the bar at x=222 so the whole battery group
+    // sits flush-left like the date/accent). y lines it up with the bar row.
     dot_bat_pct = lv_label_create(parent);
-    lv_obj_set_width(dot_bat_pct, 50);
-    lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_style_text_align(dot_bat_pct, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     lv_obj_set_style_text_font(dot_bat_pct, theme_text_font(20), LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_bat_pct, lv_color_hex(0x8A8A8A), LV_PART_MAIN);
     lv_label_set_text(dot_bat_pct, "");
-    lv_obj_set_pos(dot_bat_pct, 306, 427);
+    lv_obj_set_pos(dot_bat_pct, 222, 427);
 }
 
 // 1 Hz: redraw the icons / segments / percentage only when something changed.
