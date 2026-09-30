@@ -91,13 +91,15 @@ Prebuilt, flashable binaries **and a one-click web flasher** ship with every [Re
 
 ## Credits
 
-DotOS is a fork of **[ARGUS](https://github.com/h4d35x0/argus)**, itself a fork of **[`13:37`](https://github.com/r3dfish/13-37)** by **[r3dfish](https://github.com/r3dfish)**. The smartwatch core, the Meshtastic client, and the RF toolkit are theirs — DotOS layers on the Dot watchface, the companion health app, and the daily-wear / notification / power refinements. **The core is theirs.** If this project is useful to you, please go support the original:
+DotOS is a fork of **[ARGUS](https://github.com/h4d35x0/argus)**, itself a fork of **[`13:37`](https://github.com/r3dfish/13-37)** by **[r3dfish](https://github.com/r3dfish)**. The smartwatch core, the Meshtastic client, and the RF toolkit are theirs — DotOS layers on the Dot watchface, the companion health app, and the daily-wear / notification / power refinements. **The core is theirs.** If this project is useful to you, please go support the OGs!
 
-**➡️ [github.com/r3dfish/13-37](https://github.com/r3dfish/13-37) — star it, build it, thank them.**
+Additional inspiration and thanks to **[sacriphanius](https://gitlab.com/sacriphanius)** and the **[SCR-Terminal](https://gitlab.com/sacriphanius/scr-terminal)** project, and to **[peter-neu](https://github.com/peter-neu)** and the **[OutdoorWatch](https://github.com/peter-neu/t-watch_ultra)** project.
+
+Star them, build their projects, THANK THEM.**
 
 Thanks also to LILYGO for the hardware, the [Meshtastic](https://meshtastic.org/) project, and the maintainers of LVGL, RadioLib, LilyGoLib, and the other libraries this firmware stands on.
 
-Additional inspiration and thanks to **[sacriphanius](https://gitlab.com/sacriphanius)** and the **[SCR-Terminal](https://gitlab.com/sacriphanius/scr-terminal)** project, and to **[peter-neu](https://github.com/peter-neu)** and the **[OutdoorWatch](https://github.com/peter-neu/t-watch_ultra)** project.
+
 
 ## License
 
