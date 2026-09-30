@@ -204,8 +204,9 @@ static void on_anim(lv_timer_t *)
 }
 
 // Clean up on ANY exit (swipe to Apps, swipe to the clock, or the auto-return
-// to the clock on dim) - not just one gesture. Powers the WiFi scanner back
-// down, saves the pet, stops the timers, so nothing leaks in the background.
+// to the clock on dim) - not just one gesture. Detaches the WiFi beacon
+// consumer (a no-op if HexHound never attached, and it never stops a scan that
+// another tool owns), saves the pet, stops the timers, so nothing leaks.
 static void on_unload(lv_event_t *)
 {
     s_active = false;
@@ -348,7 +349,14 @@ void pet_screen_show()
     if (!s_screen) pet_screen_create();
     hexhound_init();
     s_active = true;
-    wifi_beacon_add(pet_wifi_cb);   // power the scanner so we meet peers/APs live
+    // Feed on WiFi beacons only if a scan is ALREADY running (piggyback).
+    // HexHound must NEVER bring WiFi up itself: with radio coexistence enabled
+    // the BLE keepalive holds the internal SRAM, and a runtime WiFi.mode(STA)
+    // can hang the whole watch — which is exactly what froze the
+    // menu -> HexHound transition on open. The pet still evolves from BLE / NFC
+    // / detections / peers / handshakes (all fed in the background); the live
+    // WiFi survey is just a bonus whenever another WiFi tool is running.
+    if (wifi_beacon_active()) wifi_beacon_add(pet_wifi_cb);
     // Start the engine tick + idle animation (deleted again on exit, on_unload).
     if (!s_timer) s_timer = lv_timer_create(on_tick, 1000, NULL);
     if (!s_anim)  s_anim  = lv_timer_create(on_anim, 80,   NULL);
