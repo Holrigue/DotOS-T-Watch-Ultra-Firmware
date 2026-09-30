@@ -1,267 +1,51 @@
 # DotOS
 
-**DotOS** is a [Nothing OS](https://nothing.tech/)–inspired firmware for the LILYGO T-Watch Ultra: an ESP32-S3 smartwatch (AMOLED display, LoRa, GNSS, NFC, full sensor suite) reskinned around a monochrome-with-red **dot-matrix watchface**, a customizable glanceable dashboard, and a phone **health bridge** — all riding on the complete ARGUS security / RF toolkit and Meshtastic client underneath. It is a real daily-wear smartwatch (clock, alarms, calendar, phone **and watch-generated** notifications, health metrics) that keeps the full anti-surveillance / wireless-analysis suite one swipe away.
+**DotOS** is a [Nothing OS](https://nothing.tech/)–inspired firmware for the LILYGO T-Watch Ultra — an ESP32-S3 smartwatch (AMOLED, LoRa, GNSS, NFC, full sensor suite) reskinned around a monochrome-with-red **dot-matrix watchface**, a glanceable dashboard, and a phone **health bridge**, with the full ARGUS anti-surveillance / RF toolkit and a Meshtastic client one swipe away.
 
-> **DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), which is itself a fork of the phenomenal [`13:37` firmware by r3dfish](https://github.com/r3dfish/13-37).** The entire smartwatch core, the Meshtastic client, and the RF toolkit are their work; DotOS layers on the **Dot (Nothing-OS) watchface**, a **companion health app**, and a batch of daily-wear, notification and power refinements. Full credit and thanks to both — please star the originals ([ARGUS](https://github.com/h4d35x0/argus), [`13:37`](https://github.com/r3dfish/13-37)). See [Credits](#credits--acknowledgments).
+> **DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), itself a fork of the phenomenal [`13:37` firmware by r3dfish](https://github.com/r3dfish/13-37).** The smartwatch core, the Meshtastic client, and the RF toolkit are their work; DotOS adds the Dot watchface, the companion health app, and a batch of daily-wear / notification / power refinements. Please star the originals — see [Credits](#credits).
 
-## Highlights
+> 📖 Every screen, radio, protocol, pinout and hardware table in full detail lives in the **[Technical Reference](docs/REFERENCE.md)**. This README is the short version.
 
-**The DotOS layer**
+## Apps
 
-- **Dot watchface** — a Nothing-OS-style dot-matrix face (5×7 rasterised hours) alongside the classic Analog / Digital faces: red accent rail, compact date, live status glyphs, and interactive detection badges.
-- **Customizable data tiles** — two glanceable slots on the Dot face you pick yourself (sleep score, step goal, daily steps, BPM high/low, or a one-tap Meshtastic shortcut); they take over the row whenever the watch is off the charger.
-- **Tools ▸ Face** — live watchface customization: hour/date fonts, accent colour (Nothing palette), wallpaper, 12/24-hour, and date order, all persisted.
-- **Health bridge** — mirror sleep / steps / heart-rate from your phone (Health Connect) to the wrist over BLE via the [companion Android app](#companion-app), with opt-in background auto-sync.
-- **Battery-smart** — adaptive idle sleep + dim-time downclock, an AXP2101 charge policy (VINDPM brown-out guard, deep-discharge protection), and an opt-in **battery-longevity** charge target.
-- **Refined wake** — swipe-up-to-wake that arms 15 s after dimming, with a frosted "glass" hint; hardware buttons wake instantly.
+**Daily wear**
+- **Dot watchface** — Nothing-OS dot-matrix clock with a red accent rail, compact date, live status glyphs, and two customizable data tiles.
+- **Health** — sleep score, steps, and heart-rate high/low mirrored from your phone over BLE.
+- **Notify** — mirrors phone notifications to your wrist (iPhone via ANCS, Android via Gadgetbridge).
+- **Music** — local MP3/FLAC player that reads straight off the SD card, sorted by artist folder.
+- **Level** — digital bubble level (centre bullseye plus horizontal and vertical vials) using the accelerometer.
+- **Compass** — relative gyro heading with a Set-North pin (this board has no magnetometer).
+- **GPS** — GNSS fix, satellite count, coordinates, and automatic timezone.
+- **Alarm · Stopwatch · Timer · Calendar** — the timepiece hub, one swipe up from the clock.
+- **Map / GPX Track** — follow a GPX route live on the watch (optional SD map tiles); routes can be pushed from the phone (e.g. shared from Gaia GPS).
 
-**Inherited from ARGUS / `13:37`**
+**Mesh & radio**
+- **Meshtastic** — LoRa mesh client: messages, nodes, DMs, traceroute, position requests, and a slippy map.
+- **NFC** — read and write ISO 14443 / 15693 tags.
+- **TPMS · Pager · APRS** — receive tire-pressure sensors, POCSAG/FLEX pages, and LoRa-APRS frames.
+- **WiFi · Port Scanner** — survey and join networks, ping-sweep the LAN, and scan a host's ports.
+- **Analyze** — WiFi / BLE / LoRa spectrum analyzers.
+- **Wardriver** — logs WiFi APs and BLE devices with GPS to WiGLE-style CSV.
+- **Mouse · USB SD** — use the watch as a BLE trackpad, or mount its SD card to a computer over USB-C.
 
-- **Threat Radar** anti-stalking: correlates tracker / AP sightings against your GPS movement to score whether a device may be *following you*, with haptic + on-face alerts and a hashed warning broadcast to your Meshtastic group.
-- **Phone notifications** on your wrist from **iPhone (ANCS)** and **Android (Gadgetbridge)**, with a pop-up banner over the watch face. No companion app on iOS.
-- **Anti-surveillance detectors**: unwanted AirTags / Find My trackers, Flipper Zero, card skimmers, evil-twin APs, and surveillance vendors (Flock / Axon / Ring).
-- **RF toolkit**: WiFi survey + port scan, WiFi/BLE/LoRa spectrum analyzers, TPMS, POCSAG/FLEX pager, LoRa APRS, wardriving, WPA handshake capture, NFC read/write.
-- **Meshtastic** LoRa client: map, nodes, DMs, traceroute, channels.
-- **HexHound**, a gamified recon "pet" fed by your detectors.
+**Anti-surveillance**
+- **Threat Radar** — correlates tracker / AP sightings against your GPS movement to flag whether a device may be *following you*, with haptic and on-face alerts.
+- **Detectors** — separated AirTag / Find My trackers, Flipper Zero, card skimmers, evil-twin APs, surveillance vendors (Flock / Axon / Ring), and a nearby-phone Human Detector.
+- **HexHound** — a gamified recon "pet" that grows with the RF activity around you.
 
-## What DotOS adds
+### Offense mode (optional)
 
-DotOS keeps everything ARGUS / `13:37` do and adds a Nothing-OS-flavoured daily-wear layer on top.
+A PIN-gated **Offense** mode groups the RF-*transmit* tools. It is **off by default, not recommended, and provided only for authorized security testing on hardware you own** — enabled solely at the user's explicit consent. Details are intentionally kept out of this README.
 
-### Dot watchface
-
-- A third watchface (Settings ▸ face, or **Tools ▸ Face**), next to Analog and Digital. Hours render as a 5×7 dot-matrix raster (ARGB8888 in PSRAM) — the signature "Ndot" look — with a red accent rail that doubles as a step-goal progress bar, a compact date line, rasterised status glyphs (LoRa / SD / BT / WiFi / Wardriver / GPS), and the interactive detection badges.
-- **Customizable data tiles** — when the watch is unplugged, the idle USB dot line becomes two slots you choose: **Sleep score**, **Step goal**, **Daily steps**, **BPM (high/low)**, or a **Meshtastic** shortcut button. Tap an empty slot to pick, long-press to change; a choice can occupy only one slot. Persisted in NVS. Plugged back in, the charge/data wave reclaims the row.
-- **Consolidated unread badge** — a single red pill by the clock digits shows the combined phone + Meshtastic unread count.
-
-### Tools ▸ Face — live customization
-
-Pick and preview instantly: **hour font** (Dots / Montserrat), **date font** (Orbitron / Mono), **accent colour** (Red / White / Grey / Amber / Steel-blue), **wallpaper**, **time** (12/24-hour), and **date order** (DD/MM · MM/DD · YYYY-MM-DD · DD Mon). Everything persists across reboots.
-
-### Health
-
-The **Health** screen shows sleep score, step goal, stress, and heart-rate (highest / lowest over a recent window), with a "last sync" age and a swipe-up refresh. Values are pushed from the phone by the [companion app](#companion-app); a restored snapshot shows the last-known numbers (greyed as stale) until the next sync.
-
-### Notifications revamp
-
-The notification banner, list, and toggles are restyled to the face palette (white / red / black / grey — no steel-blue / green / orange), and incoming text is sanitised so emoji / unsupported glyphs no longer render as "tofu" boxes. The watch also raises **its own** notifications through the same pipeline — **Battery saver on** (≤ 20 %), **Battery critical** (≤ 5 %), **Battery full** — each edge-triggered so it fires once.
-
-### Power & battery
-
-- **Adaptive idle sleep** — when the UI is static the loop sleeps instead of spinning at 240 MHz; the core also drops to 80 MHz while dimmed (not just when the screen is off), restoring full clock the instant it wakes.
-- **AXP2101 charge policy** — a VINDPM input-voltage limit so a weak charger / thin cable throttles instead of browning out ("any charger, any wattage"), a sane input-current ceiling, and a system power-down threshold that protects the cell from deep discharge.
-- **Battery longevity** (Settings) — charge to 4.1 V for roughly double the cycle life instead of 4.2 V, at ~10 % less runtime.
-- **Milder haptics + refined wake** — a global vibration-intensity slider (default ~50 % of stock), and a swipe-up-to-wake gate that arms 15 s after the screen dims (a frosted "glass" hint; hardware buttons wake instantly).
-
-### Companion app
-
-[**ARGD-OS Dashboard**](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-) (Android, Kotlin / Compose) reads sleep / steps / heart-rate from **Health Connect** and pushes them to the watch over BLE — manually or on a background schedule (default every 15 min). iOS needs no app for phone notifications (ANCS); the health bridge is Android-only for now.
-
-**What it syncs:** sleep score, step count, and heart-rate high/low, written to the watch's **Health** screen. Nothing leaves the phone except to the watch over a direct BLE link — there is no cloud account and no server.
-
-**Install:** grab `app-debug.apk` from the app repo's [latest CI build](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-/actions) (Actions ▸ newest run ▸ **argd-os-dashboard-debug** artifact), or a tagged [Release](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-/releases) when one is published, then side-load it (enable "install unknown apps" for your browser/file manager). On first launch, grant **Nearby devices / Bluetooth** and the **Health Connect** read permissions it requests.
-
-**Pair & sync:**
-1. On the watch, open **Notify** and Enable a mode (this puts the watch in BLE-first Daily-wear mode and advertises the health service). The app can only discover the watch once a Notify mode is enabled — that is what advertises the BLE service.
-2. In the app, tap **Scan** — the watch shows up as **ARGUS Watch** (recognised by its service UUID, so it's found even when Android reports its name as "unknown"). Tap it to connect; the status reads **Ready** once the health characteristic is found. If the scan list is crowded or the watch is already OS-connected, tap **Reconnect saved watch** to connect straight to it by its saved address, no scan.
-3. Tap **Sync now** to push immediately, or leave **background auto-sync** on to push every 15 min via WorkManager.
-
-**Notify survives reboots automatically.** The enabled Notify mode and platform are saved to NVS and re-armed on boot ([src/device_mode.cpp](src/device_mode.cpp) `device_mode_restore_boot`), retrying for ~2 minutes so it wins even if the radio is briefly busy at startup. So a normal power-cycle needs no re-enabling.
-
-## Purchase
-
-The LilyGo T-Watch Ultra can be purchased from LilyGo [here](https://www.lilygo.cc/cpstlm). The US version uses the 915 MHz model.
-
-## Screens
-
-Screens are reached by swipe gestures, the power/back buttons, and the on-screen **Tools** grid (see **Radios** below for the button-navigation chains).
-
-### Watch Face & System
-
-- **Clock** — analog, digital, or the Nothing-OS **Dot** watch face (see [What DotOS adds](#what-dotos-adds)) with date, day, and battery; a status bar shows live LoRa, Bluetooth, WiFi, SD, and NFC indicators. A small red pill with the unread Meshtastic-message count sits to the immediate left of the LoRa icon whenever there are unread messages, so traffic is glanceable from the home screen. The digital readout uses a custom 96-px Montserrat subset font ([src/lv_font_montserrat_clock_96.c](src/lv_font_montserrat_clock_96.c), generated by [tools/gen_clock_font.py](tools/gen_clock_font.py)) so the digits stay sharp at the large size the round face uses, instead of being transform-scaled from the built-in 48-px font. While the watch is on USB power a white lightning bolt appears inside the battery outline: it breathes slowly while the cell is actually charging and holds steady once the charger has topped off, so "on the dock" and "on the cell" are never ambiguous. Three small status-indicator icons (alarm bell / running-stopwatch / running-timer) pack right-to-left in the bottom row next to the battery whenever the corresponding feature is active.
-- **Matrix background** — optional animated "digital rain" wallpaper. The bright head still slides through the tiled text without disturbing the chars.
-- **Settings** — brightness, analog / digital / Dot face, 12/24-hour, screen-dim timeout and dim level, vibration intensity, battery-longevity charge target, day/date/AM-PM/seconds toggles, haptic feedback, motion-wake (wrist-raise brightens the screen), a **Screenshot long press** toggle (see below), a **USB SD card reader** entry that mounts the card to a host over USB (the same screen the Tools grid reaches, but available in **every mode** including Daily, where the Tools grid is deliberately hidden), and a manual date/time picker that overrides automatic GPS/WiFi time sync. Persisted to `/Settings/settings.txt` on SD so the watch boots back into the same configuration. (The auto-detected timezone offset persists separately in `/Settings/timezone.txt` and survives reboots — see **GPS** below.)
-
-### Phone Notifications
-
-**Notify** (Tools tile) mirrors your phone's notifications to your wrist like a mainstream smartwatch: a banner pops up over the clock face, the watch buzzes, and every notification lands in a scrollable list. Because this board cannot run WiFi and BLE at once, enabling notifications puts the watch in a BLE-first **Daily-wear** mode (the WiFi tools pause until you disable it). The choice and platform persist across reboots.
-
-- **iPhone / iPad (ANCS)** uses Apple's built-in Apple Notification Center Service, so there is **no companion app**: pick **Apple (ANCS)** on the Notify screen, tap **Enable**, then pair "Argus Watch" from iOS Settings > Bluetooth. Works with the screen locked once paired at the system level.
-- **Android (Gadgetbridge)** works by advertising as an InfiniTime watch and receiving notifications over the standard **Alert Notification Service**, so the open-source [Gadgetbridge](https://gadgetbridge.org/) app (F-Droid) forwards them with nothing custom to install. Pick **Android (Gadgetbridge)**, Enable, then add the device in Gadgetbridge.
-- **One phone at a time** (single BLE connection): the paired phone auto-reconnects and holds the link, so to switch phones, turn Bluetooth off on the current one first.
-- **Clear** dismisses on the watch, and on iOS clears it on the phone too (ANCS action). A new notification also gives a single haptic buzz.
-
-### Time, Alarms & Timepieces
-
-- **TIME hub** — swipe **up** from the clock face to land on the timepiece hub, a 2×2 tile grid that opens **Alarm**, **Stopwatch**, **Timer**, and **Calendar**.
-- **Alarm** — single daily alarm with hour/minute rollers, an enable switch, a volume slider (0–100 %), and audio/vibrate/snooze options. When the configured local time hits, the watch loads a full-screen red ALARM overlay, plays the same doorbell two-tone chime (high 1200 Hz / pause / low 800 Hz / longer pause, looping) at the saved volume, and pulses the haptic motor every 1.5 s — for up to 5 minutes before auto-quieting. **DISMISS** stops it (no further fire today); **SNOOZE** stops the haptic now and re-fires after 5 / 10 / 20 minutes. Settings persist to `/Settings/alarm.txt`.
-- **Stopwatch** — start / pause / reset with millisecond resolution, lap recording (scrollable list, "No laps recorded" placeholder centred when empty). When counting, a green stopwatch icon appears on the clock face next to the battery.
-- **Timer** — countdown with HH / MM / SS rollers, six preset chips (1m, 5m, 10m, 30m, 1h, 5h), and a circular progress arc that depletes as the timer runs. Expiry pops a full-screen TIME'S UP overlay and **plays the same alarm chime at 100 % volume + the same haptic cadence**, regardless of the saved alarm volume — borrowed via the shared `alarm_play_chime_loop()` API so there's no duplicated audio code. When counting, a green timer icon appears on the clock face next to the battery.
-- **Calendar** — month-view grid with the current day highlighted; centred "TODAY" button jumps back to today after scrolling.
-
-### Music
-
-A local MP3/FLAC player (Tools ▸ Music), reading straight off the SD card —
-nothing to sync or transcode.
-
-**Folder convention:** put music at `/music/<Artist>/<anything>.mp3` or
-`.flac` on the card — **the folder name is the artist**. This is the whole
-tagging scheme: no ID3/Vorbis-comment parsing, so files with missing or
-garbled tags still show up correctly, and it's how most people already sort a
-music folder by hand. The track title shown is the file name without its
-extension. Nested sub-folders under an artist aren't walked in v1 — keep an
-artist's tracks directly inside their folder.
-
-Opening Music scans `/music` once per session (not at boot, so a watch that
-never opens it never pays the scan cost) and shows an alphabetical-ish list of
-artists — tap one for its tracks, tap a track to play. **Now Playing** has
-play/pause, previous/next (within that artist's list), a progress bar, and
-Stop; playback keeps running if you swipe back to browse, since it's driven by
-its own task independent of the screen. The alarm and timer chime share the
-same speaker output, so they take priority: starting one stops any playing
-track, and Music won't start while either is ringing.
-
-Decoding uses two vendored single-header libraries — [minimp3](https://github.com/lieff/minimp3)
-(MP3, CC0) and [dr_flac](https://github.com/mackron/dr_libs) (FLAC, public
-domain / MIT-0) — both permissively licensed to match this project's own MIT
-lineage; see `lib/minimp3/PROVENANCE.md` and `lib/dr_flac/PROVENANCE.md`.
-
-### Meshtastic & LoRa
-
-- **LoRa radio** — powers the SX1262 on/off and shows live stats: node ID, frequency, bandwidth, RSSI, channel activity, TX power, and packet count, plus a Boosted RX-gain option.
-- **Meshtastic** — joins the LongFast mesh by default, with optional private channels. Receives and decrypts incoming traffic, lists messages, distinguishes DMs from channel chatter, and surfaces per-packet link quality. **Portnums handled:** TEXT (1), POSITION (3), NODEINFO (4), TELEMETRY (67), ROUTING (70), NEIGHBORINFO (71). Each TEXT entry on the messages list shows sender + timestamp + body, plus a footer line `RSSI -75 dBm  SNR 8.5 dB  Hops 1/3` (hops traversed / hop_start from the OTA header). DMs addressed to our own node ID render with a purple tint + thick purple left border + `DM` prefix in the header so they're scannable in busy traffic. Incoming TEXT can trigger the haptic motor — see **Configuration** below for the split DM/broadcast toggles.
-- **Nodes** — scrollable list of every node we've heard a NodeInfo / Position / Telemetry / NeighborInfo from. Each card shows the short name in brackets, full node ID (`!d3adb33f`), last-heard time, long name, and every advertised detail field — ID string, hw_model, role, license flag, MAC, lat/lon, altitude, plus the full telemetry stack (battery%, voltage, uptime; temperature / humidity / pressure / lux / IAQ when the node has env sensors; CH1 V/A for nodes with power metrics) and the direct-radio neighbour list with per-link SNR. A short tap on a node row is a no-op so a careless touch never fires an RF probe or pre-targets a DM — all three actions live behind a long-press, which opens an **action chooser** with three buttons:
-  - **DM** — opens the Send Message screen pre-targeted at the node. The title bar re-titles from `SEND MESSAGE` (white) to `DM -> [SHRT]` (purple).
-  - **Trace** — fires a Routing-app traceroute (empty `route_request` + `want_response=1`). A floating result panel pops up showing `Trace -> [SHRT] !nodeId / Waiting... (Ns)`, then either `Direct neighbour`, the numbered hop list (`1. !abcd1234 / 2. !ef567890 / ...`), or `No response (30s)` if the deadline passes. Tap the panel to dismiss.
-  - **Pos** — fires a position request (empty Position payload + `want_response=1`) addressed at that node. The reply lands in the normal POSITION RX path and updates the node card; the chooser confirms with `Position request sent to !nodeId`.
-
-  An invisible full-screen backdrop sits behind the chooser, so tapping anywhere outside the three buttons closes the popup. Tapping the panel chrome between the buttons also closes it.
-- **Map** — slippy-tile map centred on the current GPS fix, inserted into the mesh swipe flow when 256×256 PNG tiles are present at `/map/<z>/<x>/<y>.png` on the SD card (the [Meshtastic UI tile layout](https://meshtastic.org/docs/configuration/device-uis/meshtasticui/)).
-  - **Zoom** — `+` / `−` round buttons at the bottom of the disc step through whichever zoom levels are actually present on the card (the firmware stats `/map/0` … `/map/18` on load and clamps to the range it finds).
-  - **Pan** — press and drag anywhere on the map to scrub the view. The first non-zero finger delta promotes the map out of GPS-follow mode; pixel deltas are converted to lat/lon shifts using the standard slippy-map projection (`360° / (256·2^z)` per pixel for longitude, `cos(lat)`-corrected for latitude). An asterisk on the info badge (`MAP z6 <lat>, <lon>  *`) indicates the view is no longer pinned to GPS. The red marker leaves the screen centre and floats to wherever the GPS coordinates project onto the panned view; it hides when the GPS position is off-screen.
-  - **Recentre** — third round button (GPS-pin icon, between the zoom buttons) snaps the map back to the live GPS fix and clears manual-pan mode.
-  - **Peer nodes** — every other node we've heard a POSITION from is plotted as a small blue dot with its short_name label below (or `xxxx` low-id hex if no NodeInfo yet). Dots track pan / zoom in sync with the tiles, cull off-screen, and re-render every 2 s tick. Tapping **Pos** on a node from the Nodes screen → reply lands → next map tick drops the dot at their reported location.
-  - **Drag vs. swipe** — both gestures coexist: press-and-drag pans, fast directional flicks still fire `LV_EVENT_GESTURE` for swipe-nav. The `PRESSING` events that feed `on_pan` during a swipe shift the view briefly, but the gesture handler clears `s_manual_pan` afterwards so coming back to the map snaps to GPS rather than leaving it permanently nudged.
-- **Send Message** — scrollable list of message-card buttons:
-  - Top card is a hardcoded preset (`Hello Meshtastic!`, never deletable).
-  - Middle cards are user-typed messages persisted to `/Meshtastic/custom_messages.txt` (one per line, 120-char max, capped at 8 entries, dedup against existing + preset, oldest shifts out at capacity).
-  - Bottom card is **+ Compose...** — taps reveal an `lv_textarea` + on-screen LVGL keyboard overlay. Keyboard READY sends, adds to the custom list, and persists; CANCEL just dismisses.
-  - Tap any card to send (broadcast or DM depending on how the screen was entered).
-  - Long-press a custom card opens a confirmation modal (`Cancel` / `Delete`) — the preset and Compose cards aren't deletable. Tapping outside the modal cancels.
-  - When pre-targeted via the **DM** button in the Nodes action chooser, the title bar re-titles from `SEND MESSAGE` (white) to `DM -> [SHRT]` (purple). DMs set `want_ack` in the OTA header so the recipient ACKs; the status label cycles `DM sending... !abcd1234` → `Delivered` (green) / `Sent - no ack received` (orange) / `NAK: MAX_RETRANSMIT` (red) as the response (or 30 s timeout) arrives. Broadcasts skip ACK and just read `Message sent` immediately. NAK reasons surface the full `Routing.Error` enum (NONE / NO_ROUTE / GOT_NAK / TIMEOUT / NO_INTERFACE / MAX_RETRANSMIT / NO_CHANNEL / TOO_LARGE / NO_RESPONSE / DUTY_CYCLE_LIMIT plus the 30s PKI / admin / rate-limit codes; unknowns fall back to `Err <n>`).
-- **Configuration** — settings live here and persist to `/Meshtastic/config.txt` on every change:
-  - **Long Name** / **Short Name** — text fields with on-screen keyboard, capped at 39 / 4 chars to match the Meshtastic User protobuf.
-  - **GPS** — read-only status icon (green check / red cross) reflecting GPS lock.
-  - **Broadcast Location** — toggle (locked until GPS gets a fix) that drives the periodic position broadcast.
-  - **Broadcast Interval** — dropdown: Once / 30 s / 2 min / 5 min / 10 min / 20 min / Hour (default: 2 min).
-  - **Rebroadcast Packets** — relay heard packets onto the mesh with `hop_limit` decremented; queued in a small ring and drained one per `bg_tick` with a 50–500 ms randomised backoff so multiple watches don't all collide retransmitting the same packet.
-  - **Vibrate on DM** / **Vibrate on Broadcast** — split per-message-type toggles for the haptic notifier; both default ON. Fires `instance.vibrator()` (DRV2605 effect) from the TEXT RX path, gated by which kind of message came in.
-  - **Announce Node** — toggle (default ON) that gates the periodic NodeInfo + Telemetry self-announce. Turning it off stops the watch from advertising its identity on the cadence below; the pending-fire trigger that runs once on radio activation and on any long/short-name change still fires regardless, so other nodes still see at least one announcement.
-  - **Announce Interval** — dropdown for the periodic-announce cadence: 1 minute / 5 minutes / 10 minutes (default) / 15 minutes. Auto-disabled when the toggle above is off. Toggling Announce off→on while the radio is up reseeds the timer so the first announce lands ~5 seconds later instead of after a full interval.
-  - **Channels >** — opens the Channels sub-screen. Four slots, slot 0 hardcoded LongFast (PSK fixed, but can be enabled/disabled), slots 1–3 user-defined. Each card shows the name + PSK preview + active marker; the enable switch toggles RX participation on that channel. Toggling ON an empty user slot auto-generates a random 16-byte AES-128 PSK + a default name (`Channel 1` / `Channel 2` / ...) so the slot is usable without leaving the screen. Tap a row → set as active outgoing TX channel (green border + `• active` suffix on the headline). Persisted to `/Meshtastic/channels.txt`; PSK editing in the UI isn't supported yet but the file is human-editable over USB-SD MSC for hand-pasting a friend's PSK or rename. AES-128 and AES-256 are both supported — 16-byte PSKs use AES-128, 32-byte PSKs use AES-256. Channel-hash dispatch on RX walks every enabled slot looking for a `channel_hash` match in the OTA header (byte 13).
-
-**Persistence files on the SD card:**
-- `/Meshtastic/Messages/<timestamp>.txt` — one file per received TEXT (sender, time, body).
-- `/Meshtastic/Nodes/!<nodeid>.txt` — one file per node, enriched in place across NodeInfo / Position / Telemetry / NeighborInfo packets.
-- `/Meshtastic/config.txt` — long/short name, broadcast/rebroadcast/interval, vibrate-DM/broadcast, announce on/off + announce-interval index.
-- `/Meshtastic/channels.txt` — active channel index + slots 1-3 name/psk_hex/enabled.
-- `/Meshtastic/custom_messages.txt` — one line per typed preset added via Compose.
-
-**TX side, periodic broadcasts:** the bg-tick loop sends a NodeInfo + Telemetry (DeviceMetrics with battery % + uptime) pair at the **Announce Interval** chosen in Configuration (default 10 minutes; gated by the Announce Node toggle, default ON), plus a Position broadcast at the configured **Broadcast Interval** (when GPS has a fix and **Broadcast Location** is on). The watch also **responds** to inbound traceroute requests (Routing field 2 `route_request` addressed at us → reply with empty `route_reply` bound to the original packet's request_id) and position requests (empty Position payload addressed at us → reply with current GPS coords).
-
-The mesh screens are wired into a single swipe chain off the clock face: swipe right from the home clock to enter **Meshtastic**, then keep swiping right through **Nodes → Send Message → Map → Configuration** (the Map is omitted when there are no SD-card tiles to render). Swipe left at any point to step back through the chain to the clock. The Channels sub-screen is reached from a `Channels >` link card on the Configuration screen; swipe left returns to Configuration.
-
-### Navigation
-
-- **Compass** — a **relative** gyro heading. The T-Watch Ultra's BHI260AP is a 6DoF IMU (accel + gyro) with **no magnetometer**, so a true magnetic-north compass is physically impossible on this board. Instead the screen uses the `GAME_ROTATION_VECTOR` virtual sensor (the one that actually reports on 6DoF hardware) plus a **SET NORTH** button: press it while facing a known direction to pin the dial's north, and a red needle then tracks your turning relative to that pin. With no magnetometer to correct it the heading drifts slowly over minutes — re-press SET NORTH when it wanders. A fixed N/E/S/W ring stays put; the needle rotates. The sensor is powered on only while this screen is open. **Needle rotation direction is unverified on real hardware**; if it turns the wrong way, it's a one-line sign flip in `compass_screen.cpp`.
-- **GPS** — u-blox GNSS fix status, satellite count, and coordinates, with automatic time-zone selection from longitude. The longitude-derived UTC offset is **DST-aware for North-American zones**: when the live fix resolves to UTC-5 through UTC-8 (US Eastern through Pacific) and the date falls inside the US daylight-saving window (second Sunday of March through first Sunday of November), an extra `+1` hour is applied so the clock reads PDT/MDT/CDT/EDT during summer. Outside that window (or outside the US bands) the raw longitude offset stands. Arizona / Hawaii / non-US users in those longitudes can flip **Manual Time** in Settings to override.
-  - **Persisted across reboots** — the detected UTC offset is saved to `/Settings/timezone.txt` and restored on boot, so the watch shows correct local time *immediately* after a restart without waiting for a new fix. The RTC is battery-backed and holds UTC, so `RTC + saved offset` = local time on power-up. The persisted value updates whenever a fresh offset is detected.
-  - **WiFi auto-sync** — whenever the watch associates with a WiFi network, a background task sets the timezone the same way a GPS lock does, no menu needed: **NTP** (`pool.ntp.org`) re-syncs the RTC's UTC, and an **IP-geolocation lookup** ([ip-api.com](http://ip-api.com), which returns the current DST-aware UTC offset) updates and re-persists the offset. This keeps local time correct indoors / without a sky view. *(Privacy note: the geolocation request sends the watch's public IP to ip-api.com; it only fires while connected to WiFi.)* **Manual Time** suppresses both GPS and WiFi sync entirely.
-
-### Radios
-
-These are the per-radio status screens stepped through by short-pressing the power button (forward) or pressing the boot button (back). Each has the same layout: title + on/off toggle + live data table.
-
-- **WiFi radio screen** — toggles the WiFi radio between `WIFI_OFF` and `WIFI_STA`. Live table: Mode (Station / AP / OFF), MAC, channel, SSID, IP, RSSI, TX power. Self-reconciling — the toggle reflects the actual radio state every second even if another module (the WiFi tools scanner, evil twin, etc.) brings the radio up or down outside this screen's control. Not to be confused with the **WiFi** Tools tile, which is the site-survey/scanner UI.
-- **Bluetooth radio screen** — toggles the BLE controller via the shared, reference-counted `ble_scan_manager`, so the radio stays up as long as any module (this screen, the wardriver, AirTag, Flipper, Skimmers, Flock) is still using it. Live table: Mode (BLE — ESP32-S3 has no Classic), Status (Idle / Inited / Enabled / Scanning), MAC, TX power, **Active Scans** count, scan type (Passive), Connections (0 — no GATT server exposed).
-- **Power-button rotation** (short-press the side button) walks two chains forward:
-  - **Radio chain:** Clock → GPS → LoRa → WiFi → Bluetooth → NFC (terminus).
-  - **Meshtastic chain:** Messages → Nodes → Send Message → Map (when SD-card tiles exist) → Configuration (terminus). From any of those five screens, power-button = swipe-RIGHT, so navigation by gesture or by button gives the same result.
-  - From **Settings**, the power button returns to **Clock**.
-- **Boot button** (GPIO 0) walks the same chains in reverse:
-  - **Radio chain back:** NFC → Bluetooth → WiFi → LoRa → GPS → Clock.
-  - **Meshtastic chain back:** Configuration → Map → Send Message → Nodes → Messages → Clock. (boot-button on Configuration commits any in-flight edits to `/Meshtastic/config.txt` before stepping back.)
-  - From **Settings**, boot returns to **Clock** (same as power button).
-  - From the clock screen, boot opens **Settings**.
-  - Holding the boot button while leaving any of the three analyze screens explicitly **tears down the analyzer and restores the prior radio consumer** (see Analyze, below).
-
-### NFC
-
-- **NFC Read** — scans ISO 14443 / 15693 tags and dumps their contents. Holds the **NFC power toggle** (DLDO1 rail) shared by both NFC screens — flip it on here before reading or writing.
-- **NFC Write** — writes an NDEF record to an ISO 14443 **Type A** tag (NTAG / Mifare Ultralight, NFC Forum Type 2 / Type 4A). Pick the record **Type** from a dropdown and the form adapts:
-  - **Text** — free text with a language-code field (defaults to `en`), written UTF-8.
-  - **URL** — a URI record with a prefix dropdown (`https://`, `http://`, `https://www.`, `http://www.`, or `(none)`) auto-prepended, so you only type the rest of the address.
-  - **Phone** — a `tel:` URI; the value field switches to a numeric keypad.
-
-  Enter the value on the on-screen keyboard (up to 240 characters), tap **Write**, then hold a tag to the back of the watch. Tags with no NDEF area yet are **auto-formatted** before writing. The status line tracks progress and result — `Tap a card to write…` → `Written successfully`, or errors such as `Tag not NDEF-capable`, `Encode failed`, or `Write failed` — and the **Write** button toggles to **Cancel** while it waits for a tag (1 s discovery polls, repeated until a tag appears or you cancel). NFC must be powered on first (the toggle on the **NFC Read** screen), otherwise you get `Enable NFC first`. Boot button returns.
-
-### Tools — RF & Wireless Utilities
-
-- **TPMS** — receives **433.92 MHz** tire-pressure sensors and shows pressure, temperature, battery, and alarms on a 2×2 wheel layout. Sensor IDs, pressure (PSI), and temperature (°C) are tracked per wheel slot (T1–T4), with the oldest slot recycled when a fifth distinct sensor appears. Decoding is validated against [Mayhem](https://github.com/portapack-mayhem/mayhem-firmware) (PortaPack) as the reference transmitter. **433 MHz only:** the SX1262 tunes 150–960 MHz, but the watch's antenna/matching are tuned for the LoRa bands (433/868/915), so 315 MHz receive is buried in noise — measured noise spikes (~−85 dBm) exceeded even a point-blank signal (~−90 dBm), i.e. negative SNR. 315 RX was investigated and dropped from the selector. (This means **US-market TPMS sensors, which are predominantly 315 MHz, can't be received** on this board — a hardware limitation, not a firmware one. 315 *transmit*, e.g. Tesla CP, is unaffected since TX works close-range despite the mismatch.)
-  - **Schrader FSK (FLM_64 / FLM_72 / FLM_80)** — 19.2 kbps NRZ FSK, Manchester pre-encoded (chip pair `10` = 1, `01` = 0), MSB-first, no sync byte. The SX1262 is configured for fixed-length FSK RX with a `0x55` preamble sync; software then scans even chip offsets to locate and Manchester-decode the payload. All three variants share `d[0]` = flags (`0x80`) and a 24-bit sensor ID stored **right-shifted by one bit** (the watch left-shifts it by 1 to match Mayhem's displayed ID). Field layout differs by length:
-    - **FLM_64** (8 bytes): ID `d[1..3]`, pressure `d[4]`, temp `d[5]`, checksum `d[7]` = `sum(d[0..6])`.
-    - **FLM_72** (9 bytes): ID `d[1..3]`, status `d[4]`, pressure `d[5]`, temp `d[6]`, checksum `d[8]` = **`XOR(d[0..7])`**.
-    - **FLM_80** (10 bytes): one extra byte after the flags shifts every field down a slot — ID `d[2..4]`, pressure `d[6]`, temp `d[7]`, checksum `d[9]` = **`XOR(d[0..8])`**.
-    - Conversions: `pressure_kPa = raw × 8 / 3`, `temp_°C = raw × 5 / 8`. A plausibility gate (pressure raw 30–220, temp raw ≤ 160) plus the checksum rejects the ±1-bit-misaligned false matches that otherwise show up as exactly doubled or halved readings.
-  - **Schrader OOK** — 8192-baud OOK, 37 Manchester-decoded data bits. The SX1262 has **no hardware OOK**, so a FreeRTOS task on core 0 puts the radio in wide-band FSK continuous-RX and polls instantaneous RSSI, slicing each chip against a noise floor calibrated at startup **+10 dB** (the margin must clear the RSSI variance, or carrier-off chips read as 1 and Manchester decode fails). Capture is paced at the chip rate and ends on 16 consecutive silent chips; the decoder brute-forces every chip offset and relies on the 2-bit Mayhem checksum, so it tolerates the preamble/sync jitter inherent to RSSI sampling. **Verified decoding** against Mayhem (correct sensor ID recovered), but note RSSI slicing has **no processing gain** (unlike the hardware FSK demod used for the FLM formats): the carrier-on level must sit well above the noise floor. A strong/near signal — including real Schrader TPMS sensors — decodes reliably; a weak test transmitter near the noise floor decodes only intermittently (timing drift accrues across the packet faster than a marginal signal can be sliced cleanly). This is signal physics, not a decoder limit.
-  - **GMC_96 OOK — not supported.** GMC's 76-bit / ~240-chip packet is roughly twice the length of Schrader's, and RSSI polling on the SX1262 tops out at ~51.6 µs per read (≈ 2.3 samples per 119 µs chip). That sample grid is too coarse to resolve 8400-baud chip boundaries over a packet this long — even the plain alternating preamble fails to reconstruct cleanly — so GMC was investigated and deliberately dropped. Decoding it would require hand-rolled fast-SPI RSSI reads to raise the sample rate, which isn't implemented.
-  - Like the other SX1262 consumers, TPMS yields the radio to the LoRa screen, APRS, and pager; the Analyze screen snapshots and re-arms a running TPMS scan on entry/exit.
-- **Pager** — decodes POCSAG (512/1200/2400 bps) and FLEX paging traffic on a selectable frequency, with a multi-channel **SCAN ALL** mode that hops through 23 preset US VHF/UHF and 900 MHz NPCS pager channels and dwells longer on any channel that fires the sync detector. Every received page is also appended to `/Pager/<timestamp>.txt` on the SD card with capcode, function, mode, freq, RSSI, and body. The **TX** button opens a centred transmit modal:
-  - **Capcode constraints** — digits only, **1 – 2,097,151** (a 21-bit pager address, same range for both POCSAG and FLEX encoders). The text field is capped at 7 characters; values above 2,097,151 are typeable but the encoder rejects them with a "Failed" status. `0` and empty are caught by the UI with "Bad capcode" / "Need capcode" before TX is attempted.
-  - **Message body** — up to 40 alphanumeric characters (one POCSAG batch holds ~30 alpha chars across 15 codewords; the 40 cap leaves a little headroom). Leaving it blank in POCSAG mode sends a tone-only page (`PFUNC_TONE`); the field is ignored for tone pages. FLEX always sends as alphanumeric.
-  - **TX frequency** — picked from a dropdown (`Custom...` + 8 common pager presets covering VHF, UHF, and 900 MHz NPCS) or typed directly into the numeric MHz field beside it. The field is the source of truth; picking a preset auto-fills it. Range-checked against the SX1262's **150 – 960 MHz** tuning window before TX is attempted, so out-of-range values get a clean `"Freq must be 150-960 MHz"` UI error instead of `Failed (err -12)`. After TX the radio re-resumes RX on whatever channel was active before, **not** the TX freq, so receiving is uninterrupted.
-  - **Mode** — chosen via the four mode buttons on the pager screen itself (512 / 1200 / 2400 bps POCSAG, or FLEX 1600). The TX modal uses whichever is currently selected.
-- **APRS** — LoRa APRS on 433.775 MHz: receives and decodes APRS frames (shown live and appended to `/APRS/received.txt` on the SD card) and transmits a GPS position beacon under a user-set callsign. Uses the 70 cm LoRa-APRS standard, since the SX1262 cannot reach the 144 MHz VHF APRS band.
-- **Tesla CP** — transmits the static OOK charge-port-open ("fuel door") signal on **315 MHz** (US RKE band) or **433.92 MHz** (EU / JP / AU / rest-of-world) — pick the region from the two-button selector on the screen. Same payload either way; the carrier changes. The signal is the one publicly catalogued in the Flipper Zero community as `Tesla_Charge_Port.sub` — a 24-byte payload (preamble + sync + data envelope) repeated 5× per tap, ~150 ms of airtime. The SX1262 has no native OOK mode, so the burst is driven as low-deviation (±10 kHz) FSK at 2.5 kbps; the narrow-band 315 MHz receiver in the vehicle treats the shifted carrier as continuous signal during "1" bits and silence during "0" bits, which is functionally OOK from its side. The Tools tile opens a dedicated screen with one big red **OPEN CHARGE PORT** button — never a fire-on-tap tile, so the transmit is always deliberate. The button auto-disables (with a status-line explanation) whenever the LoRa screen, APRS, or pager is holding the SX1262, so there's no contention between radio users. **Only works against pre-2022.20 firmware:** Tesla added cryptographic authentication to the charge-port command around that release, and recent vehicles ignore the static signal entirely. For use against your own vehicle or in authorized security testing — the screen says exactly that on its disclaimer line.
-- **Mouse** — advertises the watch as a Bluetooth (BLE HID) mouse; the touchscreen becomes a trackpad for a paired computer.
-- **USB SD** — exposes the microSD card to a host computer as a USB Mass Storage device over the USB-C port, so files can be read and written directly without removing the card. SD-card logging is paused while mounted.
-- **AirTag Sniffer** — passive BLE detector for **separated Apple Find My trackers** (the anti-stalking case), *not* the whole Find My network. It matches Apple manufacturer data (company `0x004C`) with the Find My / "offline finding" subtype `0x12` **and** the AirTag lost-mode signature: payload-length byte `0x19` (25-byte payload) on a record of at least 29 bytes. That length check is the whole point — bare `0x12` is broadcast by *every* Apple device participating in Find My (iPhones / iPads / Macs in owned mode, AirPods / Beats, Apple Watch when separated, and third-party accessories), which buries the count in any populated area. The lost-mode length narrows it to trackers **separated from their owner** — i.e. a tag potentially following *you*. This still catches AirTag-shaped third-party Find My trackers (Chipolo Spot, Pebblebee, Belkin, …) in the same separated state, which is what the screen is really trying to surface. Same-MAC hits are dedup'd for 5 minutes. Detection runs through the shared BLE scan manager, so it coexists with the **Wardriver** (which feeds hits in automatically), **Flipper**, and **Skimmers**; the tile turns green while scanning. Each new hit is appended to `/AirTag/discovered.txt` on the SD card with RTC timestamp, MAC + address type, RSSI, the Find My subtype + length, the raw Apple payload (hex), and the current GPS fix when available. While the count is greater than zero, a white-disc badge with the running count appears on the home-screen scan-indicator row.
-- **Flipper** — passive BLE detector for Flipper Zero devices, matching on **two** signals so it catches custom firmwares too: (1) a complete- or shortened-local-name beginning with `Flipper ` (the stock-firmware advertised-name prefix), **or** (2) the Flipper BLE **service UUID `0x3082`** in the advertised 16-bit-UUID list. The second signal is what catches forks like **Momentum / Xtreme / Unleashed**, which let the user randomize the BLE name to dodge `Flipper ` name matching — they still advertise the service UUID, so the match holds regardless of name (verified against a Momentum unit advertising as "Wankiand", detected via the UUID alone). The tile turns green while detection is running — same affordance as the AirTag tile — and detection coexists with the **Wardriver** so toggling both runs them in parallel through the shared BLE scan manager. When the SD card is mounted (and not exposed over USB Mass Storage), each new hit is appended to `/Flipper/discovered.txt` with the RTC timestamp, MAC + address type, RSSI, advertised name (or `(uuid 0x3082)` for a nameless UUID-only match), and current GPS lat/lon/altitude if the GPS has a fix. Hits are dedup'd by MAC for 5 minutes to keep the log readable. While the count is greater than zero, a small orange dolphin indicator with the running count appears on the home screen next to the AirTag indicator.
-- **Skimmers** — passive BLE detector for card skimmers, following the heuristic from the [ESP32Marauder card-skimmer wiki](https://github.com/justcallmekoko/ESP32Marauder/wiki/detect-card-skimmers): the cheap HC-series Bluetooth modules these devices are built around almost always ship with one of three default names (`HC-03`, `HC-05`, `HC-06`) and the people building skimmers tend not to bother renaming them. The detector matches advertised complete- or shortened-local-name with any of those prefixes; same-MAC hits are dedup'd for 5 minutes. Detection runs through the shared BLE scan manager, so it coexists with the **Wardriver** (which feeds hits in automatically) and with **AirTag** / **Flipper**. Each new hit lands in `/Skimmers/discovered.txt` on the SD card with RTC timestamp, MAC + address type, RSSI, advertised name, and current GPS fix when available. While the count is greater than zero, a red **SK N** badge appears on the home-screen status row next to the Flipper indicator. Note: HC-0x clones are dual-mode (BR/EDR + BLE); pure-Classic-only modules aren't visible to a BLE-only scan. False positives are mostly hobby projects that left the default name on the module — context usually tells.
-- **Human Detector** — passive BLE proximity heuristic for "is someone with a phone near me right now", as distinct from AirTag/Flipper/Skimmers above (which each answer "is *this specific device* following me"). Matches the manufacturer/service signatures phones and wearables broadcast constantly — Apple Continuity (company `0x004C`, any sub-type except `0x12`/Find-My, which AirTag already owns), Google Fast Pair (16-bit service UUID `0xFE2C`), and Microsoft Swift Pair (company `0x0006`) — gated to a strong RSSI (≈ within a couple of metres for typical BLE TX power) so far-away/ambient traffic doesn't count. The tile's badge shows a **live** count of devices inside a rolling 30-second "nearby now" window, not a cumulative tally since the detector was turned on. Detection runs through the shared BLE scan manager alongside the other detectors and the Wardriver. Each fresh sighting (re-logged at most every 5 minutes per MAC) is appended to `/HumanDetector/discovered.txt` with RTC timestamp, MAC + address type, RSSI, and GPS fix when available. **Known v1 rough edge:** the −70 dBm proximity threshold is a rough estimate, not calibrated against this watch's antenna — a real-hardware pass may need to tune it. Deliberately does **not** feed the Threat Radar correlation store (that answers a different question — see above); it also doesn't yet have a Dot-face quick-glance badge like the other five detectors, since that row's positions are pixel-tuned against `dotface_final.svg` and this session has no way to verify a sixth slot visually (no device, and the Dot face isn't built in the simulator).
-- **WiFi** — site survey of nearby networks, association to a chosen SSID (on-screen keyboard for the password), and an ICMP ping sweep of the local /24. **Saved passwords:** a network you connect to is remembered in `/Settings/wifi_passwords.txt` (one `SSID=password` per line, hand-editable over USB-SD), so tapping a known network reconnects without re-typing; unknown networks still prompt. Discovered devices (IP, RTT, MAC where available) are listed live and written to `/PingSweeps/sweep_<timestamp>.txt` on the SD card. After the sweep finishes a four-pass **hostname resolver** runs against each discovered host: **mDNS** (`.local` query on 224.0.0.251:5353), **NetBIOS NBSTAT** (UDP 137), **DNS PTR** (reverse-lookup via the gateway's DNS), and **OUI vendor lookup** (built-in ~90-entry table of common consumer OUIs). The status line reports per-pass hit counts so it's obvious which protocol(s) yielded names. Devices whose MAC has the locally-administered bit set (most modern phones do MAC randomization) are tagged "rand-MAC" so absence of a hostname doesn't read as a missing scan. Each host card is **tappable** — opens the Port Scanner with that IP pre-filled.
-- **Port Scanner** — TCP / UDP / banner-grab scanner reachable from a tap on any discovered host in the WiFi ping-sweep results. Three independently-selectable technique toggles at the top: **TCP Connect** (full three-way handshake; reports open / closed), **UDP** (open|filtered is suppressed — only confirmed-open ports are shown), and **Banner** (grabs the first ~256 bytes of any open TCP port). Selected techniques run in parallel where they share a probe (TCP + Banner coalesce into one connect attempt per port). Three preset port-range buttons (common 22/80/443 etc., top-100, top-1000) plus a custom range. Results stream live and are written to `/PortScans/<host>_<timestamp>.txt`.
-- **Analyze** — three paired spectrum analyzers sharing the same visual style. Opens on the **WiFi** view, which hops promiscuous-mode capture across 2.4 GHz channels 1–13 and renders a 13-bar utilisation chart (bar height = pps, bar colour = saturation, status line flags the quietest/busiest channels). Swipe **left** to the **Bluetooth** view: a live BLE scan groups unique devices into eight RSSI bands (−30 dBm → far) and shows how crowded each band is, with the strongest BD_ADDR called out in the status line. Swipe **left** again to the **LoRa** view: the SX1262 sweeps RSSI across the selected sub-GHz ISM band (915 MHz US, 868 MHz EU, or 433 MHz — tap the band button to cycle) and renders a 13-bin RSSI chart with the peak frequency surfaced in the status line. Swipe **right** to step back through the chain; the boot button returns to Tools and tears down whichever radio that view was using. The LoRa analyzer in particular **snapshots the prior SX1262 consumer** (pager / TPMS / APRS — whichever was running) on entry and re-arms it on exit, so opening the analyzer mid-pager-scan doesn't silently drop you off the scanner.
-- **Wardriver** — logs WiFi access points and BLE devices with GPS coordinates to a CSV file on SD (WiGLE-style). Each capture session holds up to **10 000 unique devices** (WiFi + BLE combined) in a 32 768-bucket hash table allocated in PSRAM, sized for a 0.5 load factor so MAC lookups stay fast. When a session reaches the cap, the wardriver does an automatic **session rollover** — it final-flushes the filled session to its current CSV at `/Wardrive/<timestamp>.csv`, opens a fresh timestamped CSV with the WiGLE header, zeroes the in-RAM table, and resumes capture without stopping the radios. The home-screen WiFi/BT badge tracks the **cumulative** device count across rolled sessions, so it keeps climbing past 10 000; each individual `/Wardrive/*.csv` is a self-contained, post-processable WiGLE file for one session. A new session is also started whenever you toggle the wardriver off and on, or boot the watch. The WiFi capture path also feeds an inline **evil-twin detector** (see below).
-- **Evil-twin detection** — running passively inside the wardriver. The detector watches WiFi beacons and flags **same-SSID / different-auth** conflicts: when one BSSID has been broadcasting an SSID under (e.g.) `[WPA2-PSK-CCMP][ESS]` and a second BSSID appears with the same SSID under a different mode like `[ESS]` (open), that's the classic impostor-AP pattern used for credential harvesting and DNS interception. Mesh extenders and enterprise rollouts (same SSID, same auth, many BSSIDs) are explicitly **not** flagged, so the noise floor stays low. Each conflict is written to `/EvilTwin/discovered.txt` on SD with the RTC timestamp, the SSID, both BSSIDs and their auth strings (legit + rogue), RSSI, channel, and the current GPS fix when one is available. Per-(SSID, rogue-BSSID) hits are dedup'd for 5 minutes so a single rogue radiating continuously doesn't fill the log. While the count is greater than zero, an orange "ET N" badge appears in the home-screen scan-indicator row between the Flock warning and the AirTag indicator.
-- **Flock Detector** — flags nearby surveillance hardware (Flock Safety, Axon, Ring) by matching BLE/WiFi MAC OUIs; runs alongside the scanners and shows a count on the watch face.
-- **HexHound** — a gamified cyber-recon "pet" that lives on the watch and is fed by your detector activity (WiFi/BLE hits, NFC reads, GNSS). It hatches and grows through stages (egg to pup to beast) the more RF activity ARGUS surfaces around you, so it doubles as a glanceable proxy for how busy the environment is.
-- **Pwn** — passive WPA handshake capture. Sniffs 802.11 management / EAPOL frames to grab 4-way handshakes for offline auditing of networks you are authorized to test. Toggling the tile arms the passive capture; it coexists with the other WiFi-scan consumers via the shared piggyback pipeline.
-
-### Threat Radar — anti-stalking
-
-The flagship defensive feature, on the **Radar** tile. Threat Radar correlates every confirmed detector hit (AirTag / Find My tracker, Evil Twin, Flipper, Flock, Skimmer) against your live GPS fix and asks one question: *is this device following me?* A MAC seen at a single spot is ambient; a MAC whose sightings spread across many waypoints as you move is scored **Possible -> Likely -> Confirmed** tail. It runs continuously in the background, fed by all five detectors and the wardriver.
-
-- **On-face alerts** - a **Likely** tail fires a distinctive triple-pulse haptic, raises a badge on the watch face and writes an evidence record to SD; every live status icon flips to HADES-red at the same threshold. The alert is edge-latched per contact, so one tail buzzes once rather than on every advert.
-- **Counter-tail (vehicular)** — persistent ambient BLE/WiFi that co-moves with you (a car radiating infotainment / TPMS / hotspot) is promoted to a `VEHICLE` contact, with a learned "familiar = your own car, seen with you on 2+ days" suppression designed to keep your daily driver from crying wolf.
-- **Mesh reputation** — when a tail hits Confirmed, ARGUS broadcasts a hashed tracker fingerprint over Meshtastic (`TRFLAG|<hash>|<cat>`) so your whole group is warned; peers fold the hashes into a local reputation store, escalation logged to `/Settings/threat_log.txt`.
-
-**Field status: partially validated, and the split matters.** The scoring and threat-decay logic is implemented and covered by the host unit-test suite. Beyond that:
-
-- **Validated in the field.** On 2026-07-30 the ladder ran end to end against a real Find My tracker co-moving on an outdoor drive, reaching **Likely** across 21 waypoints and roughly 7.5 km of displacement. Likely is the threshold that fires the haptic, the face badge and the red accent, so that alert path is field-proven rather than only unit-tested. A separate session confirmed the threat-level decay behaves over a real drive (2 transitions in 110 minutes, no strobing).
-- **Not yet observed in the field: `Confirmed`.** The highest level recorded against a real tracker so far is Likely. Confirmed requires ≥4 waypoints, ≥1500 m displacement and ≥18 minutes of sustained co-movement *together* ([`threat_radar.cpp`](src/threat_radar.cpp)), so the Confirmed-gated Meshtastic broadcast remains unproven outside unit tests.
-
-Treat every verdict as a prompt to look around, not as proof. Expect both misses and false positives - dense enterprise APs, vendor-default SSIDs and devices riding in your own car are all known to produce them.
-
-### What ARGUS keeps, and for how long
+## What ARGUS keeps, and for how long
 
 ARGUS is an anti-surveillance tool, so it owes you a straight answer about its
-own data. Every detector above writes a record to the SD card when it first
-alerts on a contact: `/AirTag`, `/Flipper`, `/Skimmers`, `/EvilTwin` and
-`/ThreatRadar` each keep a `discovered.txt`, and `/Flock` keeps one file per
-hit. A record holds a timestamp, the device's MAC, signal details, and your
-position **rounded to roughly 110 m** (not the full-precision fix, which is
-used for detection but never written).
+own data. Every detector writes a record to the SD card when it first alerts on
+a contact: `/AirTag`, `/Flipper`, `/Skimmers`, `/EvilTwin` and `/ThreatRadar`
+each keep a `discovered.txt`, and `/Flock` keeps one file per hit. A record
+holds a timestamp, the device's MAC, signal details, and your position
+**rounded to roughly 110 m** (not the full-precision fix, which is used for
+detection but never written).
 
 **Those records expire.** Retention is capped at **30 days** and **300 entries
 per log**, oldest evicted first. The window is enforced every time a record is
@@ -281,390 +65,32 @@ detection is a 32-bit hashed tracker fingerprint on the Meshtastic mesh when a
 tail reaches Confirmed, and only when the mesh is up. Position is never
 broadcast unless you turn on **Broadcast Location**, which defaults to off.
 
-### Screenshot
+## Companion app
 
-- **Screenshot long press** — opt-in via the toggle in **Settings**. While on, holding any point on any screen for **≥ 3 seconds** captures the active screen and writes it to `/Screenshots/YYYYMMDD-HHMMSS.bmp` on the SD card. A short haptic blip confirms the capture. The toggle is automatically greyed out and forced off whenever the SD card isn't writable (no card mounted, or USB-SD has the card claimed) — the moment the card comes back the toggle re-enables itself (the user's saved on/off preference isn't overwritten during the unavailable window). The file is a 16-bit BMP with `BI_BITFIELDS` masks for RGB565, so the pixels are written directly from `lv_snapshot_take()` with no per-pixel conversion — capture latency is ~100–300 ms depending on SD speed.
+[**ARGD-OS Dashboard**](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-) (Android, Kotlin / Compose) reads sleep / steps / heart-rate from **Health Connect** and pushes them to the watch, relays phone notifications, and can push a GPX route to the watch — over a direct BLE link, no cloud. iOS needs no app for notifications (ANCS); the health bridge is Android-only for now.
 
----
+## Hardware
 
-## Processor & Memory
+LILYGO T-Watch Ultra: an **ESP32-S3** with a **2.06″ AMOLED**, **LoRa (SX1262)**, **GNSS**, **NFC**, a **6-axis IMU** (accel + gyro, no magnetometer), and a **1100 mAh** battery. It can be bought from [LilyGo](https://www.lilygo.cc/cpstlm) (the US version is the 915 MHz model).
 
-| Parameter | Value |
-|-----------|-------|
-| SoC | Espressif ESP32-S3 (dual-core Xtensa LX7) |
-| Flash | 16 MB (QSPI, external) |
-| PSRAM | 8 MB (QSPI, external) |
-| Wi-Fi | 802.11 b/g/n |
-| Bluetooth | 5.0 |
+**Screen — pixels and corners to consider.** The firmware renders to a full **410 × 502** framebuffer, but the round watch case masks it to a **~410 px circle**: the centre (about a 290 × 290 px square) is always safe, while the **top and bottom strips (~46 px each)** and the **corners** of any full-width element sit behind the bezel. Only ~64 % of the framebuffer is actually visible, so keep essential UI inside the disc.
 
----
+Full pinouts, power channels, the component list, radio bands, power-consumption figures, and the exact visible-area geometry are in the [Technical Reference](docs/REFERENCE.md#display).
 
-## Display
+## Build & flash
 
-| Parameter | Value |
-|-----------|-------|
-| Size | 2.06 inch AMOLED |
-| Reported resolution | 410 × 502 pixels (rectangular framebuffer) |
-| Visible area | ~410 px diameter circle (round watch-case bezel) |
-| Brightness | 600 nit surface luminance |
-| Contrast | 60,000:1 |
-| Colors | 16.7 million |
-| Interface | QSPI (high-speed rendering) |
-| Driver IC | CO5300 |
-| Operating Temperature | -20 °C to 70 °C |
-| Touch IC | CST9217 capacitive touchscreen (I2C address 0x1A) |
-
-### Visible area vs. reported resolution
-
-The CO5300 panel itself is rectangular and the firmware addresses a full **410 × 502** framebuffer (with a 22-px horizontal offset into the 502-wide die — see [LilyGoDispInterface.cpp:140–183](.pio/libdeps/twatch_ultra/LilyGoLib/src/LilyGoDispInterface.cpp#L140-L183)). The CO5300's 0x2A column-address command at boot (`0x0016 … 0x01AF`) sets the active column range to 22…431 — 410 columns — and that's what the LVGL display driver advertises as the screen width.
-
-The **watch case is circular**, however, with the metal bezel masking everything outside an inscribed circle on the panel. The visible viewport is therefore approximately a **~410-pixel-diameter circle** centred on the framebuffer (the panel's shorter dimension defines the diameter):
-
-- **Centre of the screen** (a ~290×290 px inscribed square inside the circle) is always fully visible — safe for any rectangular UI.
-- **Top and bottom strips** of roughly **46 px** each (502 − 410 = 92 px split top/bottom) are physically behind the bezel and never visible. Avoid drawing essential content there. The on-screen-keyboard hides itself at the bottom by ~180 px, so it lands well inside the visible area; status icons and indicators on the home screen use offsets ≥ 19 px from `BOTTOM_MID` for the same reason.
-- **Corners** of any rectangular widget extending into the corners of the framebuffer are clipped by the circle. For example, a 380-wide row centred horizontally is fine through the middle, but its leftmost/rightmost ~15 px get progressively masked toward the top and bottom of the viewport.
-- Roughly **131 950** of the **205 820** framebuffer pixels are actually visible to the user — about **64 %**. The rest are valid framebuffer addresses (writing to them works and is reported as a successful flush by LVGL) but are hidden behind the case.
-
-This matters for content placement, not for code correctness: drawing routines, `lv_obj_align()`, touch coordinates, and the LVGL render pipeline all operate on the full 410 × 502 grid. The screens in this firmware are laid out with the circular visible region in mind — buttons and labels at `LV_ALIGN_TOP_LEFT, 8, 8` clear the bezel, the analog clock face is centred, and scrollable settings rows stay between ~y=60 and ~y=440 so they're inside the visible disc.
-
----
-
-## Wireless Communication
-
-### Wi-Fi / Bluetooth
-- Wi-Fi 802.11 b/g/n (2.4 GHz)
-- Bluetooth 5.0 (integrated in ESP32-S3)
-
-### LoRa (Semtech SX1262)
-- Frequency: 433–923 MHz (Sub-1 GHz)
-- Alternate option: SX1280 (2.4 GHz variant)
-
-### GNSS (u-blox MIA-M10Q)
-- Constellations: GPS, GLONASS, Galileo, BeiDou
-- PPS output on GPIO 13
-
-### NFC (ST25R3916)
-- Standard: ISO 14443 / ISO 15693
-- Note: Does not have an integrated capacitive sensor — active reader mode only
-- I2C/SPI interface, interrupt on GPIO 5
-
----
-
-## Key Components
-
-| Component | Model | Manufacturer | Function |
-|-----------|-------|--------------|----------|
-| SoC | ESP32-S3 | Espressif | Main processor |
-| Display driver | CO5300 | — | QSPI AMOLED |
-| Touch IC | CST9217 | — | Capacitive touch |
-| GNSS | MIA-M10Q | u-blox | Multi-constellation GNSS |
-| LoRa | SX1262 | Semtech | Sub-GHz long-range radio |
-| NFC | ST25R3916 | STMicroelectronics | Near-field communication |
-| IMU | BHI260AP | Bosch | AI motion sensor (accel/gyro/orientation) |
-| RTC | PCF85063A | NXP | Real-time clock |
-| PMU | AXP2101 | X-Powers | Battery & power management |
-| Microphone | T3902 | TDK | PDM microphone (voice call capable) |
-| Audio amplifier | MAX98357A | Analog Devices | 3.2 W Class D I2S amplifier |
-| Haptic driver | DRV2605 | Texas Instruments | Vibration / haptic feedback |
-| GPIO expander | XL9555 | XINLUDA | 16 additional GPIO ports |
-
----
-
-## Power Management
-
-### AXP2101 Power Channels
-
-| Channel | Powers |
-|---------|--------|
-| DC1 | ESP32-S3 |
-| LDO1 | GPS backup power (always on) |
-| ALDO1 | SD card |
-| ALDO2 | Display |
-| ALDO3 | LoRa |
-| ALDO4 | Sensor (BHI260AP) |
-| BLDO1 | GNSS module |
-| BLDO2 | Speaker / amplifier |
-| DLDO1 | NFC |
-
-### Battery & Charging
-
-| Parameter | Value |
-|-----------|-------|
-| Battery | 3.7 V, 1100 mAh (4.07 Wh), lithium |
-| Charging connector | USB Type-C |
-| Input voltage | 3.9 V – 6 V |
-| Charge current | 0–1024 mA (programmable); recommended ≤ 500 mA |
-| Note | Charge current above 500 mA risks excessive PMU temperature |
-
-### Power Consumption
-
-| Mode | Wake-Up Source | Current |
-|------|----------------|---------|
-| Light-Sleep | Power button + touchpanel | 4.6 mA |
-| Light-Sleep | Power button only | 2.1 mA |
-| Deep-Sleep | Power + Boot (backup power on) | 1.1 mA |
-| Deep-Sleep | Power + Boot (backup power off) | 840 µA |
-| Deep-Sleep | Touch panel | 3.34 mA |
-| Deep-Sleep | Timer (backup power on) | 850 µA |
-| Deep-Sleep | Timer (backup power off) | 1.1 mA |
-| Power OFF | Backup power only | 77 µA |
-
----
-
-## Storage
-
-| Feature | Detail |
-|---------|--------|
-| MicroSD socket | Yes |
-| Max card size | 32 GB |
-| Required format | FAT32 |
-
----
-
-## Audio
-
-| Feature | Detail |
-|---------|--------|
-| Microphone | TDK T3902 PDM microphone |
-| MIC clock | GPIO 17 (SCK) |
-| MIC data | GPIO 18 (DAT) |
-| Amplifier | MAX98357A — 3.2 W Class D |
-| I2S BCLK | GPIO 9 |
-| I2S WCLK | GPIO 10 |
-| I2S DOUT | GPIO 11 |
-| Haptics | DRV2605 vibration driver (I2C) |
-
----
-
-## Physical Specifications
-
-| Parameter | Value |
-|-----------|-------|
-| Dimensions | 63.5 × 49 × 22 mm (without strap) |
-| Operating temperature | -40 °C to 85 °C |
-
----
-
-## Physical Controls
-
-| Control | Function |
-|---------|----------|
-| PWR button | Hold 1 s to power on; hold 6 s to power off; short press = PMU event |
-| BOOT button (GPIO 0) | Custom firmware use or bootloader access |
-| Reset button | Hardware reset only |
-
----
-
-## GPIO / Pin Mapping
-
-> **Note:** All GPIO pins are allocated to onboard components. There are no free pins available for external expansion. Use the XL9555 GPIO expander for additional I/O.
-
-### Shared I2C Bus (SDA = GPIO 3, SCL = GPIO 2)
-
-| Device | I2C Address |
-|--------|-------------|
-| Touch panel CST9217 | 0x1A |
-| GPIO expander XL9555 | 0x20 |
-| IMU BHI260AP | 0x28 |
-| PMU AXP2101 | 0x34 |
-| RTC PCF85063A | 0x51 |
-| Haptic driver DRV2605 | 0x5A |
-
-### Shared SPI Bus (MOSI = GPIO 34, MISO = GPIO 33, SCK = GPIO 35)
-
-| Peripheral | CS Pin | Other Pins |
-|------------|--------|------------|
-| SD card | GPIO 21 | — |
-| NFC (ST25R3916) | GPIO 4 | INT: GPIO 5 |
-| LoRa (SX1262) | GPIO 36 | RST: GPIO 47, BUSY: GPIO 48, IRQ: GPIO 14 |
-
-### GNSS (UART)
-
-| Signal | GPIO |
-|--------|------|
-| TX (ESP32 → GNSS) | GPIO 43 |
-| RX (GNSS → ESP32) | GPIO 44 |
-| PPS | GPIO 13 |
-
-### Display (QSPI)
-
-| Signal | GPIO |
-|--------|------|
-| D0 | GPIO 38 |
-| D1 | GPIO 39 |
-| D2 | GPIO 42 |
-| D3 | GPIO 45 |
-| SCK | GPIO 40 |
-| CS | GPIO 41 |
-| RST | GPIO 37 |
-| TE | GPIO 6 |
-
-### Interrupt Lines
-
-| Signal | GPIO |
-|--------|------|
-| PMU (AXP2101) | GPIO 7 |
-| RTC (PCF85063A) | GPIO 1 |
-| IMU (BHI260AP) | GPIO 8 |
-| Touch (CST9217) | GPIO 12 |
-| NFC (ST25R3916) | GPIO 5 |
-
-### XL9555 GPIO Expander Assignments
-
-| XL9555 Pin | Function |
-|------------|----------|
-| GPIO 6 | Haptic motor enable (DRV2605) |
-| GPIO 7 | Display power enable |
-| GPIO 8 | Touchpad reset |
-| GPIO 10 | SD card detect |
-
----
-
-## Software & Development
-
-### Supported Environments
-
-Development is done with **PlatformIO** (the `platformio.ini` here targets the `lilygo-t-watch-ultra` board on `espressif32@6.10.0` / Arduino). Use the PlatformIO CLI or the VS Code PlatformIO extension.
-
-### Building from source
-
-Prerequisites: [PlatformIO Core](https://platformio.org/install/cli) (or the VS Code extension) and a USB-C cable.
+Built with **PlatformIO**:
 
 ```bash
-git clone https://github.com/h4d35x0/argus
-cd argus
-
-# Build (first run downloads pinned deps; the LilyGoLib patches apply automatically)
-pio run
-
-# Flash the watch over USB-C, then open the serial monitor
-pio run -t upload
-pio device monitor          # 115200 baud
+pio run              # build
+pio run -t upload    # flash over USB-C (hold BOOT while connecting for download mode)
 ```
 
-That's it — no manual library edits. LilyGoLib and its NFC forks are **vendored under `lib/`** with the required patches baked in (SEND_BUF_SIZE and LV_USE_SNAPSHOT), so there is no build-time patch step, and all dependencies are pinned for reproducible output. The build emits `bootloader.bin`, `partitions.bin`, and `firmware.bin` under `.pio/build/twatch_ultra/`.
+Prebuilt, flashable binaries **and a one-click web flasher** ship with every [Release](https://github.com/Holrigue/ARGUS-DotOS/releases). There is deliberately **no single merged image** (a merged image bricked a watch once by rewriting the bootloader's flash-mode byte). The full build notes, prebuilt-flashing steps (esptool offsets, `--flash_mode keep`), SD-card assets, crash forensics, and library patches are in the [Technical Reference](docs/REFERENCE.md#software--development).
 
-> **Note:** ARGUS is a fork of the open-source T-Watch Ultra firmware; the `r3dfish/13-37` links elsewhere in this README point to the **upstream base project**. Prebuilt ARGUS images are attached to each [GitHub Release](https://github.com/h4d35x0/argus/releases), see **Installing a prebuilt binary** below. The two extra PlatformIO envs (`ancs_spike`, `screenshots`) are development-only.
+## Credits
 
-If the board isn't auto-detected, pass the port: `pio run -t upload --upload-port /dev/ttyACM0` (Linux) / `COMx` (Windows) / `/dev/cu.usbmodemXXXX` (macOS).
-
-### SD card assets
-
-Some of what the watch draws lives on the microSD card rather than in flash, so
-it can be changed without reflashing. Those files ship in this repo under
-[`sdcard/`](sdcard/), laid out exactly as the card expects: copy the contents of
-that directory to the **root** of a FAT32-formatted card.
-
-That currently means the three mode wallpapers, which come standard:
-
-| File | Mode | Artwork |
-|------|------|---------|
-| `backgrounds/daily.rgb565` | Daily (default) | HADES logo |
-| `backgrounds/defense.rgb565` | Defense | Privacy is an Illusion |
-| `backgrounds/offense.rgb565` | Offense | Circuit skull |
-
-Switching mode switches wallpaper. Turn **Wallpaper** on in Settings to see
-them; without the files the watch simply shows no wallpaper, which is not an
-error.
-
-Each is a raw, panel-sized, little-endian RGB565 file (exactly 410 x 502 x 2 =
-411,640 bytes) rather than a PNG, because the watch runs **no image decoder**:
-PNG and JPEG decoders inflate the whole compressed file in scarce internal SRAM
-and boot-loop the board, and the BMP decoder re-decodes from the card on every
-render. The raster is read once into PSRAM and blitted from there. See
-[`tasks/WALLPAPER-SAGA.md`](tasks/WALLPAPER-SAGA.md) for how that was arrived at.
-
-To use your own artwork, replace a source image in `tools/wallpapers/` and
-regenerate:
-
-```bash
-pip install pillow
-python tools/gen_wallpapers.py --stats     # rewrites sdcard/backgrounds/
-python tools/gen_wallpapers.py --check     # verify committed rasters, write nothing
-```
-
-`--check` runs in CI, so a committed raster cannot drift from its source image.
-Full detail, including the brightness tuning the low wallpaper opacity requires,
-is in [`sdcard/README.md`](sdcard/README.md).
-
-### Crash forensics
-
-The ESP32-S3 build layout already reserves a flash `coredump` partition, so after a panic you can pull the saved dump against the exact firmware ELF from this tree instead of depending on live serial panic text.
-
-On this watch, use the flashing/download port, not the app CDC port. On Windows in this workspace that is typically `COM19` (USB VID:PID `303A:1001`). Put the watch in download mode first with **BOOT + RESET**, then run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\read_coredump.ps1 -Port COM19
-```
-
-That script reads the fixed `0xFF0000`/64 KB coredump partition with PlatformIO's
-bundled esptool, saves both the raw partition image and embedded core ELF under
-`artifacts/coredump/`, verifies the flashed application against
-`.pio/build/twatch_ultra/firmware.bin`, and only then decodes it with the matching
-`firmware.elf`. It stops instead of emitting misleading source lines when the
-local build does not match the crashed firmware.
-
-### Installing a prebuilt binary
-
-Every [ARGUS release](https://github.com/h4d35x0/argus/releases) is built by CI from its tag and ships the four component binaries, an `sdcard.zip` for the card, and `SHA256SUMS`.
-
-There is deliberately **no single merged image**. One was published briefly and bricked a watch on 2026-09-09: the merge step rewrote the bootloader's flash-mode byte from `DIO` to `QIO`, so the ROM configured SPI for quad reads, could not read flash, and never booted. The four parts below are byte-for-byte what `pio run -t upload` writes, which is the combination proven to boot.
-
-**With esptool**: just [esptool](https://github.com/espressif/esptool) (`pip install esptool`). Download the four `.bin` files from the [latest release](https://github.com/h4d35x0/argus/releases/latest) and flash them at their offsets. The bootloader sits at `0x0` on the ESP32-S3, and `boot_app0.bin` ships with the Arduino-ESP32 framework:
-
-```bash
-esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 write_flash \
-  --flash_mode keep --flash_freq keep --flash_size keep \
-  0x0     bootloader.bin \
-  0x8000  partitions.bin \
-  0xe000  boot_app0.bin \
-  0x10000 firmware.bin
-```
-
-Keep `--flash_mode keep`. It is what stops esptool rewriting the bootloader's flash-mode byte, which is the exact defect that bricked a watch.
-
-Put the watch in **download mode first**: hold **BOOT** while connecting USB. esptool cannot reset the running application's USB CDC port on its own.
-
-(The upstream 13:37 project has its own browser flasher at <https://r3dfish.github.io/13-37/>, which installs **13:37**, not ARGUS.)
-
-<details><summary>Why there is no merged binary</summary>
-
-`esptool merge_bin` re-stamps the flash mode, frequency and size into the bootloader header it bundles at `0x0`. Passing `--flash_mode qio` there on 2026-09-09 changed the byte at offset `0x2` from the `DIO` that PlatformIO builds for this board to `QIO`, and the resulting image bricked the first watch it touched. CI built it and could not boot it, so nothing caught it.
-
-`.github/workflows/release.yml` now ships only the four parts, and `scripts/verify_release_assets.py` fails the release if a merged image appears in the asset set or if the bootloader's flash mode is not the one proven to boot.
-</details>
-
-To recover a bricked or misbehaving unit, `esptool.py --chip esp32s3 --port <port> erase_flash` first, then reflash. If flashing fails to connect, hold **BOOT** while tapping **RESET** to force download mode.
-
-### Key Libraries
-
-| Library | Purpose |
-|---------|---------|
-| LilyGoLib | Official hardware abstraction for T-Watch Ultra |
-| TTGO_TWatch_Library | Legacy watch support |
-| LVGL | Embedded graphics / UI |
-| RadioLib | LoRa / radio communication |
-| TinyGPSPlus | NMEA GNSS parsing |
-| Arduino_GFX | Display graphics |
-
-### LilyGoLib patches (applied automatically)
-
-This firmware depends on two small edits to LilyGoLib's bundled sources. They live inside `.pio/libdeps/` (gitignored, and reset by `pio run -t clean` or any library refetch), so they are **applied automatically on every build** by a PlatformIO pre-build hook — [`scripts/patch_lilygolib.py`](scripts/patch_lilygolib.py), wired in via `extra_scripts` in `platformio.ini`. A fresh checkout builds correctly with no manual steps; the script is idempotent and prints what it changed.
-
-1. **`SEND_BUF_SIZE` `16384` → `4096`** in `LilyGoDispInterface.cpp`. The QSPI display driver chunks pixel writes in 16384-pixel (32 KB) blocks. When the wardriver (or anything putting WiFi into promiscuous mode + active BLE scan) is running, the WiFi stack consumes most of the ESP32-S3's internal SRAM, leaving too little for the SPI driver's per-transaction DMA descriptors. 32 KB chunks then fail with `ESP_ERR_NO_MEM` (errno 257) and any multi-chunk screen redraw only partially reaches the panel — most visibly the wardriver→clock transition appeared to freeze. 4096 (8 KB) chunks fit in the SRAM left over after WiFi takes its share.
-2. **`LV_USE_SNAPSHOT` `0` → `1`** in `lv_conf.h`. Enables `lv_snapshot_take`, used by the screenshot feature ([screenshot.cpp](src/screenshot.cpp)); LilyGoLib ships it disabled.
-
-To add another LilyGoLib define patch, append a `(filename, define, value)` tuple to `PATCHES` in the script. The long-term upstream fix is to vendor LilyGoLib locally via `lib_extra_dirs`, but the auto-patch keeps the dependency tracked from GitHub while staying reproducible.
-
----
-
-## Credits & Acknowledgments
-
-**DotOS** is a fork of **[ARGUS](https://github.com/h4d35x0/argus)**, which is itself a fork of **[`13:37`](https://github.com/r3dfish/13-37)** by **[r3dfish](https://github.com/r3dfish)**. DotOS adds the Nothing-OS Dot watchface, the companion health app, and the daily-wear / notification / power refinements described above — the smartwatch core, the Meshtastic client, and the RF toolkit come from ARGUS and, beneath it, r3dfish's `13:37`. Please support both upstreams: **[ARGUS](https://github.com/h4d35x0/argus)** and **[`13:37`](https://github.com/r3dfish/13-37)**.
-
-ARGUS exists because of **[r3dfish](https://github.com/r3dfish)** and the **[`13:37`](https://github.com/r3dfish/13-37)** firmware. That build is a genuinely phenomenal piece of open-source work: it turned the LILYGO T-Watch Ultra into a real, polished daily-driver smartwatch *and* a serious RF/wireless toolkit, with a full Meshtastic client, spectrum analyzers, TPMS/pager/APRS decoders, NFC read/write, wardriving, and a clean, thoughtful UI. The vast majority of what ARGUS can do, it can do because r3dfish built it first and shared it.
-
-ARGUS is a respectful fork: it rebrands the UI and layers on an anti-surveillance / daily-wear focus (Threat Radar, phone notifications, the detector suite, HexHound). **The core is theirs.** If you find this project useful, please go support the original:
+DotOS is a fork of **[ARGUS](https://github.com/h4d35x0/argus)**, itself a fork of **[`13:37`](https://github.com/r3dfish/13-37)** by **[r3dfish](https://github.com/r3dfish)**. The smartwatch core, the Meshtastic client, and the RF toolkit are theirs — DotOS layers on the Dot watchface, the companion health app, and the daily-wear / notification / power refinements. **The core is theirs.** If this project is useful to you, please go support the original:
 
 **➡️ [github.com/r3dfish/13-37](https://github.com/r3dfish/13-37) — star it, build it, thank them.**
 
@@ -672,29 +98,8 @@ Thanks also to LILYGO for the hardware, the [Meshtastic](https://meshtastic.org/
 
 ## License
 
-This firmware — everything under `src/`, `scripts/`, and the project configuration — is released under the **MIT License** (see [LICENSE](LICENSE)).
-
-DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), itself a fork of [`13:37` by r3dfish](https://github.com/r3dfish/13-37); the upstream projects' licenses and copyright are retained where their code is used.
-
-### Third-party licenses
-
-Dependencies are fetched at build time (pinned in `platformio.ini`); their source lives in their own repositories, and the compiled firmware links them under their respective licenses:
-
-- **LilyGoLib, LVGL, RadioLib, SensorLib, XPowersLib** — MIT.
-- **TinyGPSPlus** — GNU LGPL (Lesser GPL). Linked unmodified; because this project ships full source and a reproducible build, the LGPL relink provision is satisfied.
-- **ST25R3916 / NFC-RFAL** (lewisxhe forks of STMicroelectronics RFAL) — ST **SLA0052** (a BSD-3-Clause-style license that explicitly permits redistribution embedded in a microcontroller device). © STMicroelectronics.
-- **Saira Condensed SemiBold** by the Saira Project Authors: SIL Open Font License 1.1. Used to generate the embedded LVGL title and wordmark bitmap fonts; see [licenses/SairaCondensed-OFL.txt](licenses/SairaCondensed-OFL.txt).
-- **Montserrat Medium** by the Montserrat Project Authors: SIL Open Font License 1.1. Used to generate the embedded digital-clock bitmap subsets; see [licenses/Montserrat-OFL.txt](licenses/Montserrat-OFL.txt).
-- **Orbitron** by the Orbitron Project Authors: SIL Open Font License 1.1. Used for embedded UI label bitmap fonts; see [licenses/Orbitron-OFL.txt](licenses/Orbitron-OFL.txt).
-- **VT323** by the VT323 Project Authors: SIL Open Font License 1.1. Used for embedded terminal and numeric bitmap fonts; see [licenses/VT323-OFL.txt](licenses/VT323-OFL.txt).
+MIT (see [LICENSE](LICENSE)) for everything under `src/`, `scripts/`, and the project configuration. DotOS retains the upstream projects' licenses and copyright where their code is used; the full third-party license list is in the [Technical Reference](docs/REFERENCE.md#third-party-licenses).
 
 ### Responsible use
 
-This firmware includes RF transmit and wireless-monitoring tools (TPMS, pager TX, Tesla charge-port TX, Wi-Fi/BLE survey, evil-twin / tracker / skimmer detection, etc.). Transmitting on regulated bands and capturing wireless traffic are subject to local law and licensing. Use it only on equipment and networks you own or are explicitly authorized to test, and for educational or defensive purposes. The anti-stalking features are an aid, not a safety guarantee: do not rely on ARGUS alone if you believe you are being followed, and contact local authorities. The software is provided "as is", without warranty — see the MIT disclaimer above.
-
----
-
-## Sources
-
-- [LILYGO Wiki — T-Watch Ultra](https://wiki.lilygo.cc/get_started/en/Wearable/T-Watch-Ultra/T-Watch-Ultra.html)
-- [LilyGoLib Hardware Docs — T-Watch Ultra](https://github.com/Xinyuan-LilyGO/LilyGoLib/blob/master/docs/hardware/lilygo-t-watch-ultra.md)
+This firmware includes RF-transmit and wireless-monitoring tools. Transmitting on regulated bands and capturing wireless traffic are subject to local law and licensing. Use it only on equipment and networks you own or are explicitly authorized to test, and for educational or defensive purposes. The anti-stalking features are an aid, not a safety guarantee: do not rely on ARGUS alone if you believe you are being followed — contact local authorities. Provided "as is", without warranty.
