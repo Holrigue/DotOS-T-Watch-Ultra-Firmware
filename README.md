@@ -1,7 +1,5 @@
 # DotOS
 
-<p align="center"><img src="img/argus/demo.gif" width="480" alt="DotOS demo: the watch faces and screens"><br><sub>Rendered by the in-repo simulator (<code>sim/</code>) from current source, not from device captures.</sub></p>
-
 **DotOS** is a [Nothing OS](https://nothing.tech/)–inspired firmware for the LILYGO T-Watch Ultra: an ESP32-S3 smartwatch (AMOLED display, LoRa, GNSS, NFC, full sensor suite) reskinned around a monochrome-with-red **dot-matrix watchface**, a customizable glanceable dashboard, and a phone **health bridge** — all riding on the complete ARGUS security / RF toolkit and Meshtastic client underneath. It is a real daily-wear smartwatch (clock, alarms, calendar, phone **and watch-generated** notifications, health metrics) that keeps the full anti-surveillance / wireless-analysis suite one swipe away.
 
 > **DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), which is itself a fork of the phenomenal [`13:37` firmware by r3dfish](https://github.com/r3dfish/13-37).** The entire smartwatch core, the Meshtastic client, and the RF toolkit are their work; DotOS layers on the **Dot (Nothing-OS) watchface**, a **companion health app**, and a batch of daily-wear, notification and power refinements. Full credit and thanks to both — please star the originals ([ARGUS](https://github.com/h4d35x0/argus), [`13:37`](https://github.com/r3dfish/13-37)). See [Credits](#credits--acknowledgments).
@@ -73,22 +71,11 @@ The notification banner, list, and toggles are restyled to the face palette (whi
 
 **Reconnecting after a re-flash:** a full-erase flash wipes NVS, so the saved Notify state is gone and the watch boots with notifications **off** — until you enable a mode again it does not advertise, and the app finds nothing. On a fresh install the watch shows a one-time **"Connect your phone"** system notification pointing you to Tools ▸ Notify. To avoid this entirely, flash the firmware **without erasing the NVS partition** and all settings (Notify, watchface, power) carry over. A re-flash also clears the BLE bond and can shift the GATT layout; the app refreshes Android's cached GATT table on every connect and **retries the first reconnect once automatically**, and if it still won't connect, **forget "ARGUS Watch"** in the phone's Bluetooth settings and Scan again — no app reinstall is needed, and the watch health interface is unchanged.
 
-> **Screenshots:** the images below are current sim-rendered captures of the shared UI. Fresh **Dot-face / Tools ▸ Face** captures are regenerated from source through the `sim/` pipeline (same as the existing shots) — those are pending.
-
 ## Purchase
 
 The LilyGo T-Watch Ultra can be purchased from LilyGo [here](https://www.lilygo.cc/cpstlm). The US version uses the 915 MHz model.
 
 ## Screens
-
-| | | |
-|:--:|:--:|:--:|
-| ![Watch face](img/argus/clock.png) | ![Tools grid](img/argus/tools_1.png) | ![Threat Radar](img/argus/radar.png) |
-| Watch face | Tools grid (Defense mode) | Threat Radar |
-| ![Phone notifications](img/argus/notify.png) | ![Offense mode tools](img/argus/tools_2.png) | ![Settings](img/argus/settings_1.png) |
-| Phone notifications | Offense mode (PIN-gated) | Settings |
-| ![Meshtastic](img/argus/meshtastic.png) | ![Mesh config](img/argus/config_2.png) | ![Calendar](img/argus/calendar.png) |
-| Meshtastic | Mesh config | Calendar |
 
 Screens are reached by swipe gestures, the power/back buttons, and the on-screen **Tools** grid (see **Radios** below for the button-navigation chains).
 
@@ -99,8 +86,6 @@ Screens are reached by swipe gestures, the power/back buttons, and the on-screen
 - **Settings** — brightness, analog / digital / Dot face, 12/24-hour, screen-dim timeout and dim level, vibration intensity, battery-longevity charge target, day/date/AM-PM/seconds toggles, haptic feedback, motion-wake (wrist-raise brightens the screen), a **Screenshot long press** toggle (see below), a **USB SD card reader** entry that mounts the card to a host over USB (the same screen the Tools grid reaches, but available in **every mode** including Daily, where the Tools grid is deliberately hidden), and a manual date/time picker that overrides automatic GPS/WiFi time sync. Persisted to `/Settings/settings.txt` on SD so the watch boots back into the same configuration. (The auto-detected timezone offset persists separately in `/Settings/timezone.txt` and survives reboots — see **GPS** below.)
 
 ### Phone Notifications
-
-<img src="img/argus/notify.png" width="200" align="right" alt="Notify screen">
 
 **Notify** (Tools tile) mirrors your phone's notifications to your wrist like a mainstream smartwatch: a banner pops up over the clock face, the watch buzzes, and every notification lands in a scrollable list. Because this board cannot run WiFi and BLE at once, enabling notifications puts the watch in a BLE-first **Daily-wear** mode (the WiFi tools pause until you disable it). The choice and platform persist across reboots.
 
@@ -257,8 +242,6 @@ These are the per-radio status screens stepped through by short-pressing the pow
 - **Pwn** — passive WPA handshake capture. Sniffs 802.11 management / EAPOL frames to grab 4-way handshakes for offline auditing of networks you are authorized to test. Toggling the tile arms the passive capture; it coexists with the other WiFi-scan consumers via the shared piggyback pipeline.
 
 ### Threat Radar — anti-stalking
-
-<img src="img/argus/radar.png" width="200" align="right" alt="Threat Radar">
 
 The flagship defensive feature, on the **Radar** tile. Threat Radar correlates every confirmed detector hit (AirTag / Find My tracker, Evil Twin, Flipper, Flock, Skimmer) against your live GPS fix and asks one question: *is this device following me?* A MAC seen at a single spot is ambient; a MAC whose sightings spread across many waypoints as you move is scored **Possible -> Likely -> Confirmed** tail. It runs continuously in the background, fed by all five detectors and the wardriver.
 
