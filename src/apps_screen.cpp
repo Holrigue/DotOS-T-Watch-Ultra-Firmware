@@ -36,6 +36,7 @@ void compass_screen_show();
 void presence_screen_show();
 void map_screen_show();
 void map_gpx_picker_show();
+void level_screen_show();
 void threat_radar_screen_show();
 void tracker_timeline_screen_show();
 void spycam_screen_show();
@@ -126,6 +127,7 @@ const Entry ENTRIES[] = {
     L("Map (GPS/GPX)",    CAT_APPS, map_screen_show),
     L("GPX Track",        CAT_APPS, map_gpx_picker_show),
     L("Compass",          CAT_APPS, compass_screen_show),
+    L("Level",            CAT_APPS, level_screen_show),
     L("Music",            CAT_APPS, music_screen_show),
     L("Find",             CAT_APPS, find_screen_show),
     L("HexHound",         CAT_APPS, pet_screen_show),

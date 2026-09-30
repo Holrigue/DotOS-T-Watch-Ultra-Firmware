@@ -3159,6 +3159,15 @@ static float     s_motion_last_mag        = 0.0f;
 static const float kMotionDeltaG[5] = { 0.70f, 0.55f, 0.40f, 0.30f, 0.20f };
 static float s_motion_delta_g = kMotionDeltaG[1];   // level 2
 
+// Shared accelerometer access. The BHI260's ACCEL_PASSTHROUGH is a single
+// virtual sensor, so motion-wake and any screen that also wants raw accel (the
+// bubble level) must ride ONE stream: a second SensorXYZ disabling it would kill
+// wrist-raise wake. s_accel_hold ref-counts screens that need the stream on even
+// when motion-wake is off; the latest sample is cached for clock_accel_get().
+static int   s_accel_hold  = 0;
+static float s_accel_x = 0.0f, s_accel_y = 0.0f, s_accel_z = 0.0f;
+static bool  s_accel_have  = false;
+
 void clock_screen_set_motion_sensitivity(int level)
 {
     if (level < 1) level = 1;
@@ -3166,36 +3175,64 @@ void clock_screen_set_motion_sensitivity(int level)
     s_motion_delta_g = kMotionDeltaG[level - 1];
 }
 
+// Bring the accel stream up or down to match what's needed now: motion-wake on,
+// or at least one hold active. The BHI260AP firmware must be up first, which it
+// is by the time any of these callers run (all after instance.begin()).
+static void accel_stream_sync()
+{
+    bool want = s_motion_wake_enabled || s_accel_hold > 0;
+    if (want && !s_motion_accel_started) {
+        s_motion_accel.enable(MOTION_SAMPLE_RATE_HZ, 0);
+        s_motion_accel_started = true;
+        s_motion_last_mag = 0.0f;   // don't compare against a stale baseline
+    } else if (!want && s_motion_accel_started) {
+        s_motion_accel.disable();
+        s_motion_accel_started = false;
+    }
+}
+
 void clock_screen_set_motion_wake(bool enabled)
 {
     s_motion_wake_enabled = enabled;
-    if (enabled && !s_motion_accel_started) {
-        // The BHI260AP firmware needs to be up before configuring virtual
-        // sensors; this setter is called from the settings load + the UI
-        // toggle, both of which run after instance.begin().
-        s_motion_accel.enable(MOTION_SAMPLE_RATE_HZ, 0);
-        s_motion_accel_started = true;
-        // Drop the cached previous-magnitude so the first sample after a
-        // restart isn't compared against a stale baseline.
-        s_motion_last_mag = 0.0f;
-    } else if (!enabled) {
-        if (s_motion_accel_started) {
-            s_motion_accel.disable();
-            s_motion_accel_started = false;
-        }
-    }
+    accel_stream_sync();
+}
+
+// Ref-counted request to keep the accel stream running (for clock_accel_get),
+// independent of the motion-wake setting. Balance every hold(true) with hold(false).
+void clock_accel_hold(bool on)
+{
+    if (on) s_accel_hold++;
+    else if (s_accel_hold > 0) s_accel_hold--;
+    accel_stream_sync();
+}
+
+// Latest raw accelerometer sample (sensor units; ~1 g magnitude at rest). Returns
+// false until the first sample has arrived. Caller usually holds the stream.
+bool clock_accel_get(float *x, float *y, float *z)
+{
+    if (!s_accel_have) return false;
+    if (x) *x = s_accel_x;
+    if (y) *y = s_accel_y;
+    if (z) *z = s_accel_z;
+    return true;
 }
 
 // Pumped from the main loop after instance.loop() has drained the BHI260's
 // sample queue. No-op when motion-wake is off or no new sample is in.
 static void motion_wake_poll()
 {
-    if (!s_motion_wake_enabled || !s_motion_accel_started) return;
+    if (!s_motion_accel_started) return;
     if (!s_motion_accel.hasUpdated()) return;
 
     float x = s_motion_accel.getX();
     float y = s_motion_accel.getY();
     float z = s_motion_accel.getZ();
+    // Cache the latest sample for clock_accel_get() (the bubble level), whether
+    // or not motion-wake itself is on — the stream may be up only for a hold.
+    s_accel_x = x; s_accel_y = y; s_accel_z = z; s_accel_have = true;
+
+    if (!s_motion_wake_enabled) return;   // stream held for the accel API only
+
     float mag = sqrtf(x * x + y * y + z * z);
 
     // First sample after enable — no prior baseline, just seed and return.
