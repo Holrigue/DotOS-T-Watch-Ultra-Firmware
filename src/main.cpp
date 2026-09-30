@@ -906,7 +906,7 @@ static void build_dot_notif(lv_obj_t *parent)
     dot_notif_btn = lv_obj_create(parent);
     lv_obj_remove_style_all(dot_notif_btn);
     lv_obj_set_size(dot_notif_btn, 44, 44);
-    lv_obj_set_pos(dot_notif_btn, 322, 416);
+    lv_obj_set_pos(dot_notif_btn, 300, 416);   // right side, nudged a bit further left
     lv_obj_set_style_radius(dot_notif_btn, 0, LV_PART_MAIN);   // fully square, no rounded corners
     lv_obj_set_style_bg_color(dot_notif_btn, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(dot_notif_btn, LV_OPA_COVER, LV_PART_MAIN);
