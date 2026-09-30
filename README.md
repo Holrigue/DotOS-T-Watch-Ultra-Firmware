@@ -31,6 +31,7 @@
 **Anti-surveillance**
 - **Threat Radar** — correlates tracker / AP sightings against your GPS movement to flag whether a device may be *following you*, with haptic and on-face alerts.
 - **Detectors** — separated AirTag / Find My trackers, Flipper Zero, card skimmers, evil-twin APs, surveillance vendors (Flock / Axon / Ring), and a nearby-phone Human Detector.
+- **Presence radar** — a live radar/sonar-style screen that visualises the people and devices detected around you right now.
 - **HexHound** — a gamified recon "pet" that grows with the RF activity around you.
 
 ### Offense mode (optional)
@@ -95,6 +96,8 @@ DotOS is a fork of **[ARGUS](https://github.com/h4d35x0/argus)**, itself a fork 
 **➡️ [github.com/r3dfish/13-37](https://github.com/r3dfish/13-37) — star it, build it, thank them.**
 
 Thanks also to LILYGO for the hardware, the [Meshtastic](https://meshtastic.org/) project, and the maintainers of LVGL, RadioLib, LilyGoLib, and the other libraries this firmware stands on.
+
+Additional inspiration and thanks to **[sacriphanius](https://gitlab.com/sacriphanius)** and the **[SCR-Terminal](https://gitlab.com/sacriphanius/scr-terminal)** project, and to **[peter-neu](https://github.com/peter-neu)** and the **[OutdoorWatch](https://github.com/peter-neu/t-watch_ultra)** project.
 
 ## License
 

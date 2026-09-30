@@ -674,6 +674,8 @@ ARGUS is a respectful fork: it rebrands the UI and layers on an anti-surveillanc
 
 Thanks also to LILYGO for the hardware, the [Meshtastic](https://meshtastic.org/) project, and the maintainers of LVGL, RadioLib, LilyGoLib, and the other libraries this firmware stands on.
 
+Additional inspiration and thanks to **[sacriphanius](https://gitlab.com/sacriphanius)** and the **[SCR-Terminal](https://gitlab.com/sacriphanius/scr-terminal)** project, and to **[peter-neu](https://github.com/peter-neu)** and the **[OutdoorWatch](https://github.com/peter-neu/t-watch_ultra)** project.
+
 ## License
 
 This firmware — everything under `src/`, `scripts/`, and the project configuration — is released under the **MIT License** (see [LICENSE](LICENSE)).
