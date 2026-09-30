@@ -4680,6 +4680,7 @@ void loop()
     // proper fix needs an async/off-thread bring-up, tracked separately.
 
     motion_wake_poll();   // accel-driven wake; no-op when toggle is off
+    ans::service_gpx_rx(); // flush a BLE-received GPX route to /gpx (no-op if none)
     timezone_bg_tick();   // apply background WiFi NTP/geolocation results
     // Cheap on every iteration (an indev_state read + a millis() compare);
     // only crosses into the heavy capture+SD-write path on the 3 s edge.

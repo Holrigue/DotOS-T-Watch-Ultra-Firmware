@@ -11,7 +11,11 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <BLESecurity.h>
+#include <LilyGoLib.h>       // instance.isCardReady() for the GPX receiver
+#include <SD.h>
+#include <esp_heap_caps.h>   // PSRAM buffer for the streamed GPX
 #include <cstring>
+#include <strings.h>         // strcasecmp
 
 namespace ans {
 namespace {
@@ -35,6 +39,16 @@ constexpr char UUID_HEALTH_IN[] = "a2470002-5a4b-4d55-9a3e-1c2d3e4f5a6b";
 // the watch notifies here to ring the phone.
 constexpr char UUID_FIND[] = "a2470003-5a4b-4d55-9a3e-1c2d3e4f5a6b";
 
+// GPX route push. The companion app streams a .gpx file here in frames:
+//   [0x01][nameLen][name…]  BEGIN (start a new transfer, reset the buffer)
+//   [0x02][bytes…]          DATA  (append file bytes, in order)
+//   [0x03]                  END   (transfer complete -> write to SD next loop)
+//   [0x04]                  ABORT (discard)
+// Writes stay off the radio task: bytes land in a PSRAM buffer and the main loop
+// (service_gpx_rx) flushes a completed file to /gpx.
+constexpr char UUID_GPX_IN[] = "a2470004-5a4b-4d55-9a3e-1c2d3e4f5a6b";
+constexpr size_t GPX_RX_MAX  = 512 * 1024;   // generous cap; routes are a few KB
+
 bool                s_running   = false;
 volatile bool       s_connected = false;
 BLEServer          *s_server    = nullptr;
@@ -42,7 +56,35 @@ uint32_t            s_uid_seq   = 1;   // synthetic ids (ANS carries no stable u
 BLECharacteristic  *s_find_char = nullptr;             // for watch -> phone notify
 void              (*s_find_handler)(uint8_t) = nullptr; // phone -> watch write
 
+// GPX receive buffer (PSRAM). Filled by the BLE write callback; drained to SD by
+// service_gpx_rx() on the main loop. s_gpx_ready gates the one-time SD write.
+uint8_t          *s_gpx_buf       = nullptr;
+size_t            s_gpx_len       = 0;
+char              s_gpx_name[48]  = "route.gpx";
+volatile bool     s_gpx_receiving = false;
+volatile bool     s_gpx_ready     = false;
+
 bool wifi_active() { return WiFi.getMode() != WIFI_MODE_NULL; }
+
+// Sanitise an incoming file name: keep the last path segment, allow only safe
+// characters, and guarantee a .gpx suffix. Never lets the phone escape /gpx.
+void gpx_sanitize_name(const char *in, int inlen, char *out, size_t outsz)
+{
+    size_t o = 0;
+    for (int i = 0; i < inlen && o + 1 < outsz; i++) {
+        char c = in[i];
+        if (c == '/' || c == '\\') { o = 0; continue; }   // drop any path prefix
+        bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                  (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == ' ';
+        if (ok) out[o++] = c;
+    }
+    out[o] = '\0';
+    if (o == 0) { strncpy(out, "route.gpx", outsz - 1); out[outsz - 1] = '\0'; return; }
+    size_t len = strlen(out);
+    if (len < 4 || strcasecmp(out + len - 4, ".gpx") != 0) {
+        if (len + 4 < outsz) strcat(out, ".gpx");
+    }
+}
 
 // Map an ANS CategoryID (Bluetooth spec) to our Category vocabulary.
 notify::Category map_category(uint8_t c)
@@ -129,6 +171,47 @@ class FindCb : public BLECharacteristicCallbacks {
 };
 FindCb s_find_cb;
 
+// GPX frame receiver. Buffers into PSRAM only; the main loop writes the SD file.
+class GpxInCb : public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *c) override {
+        std::string v = c->getValue();
+        const uint8_t *d = (const uint8_t *)v.data();
+        size_t len = v.size();
+        if (len < 1) return;
+
+        switch (d[0]) {
+        case 0x01: {   // BEGIN
+            if (!s_gpx_buf) {
+                s_gpx_buf = (uint8_t *)heap_caps_malloc(GPX_RX_MAX, MALLOC_CAP_SPIRAM);
+            }
+            s_gpx_len       = 0;
+            s_gpx_ready     = false;
+            s_gpx_receiving = (s_gpx_buf != nullptr);
+            int nameLen = (len >= 2) ? d[1] : 0;
+            if (nameLen > (int)len - 2) nameLen = (int)len - 2;
+            gpx_sanitize_name((const char *)(d + 2), nameLen, s_gpx_name, sizeof s_gpx_name);
+            break;
+        }
+        case 0x02:     // DATA
+            if (s_gpx_receiving && s_gpx_buf && len > 1) {
+                size_t n = len - 1;
+                if (s_gpx_len + n > GPX_RX_MAX) n = GPX_RX_MAX - s_gpx_len;
+                if (n > 0) { memcpy(s_gpx_buf + s_gpx_len, d + 1, n); s_gpx_len += n; }
+            }
+            break;
+        case 0x03:     // END
+            if (s_gpx_receiving) { s_gpx_receiving = false; s_gpx_ready = (s_gpx_len > 0); }
+            break;
+        case 0x04:     // ABORT
+        default:
+            s_gpx_receiving = false;
+            s_gpx_len       = 0;
+            break;
+        }
+    }
+};
+GpxInCb s_gpx_cb;
+
 class ServerCb : public BLEServerCallbacks {
     void onConnect(BLEServer *) override { s_connected = true; }
     void onDisconnect(BLEServer *) override {
@@ -186,6 +269,12 @@ bool start()
     s_find_char->addDescriptor(new BLE2902());
     s_find_char->setCallbacks(&s_find_cb);
 
+    // GPX-in: the companion app streams a shared route here (see UUID_GPX_IN).
+    BLECharacteristic *gpx_in = ans->createCharacteristic(
+        BLEUUID(UUID_GPX_IN),
+        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+    gpx_in->setCallbacks(&s_gpx_cb);
+
     ans->start();
 
     // Minimal Device Information Service; Gadgetbridge's InfiniTime coordinator
@@ -236,6 +325,34 @@ bool find_notify(uint8_t op)
     s_find_char->setValue(&op, 1);
     s_find_char->notify();
     return true;
+}
+
+void service_gpx_rx()
+{
+    if (!s_gpx_ready) return;
+    s_gpx_ready = false;
+    if (!s_gpx_buf || s_gpx_len == 0) return;
+    if (!instance.isCardReady()) return;
+
+    if (!SD.exists("/gpx")) SD.mkdir("/gpx");
+    char path[64];
+    snprintf(path, sizeof(path), "/gpx/%s", s_gpx_name);
+    SD.remove(path);                       // overwrite any prior file of this name
+    File f = SD.open(path, FILE_WRITE);
+    if (!f) return;
+    size_t wrote = f.write(s_gpx_buf, s_gpx_len);
+    f.close();
+    s_gpx_len = 0;
+    if (wrote == 0) return;
+
+    // Let the wearer know the route landed (also lights the notifications square).
+    notify::Notification n;
+    n.uid      = s_uid_seq++;
+    n.category = notify::Category::Other;
+    strncpy(n.app,   "Routes",         notify::kAppLen  - 1);
+    strncpy(n.title, "Route received", notify::kTitleLen - 1);
+    strncpy(n.body,  s_gpx_name,        notify::kBodyLen - 1);
+    notify::publish(n);
 }
 
 }  // namespace ans

@@ -45,4 +45,12 @@ void set_find_handler(void (*fn)(uint8_t op));
 // Notify the phone with a find op. Returns false if no phone is connected.
 bool find_notify(uint8_t op);
 
+// --- GPX route push (companion app only) --------------------------------------
+// The phone streams a .gpx file (e.g. a route shared from Gaia GPS) to a
+// dedicated characteristic in small frames; the BLE callback buffers it in PSRAM
+// so it never touches the SD card from the radio task. Call service_gpx_rx()
+// from the main loop: it writes any completed transfer to /gpx/<name>.gpx and
+// raises a "Route received" notification. Cheap no-op when nothing is pending.
+void service_gpx_rx();
+
 }  // namespace ans
