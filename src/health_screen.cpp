@@ -26,7 +26,6 @@ inline lv_color_t c_red()   { return lv_color_hex(0xE02020); }
 lv_obj_t *s_screen     = nullptr;
 lv_obj_t *s_sleep_val  = nullptr;
 lv_obj_t *s_steps_val  = nullptr;
-lv_obj_t *s_stress_val = nullptr;
 lv_obj_t *s_hr_val     = nullptr;
 lv_obj_t *s_sync_lbl   = nullptr;   // "last sync" age under the title
 
@@ -281,9 +280,12 @@ void health_screen_create()
     // Rows compressed and raised so the last one (HEART) never lands in the
     // display's rounded bottom corner, which was clipping the value (a "68" read
     // as "58"). Block spans y 106..392, centered vertically on the round face.
-    s_sleep_val  = make_row(106, "Sleep score");
-    s_steps_val  = make_row(178, "Step goal");
-    s_stress_val = make_row(250, "Stress level");
+    // Stress was removed: Gadgetbridge's stress never reaches the watch (Health
+    // Connect has no stress type, so the companion app always sends it null), so
+    // the row was permanently blank. Three rows, re-spaced; HEART stays at 322,
+    // the spot proven to clear the display's rounded bottom corner.
+    s_sleep_val  = make_row(130, "Sleep score");
+    s_steps_val  = make_row(226, "Step goal");
     s_hr_val     = make_row(322, "BPM (highest/lowest)");
 
     // Overlays last so they sit on top of the rows.
@@ -305,9 +307,6 @@ void health_screen_update()
                  (unsigned long)h.steps(), (unsigned long)h.step_goal());
     }
     set_val(s_steps_val, h.has_steps(), h.steps_stale(now), buf);
-
-    snprintf(buf, sizeof(buf), "%d / 100", h.stress());
-    set_val(s_stress_val, h.has_stress(), h.stress_stale(now), buf);
 
     // Heart rate as highest / lowest over the recent window the phone sent.
     if (h.has_hr_range()) {
