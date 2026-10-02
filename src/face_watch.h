@@ -20,9 +20,12 @@ enum FaceHourFont : uint8_t { FACE_HOUR_DOTS = 0, FACE_HOUR_MONT, FACE_HOUR__COU
 // Date line font: Orbitron (geometric, default) or a clean monospace.
 enum FaceDateFont : uint8_t { FACE_DATE_ORBITRON = 0, FACE_DATE_MONO, FACE_DATE__COUNT };
 
-// Accent colour presets (Nothing palette). Drives the Dot face's accent rail.
+// Accent colour presets. Drives the Dot face's accent rail. Cyan and a vivid
+// Pip-Boy green join the set; plain white was dropped (it read flat against the
+// white text and status glyphs).
 enum FaceAccent : uint8_t {
-    FACE_ACC_RED = 0, FACE_ACC_WHITE, FACE_ACC_GREY, FACE_ACC_AMBER, FACE_ACC_BLUE,
+    FACE_ACC_RED = 0, FACE_ACC_GREY, FACE_ACC_AMBER, FACE_ACC_BLUE,
+    FACE_ACC_CYAN, FACE_ACC_GREEN,
     FACE_ACC__COUNT
 };
 

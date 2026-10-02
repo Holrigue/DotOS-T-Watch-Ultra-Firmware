@@ -36,10 +36,11 @@ static lv_obj_t *accent_dots[FACE_ACC__COUNT];
 static uint32_t accent_swatch_rgb(int i)
 {
     switch (i) {
-        case FACE_ACC_WHITE: return 0xFFFFFF;
         case FACE_ACC_GREY:  return 0x9A9A9A;
         case FACE_ACC_AMBER: return 0xF0A020;
         case FACE_ACC_BLUE:  return 0x9BBCD6;
+        case FACE_ACC_CYAN:  return 0x00E5FF;   // bright cyan
+        case FACE_ACC_GREEN: return 0x2BFF66;   // vivid Pip-Boy green
         case FACE_ACC_RED:
         default:             return 0xE02020;
     }

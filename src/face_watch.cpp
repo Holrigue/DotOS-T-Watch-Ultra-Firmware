@@ -62,10 +62,11 @@ void face_set_text_font(FaceTextFont v)  { s_text  = (v < FACE_TEXT__COUNT)  ? v
 uint32_t face_accent_rgb()
 {
     switch (s_acc) {
-        case FACE_ACC_WHITE: return 0xFFFFFF;
         case FACE_ACC_GREY:  return 0x9A9A9A;
         case FACE_ACC_AMBER: return 0xF0A020;
         case FACE_ACC_BLUE:  return 0x9BBCD6;   // steel-blue (ARGUS accent)
+        case FACE_ACC_CYAN:  return 0x00E5FF;   // bright cyan
+        case FACE_ACC_GREEN: return 0x2BFF66;   // vivid Pip-Boy green
         case FACE_ACC_RED:
         default:             return 0xE02020;   // dot face red
     }
