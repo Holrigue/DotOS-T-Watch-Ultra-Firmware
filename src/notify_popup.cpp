@@ -4,6 +4,8 @@
 #include "notify/notify_log.h"
 #include "notifications_screen.h"
 #include "settings_screen.h"
+#include "device_mode.h"   // device_mode_platform() - iOS vs Android
+#include "ancs.h"          // ancs::dismiss() - decline a call on iOS
 #include "theme.h"
 
 #include <LilyGoLib.h>
@@ -21,6 +23,7 @@ static const lv_color_t NOTHING_RED   = lv_color_hex(0xE02020);   // face red
 static lv_obj_t   *s_banner        = nullptr;
 static lv_timer_t *s_dismiss_timer = nullptr;
 static bool        s_boosted       = false;   // brightness raised for the banner
+static uint32_t    s_call_uid      = 0;        // uid of the call the banner is showing
 
 static constexpr uint32_t POPUP_MS = 6000;   // auto-dismiss after 6s
 // While a banner is up the panel runs 15% (of full scale) above the active
@@ -73,6 +76,19 @@ static void on_banner_click(lv_event_t *)
 // on a PC) and the phone keeps re-ringing the watch.
 static void on_mute_click(lv_event_t *)
 {
+    notify::mute_call();
+    dismiss_banner(true);
+}
+
+// Hang up an incoming call. On iOS we can perform the ANCS "negative" action,
+// which declines the call on the phone. Android (Gadgetbridge) exposes no
+// call-reject channel to the watch, so there we at least silence the ring for
+// this call (same as Mute); a true phone-side reject there needs the companion
+// app's telephony path.
+static void on_hangup_click(lv_event_t *)
+{
+    if (device_mode_platform() == NotifyPlatform::iOS && ancs::is_connected())
+        ancs::dismiss(s_call_uid);
     notify::mute_call();
     dismiss_banner(true);
 }
@@ -142,15 +158,41 @@ static void show_banner(const notify::Notification &n)
         lv_label_set_text(body, notify_glyph_filter(n.body, theme_text_font(14), safe, sizeof safe));
     }
 
-    // Incoming call: a full-width Mute button that stops the watch buzzing for
-    // this call (the button consumes its own tap, so it doesn't open the list).
+    // Incoming call: two side-by-side actions — Hang up (decline on the phone,
+    // iOS; silence on Android) and Mute (stop the watch buzzing for this call).
+    // Each button consumes its own tap, so neither opens the list.
     if (n.category == notify::Category::IncomingCall) {
-        lv_obj_t *mute = lv_button_create(s_banner);
-        lv_obj_set_width(mute, LV_PCT(100));
-        lv_obj_set_style_bg_color(mute, NOTHING_RED, LV_PART_MAIN);
+        s_call_uid = n.uid;
+
+        lv_obj_t *row = lv_obj_create(s_banner);
+        lv_obj_remove_style_all(row);
+        lv_obj_set_width(row, LV_PCT(100));
+        lv_obj_set_height(row, LV_SIZE_CONTENT);
+        lv_obj_set_style_margin_top(row, 6, LV_PART_MAIN);
+        lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(row, 8, LV_PART_MAIN);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *hang = lv_button_create(row);
+        lv_obj_set_flex_grow(hang, 1);
+        lv_obj_set_style_bg_color(hang, NOTHING_RED, LV_PART_MAIN);
+        lv_obj_set_style_radius(hang, 8, LV_PART_MAIN);
+        lv_obj_set_style_pad_ver(hang, 8, LV_PART_MAIN);
+        lv_obj_add_event_cb(hang, on_hangup_click, LV_EVENT_CLICKED, NULL);
+        lv_obj_t *hl = lv_label_create(hang);
+        lv_obj_set_style_text_font(hl, theme_text_font(16), LV_PART_MAIN);
+        lv_obj_set_style_text_color(hl, NOTHING_WHITE, LV_PART_MAIN);
+        lv_label_set_text(hl, "Hang up");
+        lv_obj_center(hl);
+
+        lv_obj_t *mute = lv_button_create(row);
+        lv_obj_set_flex_grow(mute, 1);
+        lv_obj_set_style_bg_color(mute, lv_color_hex(0x2A2A2A), LV_PART_MAIN);
+        lv_obj_set_style_border_color(mute, NOTHING_GREY, LV_PART_MAIN);
+        lv_obj_set_style_border_width(mute, 1, LV_PART_MAIN);
         lv_obj_set_style_radius(mute, 8, LV_PART_MAIN);
         lv_obj_set_style_pad_ver(mute, 8, LV_PART_MAIN);
-        lv_obj_set_style_margin_top(mute, 6, LV_PART_MAIN);
         lv_obj_add_event_cb(mute, on_mute_click, LV_EVENT_CLICKED, NULL);
         lv_obj_t *ml = lv_label_create(mute);
         lv_obj_set_style_text_font(ml, theme_text_font(16), LV_PART_MAIN);
