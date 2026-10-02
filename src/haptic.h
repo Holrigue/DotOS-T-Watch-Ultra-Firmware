@@ -29,5 +29,16 @@ void haptic_reapply();
 // (Find) that must be felt regardless of the user's comfort setting.
 void haptic_force_max();
 
+// Load a soft "wake" effect (DRV2605 Soft Bump) without persisting, so the
+// repeated buzzes of a ringing alarm feel like a gentle nudge toward waking
+// rather than an urgent alert. Pair with haptic_reapply() to restore the saved
+// buzz when the alarm is dismissed.
+void haptic_force_gentle();
+
+// One self-contained gentle tap (Soft Bump), restoring the saved effect right
+// after. For one-shot alerts like an incoming-call ring, where there is no
+// natural dismiss point to restore at.
+void haptic_alert_soft();
+
 // The default when nothing is stored yet (about half the stock strength).
 constexpr uint8_t HAPTIC_DEFAULT_PCT = 50;

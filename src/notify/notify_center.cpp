@@ -1,6 +1,7 @@
 // notify_center.cpp - see notify_center.h.
 #include "notify_center.h"
 #include "notify_log.h"
+#include "../haptic.h"     // haptic_alert_soft() - gentler ring for incoming calls
 #include <Arduino.h>
 #include <LilyGoLib.h>
 
@@ -101,9 +102,14 @@ void publish(Notification n)
     // calls are exempt while muted: each re-ring is a fresh (synthetic-uid) arrival
     // so it would otherwise keep buzzing after the call was answered elsewhere.
     if (!is_update) {
-        bool muted_call = (n.category == Category::IncomingCall) &&
-                          (int32_t)(s_call_mute_until - millis()) > 0;
-        if (!muted_call) instance.vibrator();
+        bool is_call = (n.category == Category::IncomingCall);
+        bool muted_call = is_call && (int32_t)(s_call_mute_until - millis()) > 0;
+        if (!muted_call) {
+            // Incoming calls get the soft "wake" tap (restored right after) so a
+            // ring feels calm; everything else keeps the user's buzz setting.
+            if (is_call) haptic_alert_soft();
+            else         instance.vibrator();
+        }
     }
 
     // Debug-only serial mirror (NLOG compiles out unless ARGUS_NOTIFY_DEBUG is

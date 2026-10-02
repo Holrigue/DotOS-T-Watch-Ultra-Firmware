@@ -50,3 +50,16 @@ uint8_t haptic_get_intensity() { return s_pct; }
 void haptic_reapply() { apply(); }
 
 void haptic_force_max() { instance.setHapticEffects(47); }   // Buzz 1 / 100%
+
+// DRV2605 ROM library 1 effect 7 = "Soft Bump 100%": a single soft nudge rather
+// than the sustained Buzz, so a ringing alarm or an incoming call feels calm.
+static constexpr uint8_t SOFT_ALERT_EFFECT = 7;
+
+void haptic_force_gentle() { instance.setHapticEffects(SOFT_ALERT_EFFECT); }
+
+void haptic_alert_soft()
+{
+    instance.setHapticEffects(SOFT_ALERT_EFFECT);
+    instance.vibrator();
+    apply();   // restore the user's configured buzz for everything else
+}

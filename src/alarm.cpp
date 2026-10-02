@@ -1,5 +1,6 @@
 #include "alarm.h"
 #include "usb_sd.h"
+#include "haptic.h"         // haptic_force_gentle() / haptic_reapply() - softer ring
 #include "music_player.h"   // music_player_stop() - shared-I2S priority, see start_chime()
 #include <LilyGoLib.h>
 #include <SD.h>
@@ -24,6 +25,9 @@ void alarm_screen_show_ringing();
 // overnight. The ringing screen stays up until dismissed; only the buzz +
 // chime stop.
 #define ALARM_AUTO_QUIET_MS      (5 * 60 * 1000)
+// Space the ring buzzes out so they feel like a calm reminder rather than a
+// frantic pulse (the softer Soft-Bump effect is loaded for the duration).
+#define ALARM_BUZZ_INTERVAL_MS   2500
 
 // Chime PCM parameters. The MAX98357A amp has no software volume control
 // (gain is set by a strap pin) — peak amplitude is the only knob, so 100%
@@ -32,6 +36,15 @@ void alarm_screen_show_ringing();
 #define CHIME_SAMPLE_RATE        16000
 #define CHIME_PEAK               32767    // out of ±32767 — full scale
 #define CHIME_CHUNK_SAMPLES      256
+
+// "Gentle wake" shaping. Two things keep the chime from feeling like an alarm
+// klaxon: a per-note raised-cosine envelope (soft attack + release, so there is
+// no hard click at each tone edge, giving a bell-like swell), and a slow overall
+// crescendo — the first cycles play quiet and the level eases up to full over
+// CHIME_RAMP_MS, so the sound coaxes you awake instead of jolting you.
+#define CHIME_RAMP_MS            18000    // quiet -> full over ~18 s
+#define CHIME_RAMP_MIN           0.16f    // starting level (fraction of full)
+#define CHIME_ENV_MS             45       // attack == release fade per note (ms)
 
 static int      s_hour              = 7;
 static int      s_minute            = 0;
@@ -214,16 +227,32 @@ static TaskHandle_t  s_chime_task   = nullptr;
 // Read on every PCM chunk by chime_write_tone() so a caller can change it
 // mid-loop, same as s_volume.
 static volatile uint8_t s_chime_override_volume = 0;
+// millis() when the current chime started, for the crescendo ramp.
+static volatile uint32_t s_chime_start_ms = 0;
+
+// Crescendo multiplier for "now": CHIME_RAMP_MIN at the start, easing up to 1.0
+// over CHIME_RAMP_MS. Read once per chunk (cheap) rather than per sample.
+static float chime_ramp_now()
+{
+    uint32_t e = millis() - s_chime_start_ms;
+    if (e >= CHIME_RAMP_MS) return 1.0f;
+    return CHIME_RAMP_MIN + (1.0f - CHIME_RAMP_MIN) * ((float)e / (float)CHIME_RAMP_MS);
+}
 
 static void chime_write_tone(uint32_t freq_hz, uint32_t duration_ms,
                              int16_t *buf, int buf_samples, float *phase_io)
 {
     const float two_pi = 6.28318530718f;
-    int total_samples = (int)((uint64_t)duration_ms * CHIME_SAMPLE_RATE / 1000u);
+    const float pi     = 3.14159265359f;
+    int total  = (int)((uint64_t)duration_ms * CHIME_SAMPLE_RATE / 1000u);
+    int env    = CHIME_ENV_MS * CHIME_SAMPLE_RATE / 1000;   // attack == release
+    if (env * 2 > total) env = total / 2;                   // short tones: shrink
     float phase = phase_io ? *phase_io : 0.0f;
 
-    while (total_samples > 0 && s_chime_active) {
-        int n = (total_samples < buf_samples) ? total_samples : buf_samples;
+    int done = 0;
+    while (done < total && s_chime_active) {
+        int remaining = total - done;
+        int n = (remaining < buf_samples) ? remaining : buf_samples;
         if (freq_hz == 0) {
             memset(buf, 0, n * sizeof(int16_t));
         } else {
@@ -234,16 +263,27 @@ static void chime_write_tone(uint32_t freq_hz, uint32_t duration_ms,
             // the saved value for the lifetime of that chime.
             uint8_t override_vol = s_chime_override_volume;
             int eff_vol = override_vol ? (int)override_vol : (int)s_volume;
-            int amp = (CHIME_PEAK * eff_vol) / 100;
+            float amp  = (float)((CHIME_PEAK * eff_vol) / 100);
+            float ramp = chime_ramp_now();                  // crescendo, per chunk
             float dphase = two_pi * (float)freq_hz / (float)CHIME_SAMPLE_RATE;
             for (int i = 0; i < n; i++) {
-                buf[i] = (int16_t)(sinf(phase) * amp);
+                int idx = done + i;
+                // Per-note raised-cosine envelope: soft attack in, soft release
+                // out, so each note swells like a bell rather than clicking on.
+                float e = 1.0f;
+                if (env > 0) {
+                    if (idx < env)                 e = (float)idx / (float)env;
+                    else if (idx >= total - env)   e = (float)(total - 1 - idx) / (float)env;
+                    if (e < 0.0f) e = 0.0f;
+                    e = 0.5f - 0.5f * cosf(pi * e);
+                }
+                buf[i] = (int16_t)(sinf(phase) * amp * e * ramp);
                 phase += dphase;
                 if (phase >= two_pi) phase -= two_pi;
             }
         }
         instance.player.write(buf, n * sizeof(int16_t));
-        total_samples -= n;
+        done += n;
     }
     if (phase_io) *phase_io = phase;
 }
@@ -257,15 +297,21 @@ static void chime_task(void *)
     int16_t chunk[CHIME_CHUNK_SAMPLES];
     float   phase = 0.0f;
     while (s_chime_active) {
-        // Doorbell-style two-tone chime: high tone, short gap, low tone,
-        // longer gap, then repeat.
-        chime_write_tone(1200, 220, chunk, CHIME_CHUNK_SAMPLES, &phase);
+        // A gentle rising bell phrase (C5 - E5 - G5, a soft major arpeggio).
+        // Each note is enveloped so it swells and fades rather than clicking,
+        // and the whole thing eases up in level (crescendo) over the first
+        // several cycles — a "wake" sound, not an "emergency" one.
+        chime_write_tone(523, 260, chunk, CHIME_CHUNK_SAMPLES, &phase);  // C5
         if (!s_chime_active) break;
-        chime_write_tone(0,    60,  chunk, CHIME_CHUNK_SAMPLES, &phase);
+        chime_write_tone(0,    70, chunk, CHIME_CHUNK_SAMPLES, &phase);
         if (!s_chime_active) break;
-        chime_write_tone(800,  220, chunk, CHIME_CHUNK_SAMPLES, &phase);
+        chime_write_tone(659, 260, chunk, CHIME_CHUNK_SAMPLES, &phase);  // E5
         if (!s_chime_active) break;
-        chime_write_tone(0,    900, chunk, CHIME_CHUNK_SAMPLES, &phase);
+        chime_write_tone(0,    70, chunk, CHIME_CHUNK_SAMPLES, &phase);
+        if (!s_chime_active) break;
+        chime_write_tone(784, 340, chunk, CHIME_CHUNK_SAMPLES, &phase);  // G5
+        if (!s_chime_active) break;
+        chime_write_tone(0,  1150, chunk, CHIME_CHUNK_SAMPLES, &phase);  // rest, then repeat
     }
 
     instance.powerControl(POWER_SPEAK, false);
@@ -288,6 +334,7 @@ static void start_chime()
     // I2S_NUM_1 (music_player only refuses to START while we're active - it
     // has no way to know we're ABOUT to start, so we make room instead).
     music_player_stop();
+    s_chime_start_ms = millis();   // anchor the crescendo ramp
     s_chime_active = true;
     xTaskCreatePinnedToCore(chime_task, "alarm_chime", 4096, NULL, 1,
                             &s_chime_task, 0);
@@ -318,8 +365,11 @@ static void start_ringing()
     s_ringing         = true;
     s_ring_start_ms   = millis();
     s_last_vibrate_ms = 0;
-    if (s_vibrate) instance.vibrator();  // immediate first buzz, if enabled
-    if (s_audio)   start_chime();        // doorbell loop, if enabled
+    if (s_vibrate) {
+        haptic_force_gentle();           // soft "wake" taps for the whole ring
+        instance.vibrator();             // immediate first buzz, if enabled
+    }
+    if (s_audio)   start_chime();        // gentle bell loop, if enabled
     alarm_screen_show_ringing();
 }
 
@@ -328,6 +378,7 @@ void alarm_dismiss()
     s_ringing         = false;
     s_snooze_until_ms = 0;
     stop_chime();
+    haptic_reapply();   // restore the user's normal buzz effect
     // s_last_trigger_yday is left at today — prevents an immediate re-fire on
     // the next tick while the minute still matches.
 }
@@ -337,6 +388,7 @@ void alarm_snooze(int minutes)
     s_ringing         = false;
     s_snooze_until_ms = millis() + (uint32_t)minutes * 60u * 1000u;
     stop_chime();
+    haptic_reapply();   // restore the user's normal buzz effect
 }
 
 void alarm_tick()
@@ -354,7 +406,7 @@ void alarm_tick()
         // Buzz once every 1.5 s while still within the auto-quiet window. The
         // ringing screen stays up beyond that until the user taps DISMISS.
         if (now_ms - s_ring_start_ms < ALARM_AUTO_QUIET_MS) {
-            if (s_vibrate && now_ms - s_last_vibrate_ms >= 1500) {
+            if (s_vibrate && now_ms - s_last_vibrate_ms >= ALARM_BUZZ_INTERVAL_MS) {
                 s_last_vibrate_ms = now_ms;
                 instance.vibrator();
             }
