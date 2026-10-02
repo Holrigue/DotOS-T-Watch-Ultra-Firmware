@@ -2895,6 +2895,15 @@ void ui_keep_awake(bool on)
     dim_reset_activity();   // fresh timeout both on entry and on the exit back
 }
 
+// Deliberate roller-setup screens that must not be interrupted mid-edit: the
+// alarm and timer setup both take several unhurried taps, and dimming (which
+// raises the swipe-to-wake gate and then swallows taps) or the 60 s auto-home
+// used to kick the user back to the clock before they could finish. Exempt both
+// from dimming and auto-home while they are up.
+bool alarm_screen_is_active();
+bool timer_screen_is_active();
+static bool setup_screen_active() { return alarm_screen_is_active() || timer_screen_is_active(); }
+
 // Put the panel back to whatever it should show right now: the dim level while
 // dimmed, otherwise the active brightness. Used after a temporary override (the
 // notification banner's brightness boost) ends.
@@ -4853,6 +4862,7 @@ void loop()
         if (!s_keep_awake && !notify_popup_is_showing() &&
             lv_screen_active() != clock_screen &&
             !pin_pad_screen_is_active() && !notifications_screen_is_active() &&
+            !setup_screen_active() &&
             s_low_mem_dialog == nullptr && !alarm_is_ringing() &&
             millis() - s_last_activity_ms >= AUTO_HOME_MS) {
             clock_screen_show();
@@ -4865,7 +4875,7 @@ void loop()
     // Also hold off dimming briefly after the charger is plugged in, so the
     // charge indicator is visible for at least CHARGE_WAKE_MS.
     if (s_dim_timeout_ms > 0 && !s_is_dimmed && !notify_popup_is_showing() &&
-        !s_keep_awake && millis() >= s_charge_wake_until_ms) {
+        !s_keep_awake && !setup_screen_active() && millis() >= s_charge_wake_until_ms) {
         if (millis() - s_last_activity_ms >= s_dim_timeout_ms) {
             s_is_dimmed    = true;
             s_dimmed_at_ms = millis();
