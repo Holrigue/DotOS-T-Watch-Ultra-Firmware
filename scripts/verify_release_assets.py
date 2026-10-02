@@ -46,7 +46,7 @@ def main(argv: list[str]) -> int:
 
     merged = sorted(
         p.name
-        for p in release_dir.glob("argus-*.bin")
+        for p in (*release_dir.glob("argus-*.bin"), *release_dir.glob("dotos-*.bin"))
         if not p.name.endswith("-sdcard.zip")
     )
     if merged:

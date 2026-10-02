@@ -1,7 +1,8 @@
-# ARGUS browser flasher (GitHub Pages).
+# DotOS browser flasher (GitHub Pages).
 #
-# Publishes an ESP Web Tools page at https://<owner>.github.io/argus/ that flashes
-# the watch over WebSerial from Chrome/Edge, the LilyGo-style one-click install.
+# Publishes an ESP Web Tools page at https://<owner>.github.io/ARGUS-DotOS/ that
+# flashes the watch over WebSerial from Chrome/Edge, the LilyGo-style one-click
+# install.
 #
 # The firmware binaries are NOT committed to the repo. This workflow pulls them
 # from the latest GitHub Release at build time and serves them SAME-ORIGIN beside
@@ -76,7 +77,7 @@ jobs:
 
           cat > site/manifest.json <<JSON
           {
-            "name": "ARGUS",
+            "name": "DotOS",
             "version": "$ver",
             "new_install_prompt_erase": true,
             "builds": [
