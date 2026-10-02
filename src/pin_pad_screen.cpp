@@ -20,6 +20,9 @@ static PadMode s_mode;
 static char    s_entry[16];
 static int     s_len;
 static char    s_new_unlock[16];
+// Optional action to run instead of the default Tools-grid landing on a
+// successful unlock (set by pin_pad_screen_show_then; cleared once it fires).
+static void  (*s_on_unlock)() = nullptr;
 
 static const char *KEYMAP[] = {
     "1", "2", "3", "\n",
@@ -86,7 +89,10 @@ static void on_ok(void)
     PinResult r = security_check(s_entry);
     if (r == PinResult::Unlock) {
         enter_offense();          // tiles auto-reveal via the gating callback
-        tools_screen_show();
+        void (*cb)() = s_on_unlock;
+        s_on_unlock = nullptr;
+        if (cb) cb();             // e.g. return to the Apps-menu Offense category
+        else    tools_screen_show();
     } else if (r == PinResult::Shred) {
         // Duress: burn the lockout FIRST, then a fake "Unlocking..." decoy.
         offense_shred();
@@ -172,11 +178,23 @@ void pin_pad_screen_create()
     lv_obj_add_event_cb(pin_pad_screen, on_gesture, LV_EVENT_GESTURE, NULL);
 }
 
-void pin_pad_screen_show()
+static void pin_pad_load()
 {
     enter_mode(security_pins_set() ? PAD_CHECK : PAD_SET_UNLOCK);
     set_msg(security_pins_set() ? "" : "first run: set your PINs");
     lv_scr_load(pin_pad_screen);
+}
+
+void pin_pad_screen_show()
+{
+    s_on_unlock = nullptr;   // default landing (Tools grid)
+    pin_pad_load();
+}
+
+void pin_pad_screen_show_then(void (*on_unlock)())
+{
+    s_on_unlock = on_unlock;
+    pin_pad_load();
 }
 
 bool pin_pad_screen_is_active() { return lv_screen_active() == pin_pad_screen; }

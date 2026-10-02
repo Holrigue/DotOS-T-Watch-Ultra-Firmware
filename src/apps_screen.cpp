@@ -11,6 +11,8 @@
 // text stays readable inside the round display.
 #include "apps_screen.h"
 #include "theme.h"
+#include "pin_pad_screen.h"   // Offense double opt-in: consent -> PIN pad
+#include "argus_mode.h"       // is_offense_unlocked()
 
 #include <LilyGoLib.h>
 #include <stdint.h>
@@ -295,7 +297,10 @@ static void open_category(Cat c)
 // out. Deliberately shown every time - it is a use-authorisation gate, not a
 // one-off notice.
 static lv_obj_t *s_offense_modal = nullptr;
-static bool      s_offense_ok    = false;   // consent given this boot (resets on reboot)
+
+// After consent + a correct PIN, land back on the Offense category (the PIN pad
+// calls this on a successful unlock via pin_pad_screen_show_then).
+static void open_offense_after_pin() { open_category(CAT_OFFENSE); }
 
 // Delete the scrim ASYNC: we are inside a CLICKED callback of a button that is a
 // DESCENDANT of the scrim, so deleting it synchronously here frees the object
@@ -310,8 +315,10 @@ static void offense_modal_close(lv_event_t *)
 static void offense_modal_accept(lv_event_t *)
 {
     if (s_offense_modal) { lv_obj_delete_async(s_offense_modal); s_offense_modal = nullptr; }
-    s_offense_ok = true;   // don't nag again until the watch reboots
-    open_category(CAT_OFFENSE);
+    // Second gate of the double opt-in: after the consent card, require the
+    // Offense PIN (same pad as Settings / the side-button knock). A correct PIN
+    // enters Offense and returns here to the Offense category.
+    pin_pad_screen_show_then(open_offense_after_pin);
 }
 
 static void show_offense_consent()
@@ -382,9 +389,10 @@ static void show_offense_consent()
 static void on_cat_row(lv_event_t *e)
 {
     Cat c = (Cat)(intptr_t)lv_event_get_user_data(e);
-    // Offense needs consent once per boot; after Accept, open it directly.
-    if (c == CAT_OFFENSE && !s_offense_ok) show_offense_consent();
-    else                                   open_category(c);
+    // Offense is a double opt-in: a consent card, then the PIN pad. Once Offense
+    // is unlocked this session (via any route) it opens directly.
+    if (c == CAT_OFFENSE && !is_offense_unlocked()) show_offense_consent();
+    else                                            open_category(c);
 }
 static void on_notifications(lv_event_t *) { notifications_screen_show(); }
 

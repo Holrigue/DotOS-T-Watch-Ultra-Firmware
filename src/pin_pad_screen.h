@@ -10,4 +10,9 @@
 
 void pin_pad_screen_create();
 void pin_pad_screen_show();
+// Same as pin_pad_screen_show(), but on a successful unlock it runs on_unlock()
+// instead of the default landing (the Tools grid). Used by the Apps-menu Offense
+// entry so that, after consent + PIN, the watch returns to the Offense category.
+// The callback is cleared after it fires (and reset by pin_pad_screen_show()).
+void pin_pad_screen_show_then(void (*on_unlock)());
 bool pin_pad_screen_is_active();

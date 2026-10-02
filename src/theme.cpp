@@ -106,16 +106,13 @@ void argus_mode_indicator_refresh(void)
     // Guard covers the frame only. The chip pointers are gone with the chip; if
     // it is ever restored, add them back here or the frame stops refreshing.
     if (!s_mode_frame) return;
-    ArgusMode m = argus_mode_current();
 
-    // Border frame: Offense only; colour follows argus_accent() (amber, or red
-    // under threat).
-    if (m == ArgusMode::Offense) {
-        lv_obj_set_style_border_color(s_mode_frame, argus_accent(), LV_PART_MAIN);
-        lv_obj_clear_flag(s_mode_frame, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(s_mode_frame, LV_OBJ_FLAG_HIDDEN);
-    }
+    // Border frame: DISABLED. The red Offense border was removed — the double
+    // opt-in to enter Offense (consent card + PIN) already makes the mode
+    // unmistakable, so a persistent glowing frame on every screen was just
+    // noise. The (hidden) object and this refresh are kept so the frame can be
+    // restored in a single edit if it is ever wanted again.
+    lv_obj_add_flag(s_mode_frame, LV_OBJ_FLAG_HIDDEN);
 
     // --- "DEF" / "OFF" corner chip: DISABLED, see the note on the statics. ---
     // Chip: hidden in Daily (innocent), "DEF" (steel) in Defense, "OFF" in Offense.
