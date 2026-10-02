@@ -3542,7 +3542,7 @@ static void update_clock()
 // Firmware name + version surfaced in the boot banner so support tickets carry
 // a fixed anchor. Bump FW_VERSION on each cut.
 #define FW_NAME    "ARGUS"
-#define FW_VERSION "0.2.1"   // ARGUS fork of r3dfish/13-37 (base 1.0.0)
+#define FW_VERSION "0.2.2"   // ARGUS fork of r3dfish/13-37 (base 1.0.0)
 
 // Saira Condensed boot-splash fonts generated via lv_font_conv; see
 // src/font_argus_argus.c.

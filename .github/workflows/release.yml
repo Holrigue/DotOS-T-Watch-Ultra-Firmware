@@ -113,7 +113,14 @@ jobs:
           # assets are re-uploaded with --clobber; missing -> created.
           notes=.github/release-notes/${GITHUB_REF_NAME}.md
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Release already exists (e.g. created from the GitHub UI): attach the
+            # built assets, and if we ship curated notes for this tag, apply the
+            # DotOS title + those notes so the release reads the same however it
+            # was created (the UI otherwise leaves its auto-generated notes).
             gh release upload "$GITHUB_REF_NAME" release/* --clobber
+            if [ -f "$notes" ]; then
+              gh release edit "$GITHUB_REF_NAME" --title "DotOS ${GITHUB_REF_NAME}" --notes-file "$notes"
+            fi
           elif [ -f "$notes" ]; then
             gh release create "$GITHUB_REF_NAME" release/* --title "DotOS ${GITHUB_REF_NAME}" --notes-file "$notes"
           else

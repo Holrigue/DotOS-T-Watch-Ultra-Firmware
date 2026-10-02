@@ -4,6 +4,8 @@
 
 > **DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), itself a fork of the phenomenal [`13:37` firmware by r3dfish](https://github.com/r3dfish/13-37).** The smartwatch core, the Meshtastic client, and the RF toolkit are their work; DotOS adds the Dot watchface, the companion health app, and a batch of daily-wear / notification / power refinements. Please star the originals — see [Credits](#credits).
 
+> 🚀 **New here?** The **[Installation guide](INSTALL.md)** flashes your watch from the browser in about 5 minutes — no toolchain.
+>
 > 📖 Every screen, radio, protocol, pinout and hardware table in full detail lives in the **[Technical Reference](docs/REFERENCE.md)**. This README is the short version.
 
 ## Apps
