@@ -42,3 +42,19 @@
 *.pdf    binary
 *.mp3    binary
 *.stl    binary
+
+# ---------------------------------------------------------------------------
+# Trim the GitHub "Source code (zip / tar.gz)" archive.
+#
+# `export-ignore` drops a path from `git archive` output — which is exactly what
+# GitHub auto-attaches to every Release — WITHOUT touching the repository: a
+# clone still contains everything, so development is unaffected. We exclude only
+# dev-only trees a firmware user never needs, so the downloadable source stays
+# focused on what actually builds the firmware. (Applies to tags cut after this
+# lands; already-published releases keep their old archive.)
+/sim              export-ignore
+/test             export-ignore
+/docs             export-ignore
+/.github          export-ignore
+/.vscode          export-ignore
+/find_mesh_key.py export-ignore
