@@ -30,3 +30,9 @@ int settings_get_brightness();
 // Set the active brightness from anywhere (e.g. the notification shade): applies
 // it, keeps the Settings slider + % label in sync, and persists it when `save`.
 void settings_set_brightness(int level, bool save);
+
+// "Auto turn off display" (Settings > Battery): once the screen has dimmed, switch
+// the panel fully off after 1 minute without any input. set applies it at once and
+// persists it with the other settings (the file key is still "batt_saver").
+bool settings_get_auto_off_display();
+void settings_set_auto_off_display(bool on);

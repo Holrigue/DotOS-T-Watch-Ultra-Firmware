@@ -217,7 +217,8 @@ static lv_obj_t *dot_nfc_label  = nullptr;
 // while there are unread notifications (phone notifs beyond the last-seen
 // baseline, or unread Meshtastic messages), and hidden entirely once they are
 // marked read. Replaces the old top-right red count pill.
-static lv_obj_t *dot_notif_btn = nullptr;
+static lv_obj_t *dot_notif_btn = nullptr;   // invisible, finger-sized tap target
+static lv_obj_t *dot_notif_sq  = nullptr;   // the visible accent square inside it
 static lv_obj_t *dot_notif_env = nullptr;
 static uint32_t  s_notif_seen  = 0;   // notify::center().count() acknowledged on the last open
 
@@ -929,13 +930,22 @@ static void build_dot_notif(lv_obj_t *parent)
     // from the rounded corner by the same margin as the left side (mirror of the
     // old x=44 -> x=410-44-44=322). A hard square (radius 0). Hidden entirely
     // when there is nothing unread, shown only when a notification is waiting.
+    //
+    // TOUCH TARGET: the visible square is only 44 px (~5.5 mm), and a press only
+    // counts as a click if the finger is still on the SAME object when it lifts.
+    // A fingertip that drifts a few px off the edge between touch-down and lift
+    // (easy at the bottom edge, where the panel's touch accuracy is also weakest)
+    // therefore missed. So the clickable object is a larger, invisible pad
+    // (86 x 74) and the visible square is a non-clickable child inside it. The
+    // pad stops at y=410, just below the detection-badge hit areas (y 366..406),
+    // so it cannot steal their taps.
+    constexpr int PAD_X = 280, PAD_Y = 410, PAD_W = 86, PAD_H = 74;
+    constexpr int SQ_X = 300, SQ_Y = 416, SQ_SIZE = 44;   // visible square, face coordinates
+
     dot_notif_btn = lv_obj_create(parent);
     lv_obj_remove_style_all(dot_notif_btn);
-    lv_obj_set_size(dot_notif_btn, 44, 44);
-    lv_obj_set_pos(dot_notif_btn, 300, 416);   // right side, nudged a bit further left
-    lv_obj_set_style_radius(dot_notif_btn, 0, LV_PART_MAIN);   // fully square, no rounded corners
-    lv_obj_set_style_bg_color(dot_notif_btn, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(dot_notif_btn, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_size(dot_notif_btn, PAD_W, PAD_H);
+    lv_obj_set_pos(dot_notif_btn, PAD_X, PAD_Y);
     lv_obj_clear_flag(dot_notif_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(dot_notif_btn, LV_OBJ_FLAG_HIDDEN);   // appears only when unread
@@ -944,9 +954,20 @@ static void build_dot_notif(lv_obj_t *parent)
     // (the square is in the swipe-up zone) still reaches the notifications.
     lv_obj_add_event_cb(dot_notif_btn, on_dot_notif_gesture, LV_EVENT_GESTURE, NULL);
 
+    // The visible square: a hard square (radius 0) in the accent colour.
+    dot_notif_sq = lv_obj_create(dot_notif_btn);
+    lv_obj_remove_style_all(dot_notif_sq);
+    lv_obj_set_size(dot_notif_sq, SQ_SIZE, SQ_SIZE);
+    lv_obj_set_pos(dot_notif_sq, SQ_X - PAD_X, SQ_Y - PAD_Y);
+    lv_obj_set_style_radius(dot_notif_sq, 0, LV_PART_MAIN);   // fully square, no rounded corners
+    lv_obj_set_style_bg_color(dot_notif_sq, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(dot_notif_sq, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_clear_flag(dot_notif_sq, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(dot_notif_sq, LV_OBJ_FLAG_CLICKABLE);   // the pad takes the tap
+
     // White envelope glyph, full brightness: the square is only ever visible
     // while there is something unread, so no dim state is needed.
-    dot_notif_env = lv_label_create(dot_notif_btn);
+    dot_notif_env = lv_label_create(dot_notif_sq);
     lv_obj_set_style_text_font(dot_notif_env, &lv_font_montserrat_24, LV_PART_MAIN);
     lv_obj_set_style_text_color(dot_notif_env, dot_white(), LV_PART_MAIN);
     lv_obj_set_style_text_opa(dot_notif_env, LV_OPA_COVER, LV_PART_MAIN);
@@ -1782,8 +1803,8 @@ void clock_screen_apply_face_custom()
 {
     if (dot_accent)
         lv_obj_set_style_bg_color(dot_accent, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
-    if (dot_notif_btn)
-        lv_obj_set_style_bg_color(dot_notif_btn, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
+    if (dot_notif_sq)
+        lv_obj_set_style_bg_color(dot_notif_sq, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
     if (dot_date_label)
         lv_obj_set_style_text_font(dot_date_label, dot_date_lvfont(), LV_PART_MAIN);
 
@@ -2497,6 +2518,11 @@ static uint8_t  s_dim_brightness   = DEVICE_MAX_BRIGHTNESS_LEVEL / 4;
 static uint32_t s_last_activity_ms = 0;
 static bool     s_is_dimmed        = false;
 static uint32_t s_dimmed_at_ms     = 0;   // when the dim timer last fired
+// Last input while dimmed (the dim itself counts as the start). The screen-off
+// countdown runs from HERE, not from s_dimmed_at_ms, so a touch on the dimmed
+// screen (which only reveals the "swipe up" hint) restarts the full delay.
+// s_dimmed_at_ms stays untouched because it also times the swipe-gate arming.
+static uint32_t s_dim_input_ms     = 0;
 
 // ---- Automatic brightness from the sun ---------------------------------------
 //
@@ -2573,15 +2599,20 @@ int clock_screen_active_brightness() { return active_brightness(); }
 
 bool clock_screen_has_sun_location() { return s_loc_valid; }
 
-// ---- Battery saver: screen fully off after the dim --------------------------
+// ---- Auto turn off display: screen fully off after the dim -------------------
 //
-// Optional (Settings > Battery saver). SAVER_OFF_AFTER_MS after the dim timer
-// fires, the panel is put to sleep (power cut, ~10 mA saved per the LilyGo
-// docs) and LVGL stops rendering. A touch, a button press, wrist motion (when
-// Motion brightens screen is on) or an incoming notification wakes it. The
-// waking touch lands on a full-screen blocker on the top layer so it can never
-// click whatever sits under the finger on a screen the user cannot see.
-static constexpr uint32_t SAVER_OFF_AFTER_MS = 10000;
+// Optional (Settings > Battery > Auto turn off display). AUTO_OFF_AFTER_MS after
+// the screen dims with no input in between, the panel is put to sleep (power
+// cut, ~10 mA saved per the LilyGo docs) and LVGL stops rendering. A touch, a
+// button press, wrist motion (when Motion brightens screen is on) or an incoming
+// notification wakes it. The waking touch lands on a full-screen blocker on the
+// top layer so it can never click whatever sits under the finger on a screen
+// the user cannot see.
+//
+// The automatic low-battery saver (below 20%) uses the same mechanism but a much
+// shorter delay: when the cell is nearly empty every second of lit panel counts.
+static constexpr uint32_t AUTO_OFF_AFTER_MS     = 60000;   // the user's option
+static constexpr uint32_t LOW_BATT_OFF_AFTER_MS = 10000;   // automatic, under 20%
 static bool      s_batt_saver   = false;
 static bool      s_display_off  = false;
 static lv_obj_t *s_wake_blocker = nullptr;
@@ -2739,6 +2770,8 @@ static void dim_card_fade(void *o, int32_t v)
 
 static void on_dim_gate_pressed(lv_event_t *)
 {
+    s_dim_input_ms = millis();   // any touch restarts the auto turn-off countdown
+
     // First 15 s after dimming: a tap simply wakes (swipe-up gate not armed yet).
     if (!s_dim_gate_armed) { dim_reset_activity(); return; }
 
@@ -3125,9 +3158,13 @@ static void display_power_tick()
         }
     }
 
+    // Fully off once the dim has gone quiet long enough. The low-battery saver
+    // wins when both apply (shorter delay), since it exists to stretch the last
+    // of the charge.
+    uint32_t off_after = s_low_batt_saver ? LOW_BATT_OFF_AFTER_MS : AUTO_OFF_AFTER_MS;
     if ((s_batt_saver || s_low_batt_saver) && s_is_dimmed && !s_display_off &&
         !notify_popup_is_showing() &&
-        millis() - s_dimmed_at_ms >= SAVER_OFF_AFTER_MS)
+        millis() - s_dim_input_ms >= off_after)
         display_off();
 }
 
@@ -4879,6 +4916,7 @@ void loop()
         if (millis() - s_last_activity_ms >= s_dim_timeout_ms) {
             s_is_dimmed    = true;
             s_dimmed_at_ms = millis();
+            s_dim_input_ms = s_dimmed_at_ms;
             instance.setBrightness(s_dim_brightness);
             // Home-return is no longer coupled to dimming - it is handled by the
             // independent 1-minute auto-home timer above (AUTO_HOME_MS).
