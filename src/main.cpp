@@ -43,6 +43,7 @@
 #include "power_mgmt.h"      // PMU charge policy + battery longevity setting
 #include "face_watch.h"      // Dot watchface customization (Tools > Face)
 #include "night_mode.h"      // Night time: quiet hours (no vibration / no notification wake)
+#include "mem_stats.h"       // internal-RAM readout on the serial console
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -4992,6 +4993,7 @@ void loop()
         if (configuration_screen_is_active())
             configuration_screen_update();
         low_mem_check();   // warn (once/min) if internal RAM is running low
+        mem_stats_tick();  // [mem] serial line every 30 s and on every radio change
         // Fold the live WiFi beacon stream through the pure evil-twin +
         // beacon-flood detectors -> ThreatState -> forensic log + HADES accent /
         // HexHound. millis()/1000 is a monotonic seconds base (never rewinds),
