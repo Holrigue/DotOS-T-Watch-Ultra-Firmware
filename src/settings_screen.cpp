@@ -15,6 +15,7 @@
 #include "night_screen.h"            // Settings > Night time sub-menu
 #include "night_mode.h"              // On/Off readout on the Night time row
 #include "dim_steps.h"                // evenly spaced stops of the Dim Timer slider
+#include "mem_stats.h"                // lowest-ever free RAM + largest free block
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
@@ -126,13 +127,16 @@ static void settings_update_sysinfo()
     // Detection-record count. This walks the logs on SD, so it is deliberately
     // sampled here (settings_screen_show) rather than on a tick.
     int det = detect_log_total_records();
+    char low[40];
+    mem_stats_format_low(low, sizeof low);
     lv_label_set_text_fmt(sysinfo_label,
         "Heap : %u KB free\n"
+        "Low  : %s\n"
         "PSRAM: %u / %u KB\n"
         "Batt : %d%%%s\n"
         "Up   : %luh %02lum %02lus\n"
         "Det  : %d record(s), %dd max",
-        heap_kb, ps_free, ps_total,
+        heap_kb, low, ps_free, ps_total,
         batt, chg,
         (unsigned long)(up / 3600), (unsigned long)((up % 3600) / 60),
         (unsigned long)(up % 60),
