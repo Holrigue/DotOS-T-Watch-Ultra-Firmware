@@ -5,6 +5,8 @@
 #include "notifications_screen.h"
 #include "settings_screen.h"
 #include "device_mode.h"   // device_mode_platform() - iOS vs Android
+#include "face_watch.h"    // face_accent_rgb() - the wearer's chosen accent
+#include "night_mode.h"    // night_mode_active() - quiet hours
 #include "ancs.h"          // ancs::dismiss() - decline a call on iOS
 #include "theme.h"
 
@@ -13,6 +15,7 @@
 // Defined in main.cpp.
 void clock_screen_restore_brightness();   // back to the dim level or the active brightness
 int  clock_screen_active_brightness();    // Settings level, sun-scaled when Auto brightness is on
+bool clock_screen_is_dimmed_or_off();     // the states in which a banner would wake the screen
 void ui_reset_dim_activity();             // wake a dimmed / switched-off screen
 
 // Nothing-OS palette (matches the Dot watchface): white / grey / black / red.
@@ -97,6 +100,13 @@ bool notify_popup_is_showing() { return s_banner != nullptr; }
 
 static void show_banner(const notify::Notification &n)
 {
+    // Night time: a notification must not light up a dimmed or switched-off
+    // screen. It is already in the list (publish() stored it), and the home
+    // screen's notification square shows it when the wearer wakes the watch.
+    if (night_mode_active() && clock_screen_is_dimmed_or_off()) {
+        NLOG("[popup] night time: not waking the screen for \"%s\"\n", n.title);
+        return;
+    }
     NLOG("[popup] show_banner: \"%s\"\n", n.title);
     delete_banner();    // one banner at a time; a newer arrival replaces the old
     ui_reset_dim_activity();   // a notification wakes a dimmed or switched-off screen
@@ -112,7 +122,8 @@ static void show_banner(const notify::Notification &n)
     lv_obj_align(s_banner, LV_ALIGN_TOP_MID, 0, 72);
     lv_obj_set_style_bg_color(s_banner, lv_color_hex(0x141414), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_banner, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(s_banner, NOTHING_RED, LV_PART_MAIN);   // single red accent
+    // Border follows the colour the wearer picked in Facewatch (red by default).
+    lv_obj_set_style_border_color(s_banner, lv_color_hex(face_accent_rgb()), LV_PART_MAIN);
     lv_obj_set_style_border_width(s_banner, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(s_banner, 12, LV_PART_MAIN);
     lv_obj_set_style_pad_all(s_banner, 10, LV_PART_MAIN);

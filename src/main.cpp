@@ -42,6 +42,7 @@
 #include "dot_tiles.h"       // two user-selectable data slots on the Dot face
 #include "power_mgmt.h"      // PMU charge policy + battery longevity setting
 #include "face_watch.h"      // Dot watchface customization (Tools > Face)
+#include "night_mode.h"      // Night time: quiet hours (no vibration / no notification wake)
 #include "tpms.h"
 #include "pager_screen.h"
 #include "pager.h"
@@ -1088,16 +1089,19 @@ static void dot_usb_set_dots_hidden(bool hidden)
 }
 
 // Wave frame: each dot's phase lags its left neighbour by DOT_USB_STAGGER.
-// Red weight follows a raised cosine, so 0 = white, peak = full red.
+// The accent weight follows a raised cosine, so 0 = white, peak = full accent.
+// The accent is the colour the wearer picked in Facewatch (red by default), read
+// each frame so changing it takes effect on the very next wave.
 static void dot_usb_anim_cb(lv_timer_t *t)
 {
     (void)t;
     uint32_t now = lv_tick_get();
+    const lv_color_t accent = lv_color_hex(face_accent_rgb());
     for (int i = 0; i < DOT_USB_N; i++) {
         uint32_t ph = (now + DOT_USB_PERIOD * 16 - (uint32_t)i * DOT_USB_STAGGER) % DOT_USB_PERIOD;
         float    k  = 0.5f - 0.5f * cosf(6.2831853f * (float)ph / (float)DOT_USB_PERIOD);
         lv_obj_set_style_bg_color(dot_usb_dots[i],
-            lv_color_mix(dot_red(), dot_white(), (uint8_t)(k * 255.0f)), LV_PART_MAIN);
+            lv_color_mix(accent, dot_white(), (uint8_t)(k * 255.0f)), LV_PART_MAIN);
     }
 }
 
@@ -1590,11 +1594,15 @@ static void build_dot_bottom(lv_obj_t *parent)
         lv_obj_set_pos(dot_bot_img, DOT_BOT_X, date_cy - DOT_BOT_H / 2);
     }
 
+    // The battery gauge is a row of round DOTS (not bars), matching the dot-matrix
+    // charter of the rest of the face: 10 px discs on a 14 px pitch, centred on the
+    // row of the percentage number (y~438).
     for (int i = 0; i < DOT_BAT_SEGS; i++) {
         lv_obj_t *s = lv_obj_create(parent);
         lv_obj_remove_style_all(s);
-        lv_obj_set_size(s, 11, 16);
-        lv_obj_set_pos(s, 50 + i * 14, 430);   // left-aligned with the date/accent (x=50)
+        lv_obj_set_size(s, 10, 10);
+        lv_obj_set_pos(s, 50 + i * 14, 433);   // left-aligned with the date/accent (x=50)
+        lv_obj_set_style_radius(s, LV_RADIUS_CIRCLE, LV_PART_MAIN);
         lv_obj_set_style_bg_color(s, dot_seg_empty(), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(s, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_clear_flag(s, LV_OBJ_FLAG_CLICKABLE);
@@ -2868,6 +2876,10 @@ static void show_dim_gate()
 }
 
 bool clock_screen_display_is_off() { return s_display_off; }
+
+// True while the screen is dimmed or fully off: the states in which an incoming
+// notification would otherwise wake it. Night time uses this to let it sleep.
+bool clock_screen_is_dimmed_or_off() { return s_display_off || s_is_dimmed; }
 
 void clock_screen_set_battery_saver(bool on)
 {
@@ -4295,6 +4307,7 @@ void setup()
     // until the phone relay refreshes them).
     health_boot_restore();
     haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
+    night_mode_boot_restore();   // saved Night time window (re-silences the motor if inside it)
     dot_tiles_boot_restore();   // restore the two Dot-face data slot choices
     face_watch_boot_restore();  // restore Dot-face fonts / accent / date order
     clock_screen_apply_face_custom();   // re-apply the restored look to the built face
@@ -4944,6 +4957,7 @@ void loop()
         update_clock();
         argus_mode_indicator_refresh();   // Offense border flips to threat-red live
         alarm_tick();              // fires the alarm at the set time
+        night_mode_tick();         // keep the haptic motor in step with the Night time window
         charge_state_tick();       // feed bat_charge on every face + wake on plug-in
         // The classic analog/digital face's status icons and battery widget are
         // only on screen when that face is showing on the (awake) clock screen.

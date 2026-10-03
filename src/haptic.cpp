@@ -9,6 +9,7 @@ namespace {
 
 const char *const NS = "argushaptic";
 uint8_t s_pct = HAPTIC_DEFAULT_PCT;
+bool    s_night = false;   // Night time: play the silent effect instead of the saved buzz
 
 // Map 0..100% onto the DRV2605 "Buzz" effects of library 1 (ERM), which the
 // firmware selects at init. The ladder is graded 20/40/60/80/100%; 0 selects
@@ -24,7 +25,7 @@ uint8_t effect_for(uint8_t pct)
     return 47;                   // Buzz 1 - 100%
 }
 
-void apply() { instance.setHapticEffects(effect_for(s_pct)); }
+void apply() { instance.setHapticEffects(s_night ? 0 : effect_for(s_pct)); }
 
 }  // namespace
 
@@ -57,8 +58,15 @@ static constexpr uint8_t SOFT_ALERT_EFFECT = 7;
 
 void haptic_force_gentle() { instance.setHapticEffects(SOFT_ALERT_EFFECT); }
 
+void haptic_set_night(bool on)
+{
+    s_night = on;
+    apply();
+}
+
 void haptic_alert_soft()
 {
+    if (s_night) return;   // Night time: an incoming call stays silent too
     instance.setHapticEffects(SOFT_ALERT_EFFECT);
     instance.vibrator();
     apply();   // restore the user's configured buzz for everything else

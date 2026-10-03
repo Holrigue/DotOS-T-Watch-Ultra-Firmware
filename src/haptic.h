@@ -35,6 +35,12 @@ void haptic_force_max();
 // buzz when the alarm is dismissed.
 void haptic_force_gentle();
 
+// Night time: while on, the saved buzz is replaced by the silent effect, so every
+// instance.vibrator() call (notifications, touch feedback, detector alerts) is
+// quiet. Not persisted (night_mode owns the setting). The alarm is exempt because
+// it loads its own effect with haptic_force_gentle(); Find forces the strongest.
+void haptic_set_night(bool on);
+
 // One self-contained gentle tap (Soft Bump), restoring the saved effect right
 // after. For one-shot alerts like an incoming-call ring, where there is no
 // natural dismiss point to restore at.

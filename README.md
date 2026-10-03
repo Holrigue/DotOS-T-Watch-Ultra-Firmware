@@ -14,6 +14,7 @@
 - **Dot watchface** — Nothing-OS dot-matrix clock with a red accent rail, compact date, live status glyphs, and two customizable data tiles.
 - **Health** — sleep score, steps, and heart-rate high/low mirrored from your phone over BLE.
 - **Notify** — mirrors phone notifications to your wrist (iPhone via ANCS, Android via Gadgetbridge).
+- **Night time** — quiet hours you choose: no vibration and no screen wake for notifications (alarms still ring).
 - **Music** — local MP3/FLAC player that reads straight off the SD card, sorted by artist folder.
 - **Level** — digital bubble level (centre bullseye plus horizontal and vertical vials) using the accelerometer.
 - **Compass** — relative gyro heading with a Set-North pin (this board has no magnetometer).
