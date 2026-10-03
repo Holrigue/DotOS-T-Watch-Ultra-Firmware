@@ -466,6 +466,7 @@ static void create_settings_screen()
     lv_obj_set_style_pad_all(volume_slider, 10, LV_PART_KNOB);
     lv_obj_set_style_border_width(volume_slider, 0, LV_PART_KNOB);
     lv_obj_align(volume_slider, LV_ALIGN_TOP_MID, 0, 552);
+    lv_obj_clear_flag(volume_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);   // a drag is not a swipe
     lv_obj_add_event_cb(volume_slider, on_volume_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Snooze duration dropdown
