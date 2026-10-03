@@ -14,6 +14,7 @@
 #include "battery_screen.h"          // Settings > Battery sub-menu
 #include "night_screen.h"            // Settings > Night time sub-menu
 #include "night_mode.h"              // On/Off readout on the Night time row
+#include "dim_steps.h"                // evenly spaced stops of the Dim Timer slider
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
@@ -372,7 +373,7 @@ static void dim_timeout_show(uint32_t sec)
 static void on_dim_timeout_changed(lv_event_t *e)
 {
     (void)e;
-    uint32_t sec = (uint32_t)lv_slider_get_value(dim_timeout_slider);
+    uint32_t sec = dim_step_seconds((int)lv_slider_get_value(dim_timeout_slider));
     clock_screen_set_dim_timeout(sec * 1000);
     dim_timeout_show(sec);   // live; saved on release (on_slider_released)
 }
@@ -797,6 +798,8 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(brightness_slider, 10, LV_PART_KNOB);
     lv_obj_set_style_border_width(brightness_slider, 0, LV_PART_KNOB);
 
+    // A horizontal drag on the slider must not also count as a swipe that leaves the page.
+    lv_obj_clear_flag(brightness_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(brightness_slider, on_brightness_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(brightness_slider, on_slider_released,    LV_EVENT_RELEASED,      NULL);
 
@@ -1038,8 +1041,9 @@ void settings_screen_create()
     lv_label_set_text(dim_lbl, "Dim Timer");
     lv_obj_align(dim_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
-    // Precise dim-timeout SLIDER (0..300 s, 0 = OFF) with a live value label,
-    // both fitted in the row's right side so no other row's position shifts.
+    // Dim-timeout SLIDER with a live value label, both fitted in the row's right
+    // side so no other row's position shifts. It walks the stops in dim_steps.h
+    // (5 s ... 5 min, OFF last) so every notch is the same distance apart.
     dim_timeout_val_label = lv_label_create(dim_row);
     lv_obj_set_style_text_color(dim_timeout_val_label, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_text_font(dim_timeout_val_label, theme_text_font(16), LV_PART_MAIN);
@@ -1049,11 +1053,14 @@ void settings_screen_create()
     dim_timeout_slider = lv_slider_create(dim_row);
     lv_obj_set_size(dim_timeout_slider, 150, 14);
     lv_obj_align(dim_timeout_slider, LV_ALIGN_RIGHT_MID, -72, 0);
-    lv_slider_set_range(dim_timeout_slider, 0, 300);
-    lv_slider_set_value(dim_timeout_slider, 0, LV_ANIM_OFF);
+    lv_slider_set_range(dim_timeout_slider, 0, kDimStepOff);
+    lv_slider_set_value(dim_timeout_slider, kDimStepOff, LV_ANIM_OFF);   // OFF until settings load
     lv_obj_set_style_bg_color(dim_timeout_slider, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
     lv_obj_set_style_bg_color(dim_timeout_slider, ARGUS_ACCENT, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(dim_timeout_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(dim_timeout_slider, 7, LV_PART_KNOB);    // bigger knob to grab
+    lv_obj_set_ext_click_area(dim_timeout_slider, 14);                // finger-sized hit area
+    lv_obj_clear_flag(dim_timeout_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(dim_timeout_slider, on_dim_timeout_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(dim_timeout_slider, on_slider_released,      LV_EVENT_RELEASED,      NULL);
 
@@ -1098,6 +1105,7 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(dim_brightness_slider, 10, LV_PART_KNOB);
     lv_obj_set_style_border_width(dim_brightness_slider, 0, LV_PART_KNOB);
 
+    lv_obj_clear_flag(dim_brightness_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);   // a drag is not a swipe
     lv_obj_add_event_cb(dim_brightness_slider, on_dim_brightness_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(dim_brightness_slider, on_slider_released,         LV_EVENT_RELEASED,      NULL);
 
@@ -1878,7 +1886,7 @@ static void settings_save_to_sd()
     f.printf("show_day=%d\n",        lv_obj_has_state(show_day_switch,    LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_date=%d\n",       lv_obj_has_state(show_date_switch,   LV_STATE_CHECKED) ? 1 : 0);
     f.printf("vibrate=%d\n",         lv_obj_has_state(vibrate_switch,     LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("dim_timeout_sec=%lu\n",(unsigned long)lv_slider_get_value(dim_timeout_slider));
+    f.printf("dim_timeout_sec=%lu\n",(unsigned long)dim_step_seconds((int)lv_slider_get_value(dim_timeout_slider)));
     f.printf("dim_brightness=%d\n",  (int)s_dim_brightness);
     f.printf("motion_wake=%d\n",     lv_obj_has_state(motion_wake_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("motion_sens=%d\n",     (int)lv_slider_get_value(motion_sens_slider));
@@ -1960,9 +1968,11 @@ void settings_screen_load()
         } else if (key == "dim_timeout_sec") {
             if (v < 0)   v = 0;
             if (v > 300) v = 300;
-            lv_slider_set_value(dim_timeout_slider, (int32_t)v, LV_ANIM_OFF);
-            dim_timeout_show((uint32_t)v);
-            clock_screen_set_dim_timeout((uint32_t)v * 1000);
+            // Older files hold any 0..300 s: snap to the nearest stop of the slider.
+            const int idx = dim_step_index((uint32_t)v);
+            lv_slider_set_value(dim_timeout_slider, idx, LV_ANIM_OFF);
+            dim_timeout_show(dim_step_seconds(idx));
+            clock_screen_set_dim_timeout(dim_step_seconds(idx) * 1000);
         } else if (key == "dim_brightness") {
             if (v < 1) v = 1;
             if (v > DEVICE_MAX_BRIGHTNESS_LEVEL) v = DEVICE_MAX_BRIGHTNESS_LEVEL;
