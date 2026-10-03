@@ -22,12 +22,18 @@ enum FaceDateFont : uint8_t { FACE_DATE_ORBITRON = 0, FACE_DATE_MONO, FACE_DATE_
 
 // Accent colour presets. Drives the Dot face's accent rail. Cyan and a vivid
 // Pip-Boy green join the set; plain white was dropped (it read flat against the
-// white text and status glyphs).
+// white text and status glyphs) and so was the pale steel-blue (too close to
+// Grey).
+//
+// The numeric values are what gets saved in NVS, so they are pinned: removing the
+// steel-blue must not renumber Cyan / Green for watches that already saved them.
 enum FaceAccent : uint8_t {
-    FACE_ACC_RED = 0, FACE_ACC_GREY, FACE_ACC_AMBER, FACE_ACC_BLUE,
-    FACE_ACC_CYAN, FACE_ACC_GREEN,
-    FACE_ACC__COUNT
+    FACE_ACC_RED = 0, FACE_ACC_GREY = 1, FACE_ACC_AMBER = 2,
+    // 3 = the retired steel-blue. Kept reserved; a saved 3 is read back as Grey.
+    FACE_ACC_CYAN = 4, FACE_ACC_GREEN = 5,
+    FACE_ACC__COUNT = 6
 };
+constexpr uint8_t FACE_ACC_RETIRED_STEEL_BLUE = 3;
 
 // Date order: DD/MM (default), MM/DD, YYYY-MM-DD, or DD Mon.
 enum FaceDateOrder : uint8_t {

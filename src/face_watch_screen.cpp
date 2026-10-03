@@ -30,7 +30,13 @@ static lv_obj_t *time_dd;
 static lv_obj_t *order_dd;
 static lv_obj_t *text_dd;
 static lv_obj_t *wall_sw;
-static lv_obj_t *accent_dots[FACE_ACC__COUNT];
+// The accents offered in the picker, in display order. (Not simply 0..COUNT: the
+// numeric values are pinned for saved settings and one of them is retired.)
+static const FaceAccent kAccentChoices[] = {
+    FACE_ACC_RED, FACE_ACC_GREY, FACE_ACC_AMBER, FACE_ACC_CYAN, FACE_ACC_GREEN,
+};
+static constexpr int ACCENT_N = sizeof(kAccentChoices) / sizeof(kAccentChoices[0]);
+static lv_obj_t *accent_dots[ACCENT_N];
 
 // Swatch colours, index == FaceAccent value.
 static uint32_t accent_swatch_rgb(int i)
@@ -38,7 +44,6 @@ static uint32_t accent_swatch_rgb(int i)
     switch (i) {
         case FACE_ACC_GREY:  return 0x9A9A9A;
         case FACE_ACC_AMBER: return 0xF0A020;
-        case FACE_ACC_BLUE:  return 0x9BBCD6;
         case FACE_ACC_CYAN:  return 0x00E5FF;   // bright cyan
         case FACE_ACC_GREEN: return 0x2BFF66;   // vivid Pip-Boy green
         case FACE_ACC_RED:
@@ -97,8 +102,8 @@ static void on_wall_changed(lv_event_t *)
 static void refresh_accent_rings()
 {
     int sel = (int)face_accent();
-    for (int i = 0; i < FACE_ACC__COUNT; i++) {
-        bool on = (i == sel);
+    for (int i = 0; i < ACCENT_N; i++) {
+        bool on = ((int)kAccentChoices[i] == sel);
         lv_obj_set_style_border_color(accent_dots[i], NW, LV_PART_MAIN);
         lv_obj_set_style_border_width(accent_dots[i], on ? 3 : 0, LV_PART_MAIN);
     }
@@ -107,8 +112,8 @@ static void refresh_accent_rings()
 static void on_accent_clicked(lv_event_t *e)
 {
     int i = (int)(intptr_t)lv_event_get_user_data(e);
-    if (i < 0 || i >= FACE_ACC__COUNT) return;
-    face_set_accent((FaceAccent)i);
+    if (i < 0 || i >= ACCENT_N) return;
+    face_set_accent(kAccentChoices[i]);
     refresh_accent_rings();
     clock_screen_apply_face_custom();
 }
@@ -164,13 +169,13 @@ void face_watch_screen_create()
 
     // Accent swatches row.
     make_label(screen, "Accent", 200);
-    for (int i = 0; i < FACE_ACC__COUNT; i++) {
+    for (int i = 0; i < ACCENT_N; i++) {
         lv_obj_t *d = lv_obj_create(screen);
         lv_obj_remove_style_all(d);
         lv_obj_set_size(d, 32, 32);
-        lv_obj_align(d, LV_ALIGN_TOP_RIGHT, -24 - (FACE_ACC__COUNT - 1 - i) * 40, 202);
+        lv_obj_align(d, LV_ALIGN_TOP_RIGHT, -24 - (ACCENT_N - 1 - i) * 40, 202);
         lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(d, lv_color_hex(accent_swatch_rgb(i)), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(d, lv_color_hex(accent_swatch_rgb((int)kAccentChoices[i])), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(d, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_add_flag(d, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_event_cb(d, on_accent_clicked, LV_EVENT_CLICKED, (void *)(intptr_t)i);

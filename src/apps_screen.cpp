@@ -444,7 +444,7 @@ static void build()
     // Home: Notifications pinned at the top, then the category rows.
     s_home = lv_obj_create(NULL);
     lv_obj_t *hlist = make_list(s_home, "Menu", NULL);
-    make_row(hlist, "Notifications", LV_SYMBOL_RIGHT, AR, on_notifications, NULL);
+    make_row(hlist, "Notifications", LV_SYMBOL_RIGHT, AW, on_notifications, NULL);
     make_row(hlist, "Tracking",     LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TRACKING);
     make_row(hlist, "Defense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_DEFENSE);
     make_row(hlist, "Offense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_OFFENSE);

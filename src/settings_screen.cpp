@@ -11,7 +11,9 @@
 #include "detect/log_retention.h"   // kMaxAgeDays, for the readout
 #include "health_state.h"           // daily step goal (Dot progress bar + Health screen)
 #include "haptic.h"                  // global vibration intensity
-#include "power_mgmt.h"              // battery longevity (charge target) setting
+#include "battery_screen.h"          // Settings > Battery sub-menu
+#include "night_screen.h"            // Settings > Night time sub-menu
+#include "night_mode.h"              // On/Off readout on the Night time row
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
@@ -37,7 +39,7 @@ void clock_screen_set_vibrate(bool enabled);
 void clock_screen_set_motion_wake(bool enabled);
 void clock_screen_set_motion_sensitivity(int level);   // 1 (big movement) .. 5 (small)
 void clock_screen_set_auto_brightness(bool on);        // follow the sun
-void clock_screen_set_battery_saver(bool on);          // screen off 10 s after the dim
+void clock_screen_set_battery_saver(bool on);          // "Auto turn off display": screen fully off 1 min after the dim
 bool clock_screen_has_sun_location();                  // a GPS fix has been saved
 void clock_screen_restore_brightness();                // apply the active brightness now
 void clock_screen_set_manual_override(bool on);
@@ -165,10 +167,10 @@ static lv_obj_t *vib_intensity_slider;
 static lv_obj_t *vib_intensity_val_label;
 static lv_obj_t *auto_bright_switch;
 static lv_obj_t *auto_bright_val_label;
-static lv_obj_t *batt_saver_switch;
-static lv_obj_t *batt_saver_val_label;
-static lv_obj_t *batt_longevity_switch;
-static lv_obj_t *batt_longevity_val_label;
+// "Auto turn off display" (Settings > Battery). The switch itself lives on the
+// Battery screen; the value is kept here so it persists with the other settings.
+static bool s_auto_off_display = false;
+static lv_obj_t *s_night_hint = nullptr;   // "On" / "Off" readout on the Night time row
 static lv_obj_t *manual_time_switch;
 static lv_obj_t *manual_time_val_label;
 // Screenshot long-press toggle — bottom of the settings list. Disabled
@@ -225,8 +227,8 @@ static lv_obj_t *defpersist_val_label;
 // First Y offset that belongs to the manual-time editor (the hint line).
 // register_shiftable entries with base_y >= this also pick up the
 // MANUAL_HIDDEN_SHIFT when the switch is off.
-// The four display-power rows (Motion sensitivity, Auto brightness, Battery
-// saver, Step goal) were inserted under the Motion row after the rest of this
+// The six display-power rows (Motion sensitivity, Auto brightness, Step goal,
+// Vibration, Battery, Night time) were inserted under the Motion row after the rest of this
 // list was laid out. Rather than renumber every row below, each row registered
 // AFTER them is pushed down by POWER_ROWS_SHIFT at registration (s_shift_extra),
 // so the literal base Ys below keep their original meaning.
@@ -469,19 +471,13 @@ static void on_auto_bright_changed(lv_event_t *e)
     settings_save_to_sd();
 }
 
-static void on_batt_saver_changed(lv_event_t *e)
+bool settings_get_auto_off_display() { return s_auto_off_display; }
+
+void settings_set_auto_off_display(bool on)
 {
-    bool on = lv_obj_has_state(batt_saver_switch, LV_STATE_CHECKED);
-    lv_label_set_text(batt_saver_val_label, on ? "On" : "Off");
+    s_auto_off_display = on;
     clock_screen_set_battery_saver(on);
     settings_save_to_sd();
-}
-
-static void on_batt_longevity_changed(lv_event_t *)
-{
-    bool on = lv_obj_has_state(batt_longevity_switch, LV_STATE_CHECKED);
-    lv_label_set_text(batt_longevity_val_label, on ? "On" : "Off");
-    power_set_longevity(on);   // 4.1 V (gentle) vs 4.2 V (full); persisted in power_mgmt
 }
 
 static void on_screenshot_changed(lv_event_t *)
@@ -1177,12 +1173,12 @@ void settings_screen_create()
     lv_label_set_text(motion_sens_val_label, "2");
     lv_obj_align(motion_sens_val_label, LV_ALIGN_RIGHT_MID, -180, 0);
 
-    // Auto brightness (follows the sun) and Battery saver (screen off 10 s
-    // after the dim) are plain On/Off rows styled like Motion above.
+    // Auto brightness (follows the sun) is a plain On/Off row styled like Motion
+    // above. The battery options (auto turn off display, longevity) live in the
+    // Battery sub-menu, reached from the "Battery" row further down.
     struct PowerSwitch { lv_obj_t **sw; lv_obj_t **val; const char *text; int y; lv_event_cb_t cb; };
     const PowerSwitch rows[] = {
         { &auto_bright_switch, &auto_bright_val_label, "Auto brightness", 874, on_auto_bright_changed },
-        { &batt_saver_switch,  &batt_saver_val_label,  "Battery saver",   922, on_batt_saver_changed  },
     };
     for (const PowerSwitch &r : rows) {
         lv_obj_t *row = lv_obj_create(settings_screen);
@@ -1222,8 +1218,8 @@ void settings_screen_create()
     lv_obj_set_style_border_width(goal_row, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(goal_row, 0, LV_PART_MAIN);
     lv_obj_clear_flag(goal_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(goal_row, LV_ALIGN_TOP_MID, 0, 970);
-    register_shiftable(goal_row, 970);
+    lv_obj_align(goal_row, LV_ALIGN_TOP_MID, 0, 922);
+    register_shiftable(goal_row, 922);
 
     lv_obj_t *goal_lbl = lv_label_create(goal_row);
     lv_obj_set_style_text_color(goal_lbl, ARGUS_TEXT, LV_PART_MAIN);
@@ -1260,8 +1256,8 @@ void settings_screen_create()
     lv_obj_set_style_border_width(vib_row, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(vib_row, 0, LV_PART_MAIN);
     lv_obj_clear_flag(vib_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(vib_row, LV_ALIGN_TOP_MID, 0, 1018);
-    register_shiftable(vib_row, 1018);
+    lv_obj_align(vib_row, LV_ALIGN_TOP_MID, 0, 970);
+    register_shiftable(vib_row, 970);
 
     lv_obj_t *vib_lbl = lv_label_create(vib_row);
     lv_obj_set_style_text_color(vib_lbl, ARGUS_TEXT, LV_PART_MAIN);
@@ -1289,40 +1285,61 @@ void settings_screen_create()
     lv_label_set_text_fmt(vib_intensity_val_label, "%d%%", vib_now);
     lv_obj_align(vib_intensity_val_label, LV_ALIGN_RIGHT_MID, -180, 0);
 
-    // Battery longevity: charge to 4.1 V (gentler on the cell, ~2x cycle life)
-    // instead of 4.2 V (full runtime). On/Off row styled like the switches above;
-    // drives the PMU charge target via power_mgmt (persisted there).
-    lv_obj_t *longv_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(longv_row, 380, 40);
-    lv_obj_set_style_bg_opa(longv_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(longv_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(longv_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(longv_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(longv_row, LV_ALIGN_TOP_MID, 0, 1066);
-    register_shiftable(longv_row, 1066);
+    // Battery: one row that opens the Battery sub-menu, which gathers every
+    // battery option (auto turn off display, battery longevity, the automatic
+    // low-battery saver) and explains each in plain words. The whole row is the
+    // tap target, like the Facewatch row at the top.
+    lv_obj_t *batt_row = lv_obj_create(settings_screen);
+    lv_obj_set_size(batt_row, 380, 40);
+    lv_obj_set_style_bg_opa(batt_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(batt_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(batt_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(batt_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(batt_row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(batt_row, LV_ALIGN_TOP_MID, 0, 1018);
+    register_shiftable(batt_row, 1018);
+    lv_obj_add_event_cb(batt_row, [](lv_event_t *) { battery_screen_show(); },
+                        LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *longv_lbl = lv_label_create(longv_row);
-    lv_obj_set_style_text_color(longv_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(longv_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(longv_lbl, "Battery longevity");
-    lv_obj_align(longv_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *batt_lbl = lv_label_create(batt_row);
+    lv_obj_set_style_text_color(batt_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(batt_lbl, theme_text_font(20), LV_PART_MAIN);
+    lv_label_set_text(batt_lbl, "Battery");
+    lv_obj_align(batt_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
-    bool longv_on = power_get_longevity();
+    // Right-aligned affordance (plain ASCII to avoid any glyph-tofu risk).
+    lv_obj_t *batt_hint = lv_label_create(batt_row);
+    lv_obj_set_style_text_color(batt_hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
+    lv_obj_set_style_text_font(batt_hint, theme_text_font(20), LV_PART_MAIN);
+    lv_label_set_text(batt_hint, "Options");
+    lv_obj_align(batt_hint, LV_ALIGN_RIGHT_MID, 0, 0);
 
-    batt_longevity_val_label = lv_label_create(longv_row);
-    lv_obj_set_style_text_color(batt_longevity_val_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(batt_longevity_val_label, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(batt_longevity_val_label, longv_on ? "On" : "Off");
-    lv_obj_align(batt_longevity_val_label, LV_ALIGN_RIGHT_MID, -80, 0);
+    // Night time: opens the quiet-hours screen (no vibration, no notification wake
+    // between the chosen times; alarms still ring). The right-hand readout says
+    // whether it is on, and is refreshed every time Settings opens.
+    lv_obj_t *night_row = lv_obj_create(settings_screen);
+    lv_obj_set_size(night_row, 380, 40);
+    lv_obj_set_style_bg_opa(night_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(night_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(night_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(night_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(night_row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(night_row, LV_ALIGN_TOP_MID, 0, 1066);
+    register_shiftable(night_row, 1066);
+    lv_obj_add_event_cb(night_row, [](lv_event_t *) { night_screen_show(); },
+                        LV_EVENT_CLICKED, NULL);
 
-    batt_longevity_switch = lv_switch_create(longv_row);
-    lv_obj_set_size(batt_longevity_switch, 70, 34);
-    lv_obj_set_style_bg_color(batt_longevity_switch, lv_color_make(0x44, 0x44, 0x44),
-                              LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(batt_longevity_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
-    if (longv_on) lv_obj_add_state(batt_longevity_switch, LV_STATE_CHECKED);
-    lv_obj_add_event_cb(batt_longevity_switch, on_batt_longevity_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(batt_longevity_switch, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_t *night_lbl = lv_label_create(night_row);
+    lv_obj_set_style_text_color(night_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(night_lbl, theme_text_font(20), LV_PART_MAIN);
+    lv_label_set_text(night_lbl, "Night time");
+    lv_obj_align(night_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    s_night_hint = lv_label_create(night_row);
+    lv_obj_set_style_text_color(s_night_hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_night_hint, theme_text_font(20), LV_PART_MAIN);
+    lv_label_set_text(s_night_hint, night_mode_enabled() ? "On" : "Off");
+    lv_obj_align(s_night_hint, LV_ALIGN_RIGHT_MID, 0, 0);
 
     s_shift_extra = POWER_ROWS_SHIFT;   // every row registered from here on sits lower
 
@@ -1792,6 +1809,7 @@ void settings_screen_show()
     main_loop_request_lvgl_priority(12);
     settings_update_sysinfo();   // snapshot heap/PSRAM/battery/uptime
     settings_update_clock_sync();// the answer ages on its own; recompute per show
+    if (s_night_hint) lv_label_set_text(s_night_hint, night_mode_enabled() ? "On" : "Off");
 
     // Heading follows the mode: red-team red in Offense, steel-blue otherwise.
     if (s_settings_title)
@@ -1865,7 +1883,7 @@ static void settings_save_to_sd()
     f.printf("motion_wake=%d\n",     lv_obj_has_state(motion_wake_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("motion_sens=%d\n",     (int)lv_slider_get_value(motion_sens_slider));
     f.printf("auto_bright=%d\n",     lv_obj_has_state(auto_bright_switch, LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("batt_saver=%d\n",      lv_obj_has_state(batt_saver_switch,  LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("batt_saver=%d\n",      s_auto_off_display ? 1 : 0);   // key kept for saved files
     f.printf("manual_time=%d\n",     lv_obj_has_state(manual_time_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("screenshot=%d\n",      lv_obj_has_state(screenshot_switch,  LV_STATE_CHECKED) ? 1 : 0);
     f.close();
@@ -1963,8 +1981,7 @@ void settings_screen_load()
             clock_screen_set_auto_brightness(b);
             show_auto_bright_state(b);
         } else if (key == "batt_saver") {
-            apply_switch(batt_saver_switch, b);
-            lv_label_set_text(batt_saver_val_label, b ? "On" : "Off");
+            s_auto_off_display = b;
             clock_screen_set_battery_saver(b);
         } else if (key == "motion_wake") {
             apply_switch(motion_wake_switch, b);
