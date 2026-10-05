@@ -65,6 +65,38 @@ void argus_style_tile(lv_obj_t *obj, ArgusTile kind, int radius)
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+// 8x8 alpha tile of a 45-degree stripe, 2 px wide every 8 px. (x + y) & 7 is periodic
+// in both axes, so the tile repeats without a seam.
+static const uint8_t kHatchTile[64] = {
+    0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+static lv_image_dsc_t s_hatch_dsc;
+
+void argus_style_hatch(lv_obj_t *obj, lv_color_t color)
+{
+    if (!s_hatch_dsc.data) {
+        s_hatch_dsc.header.magic  = LV_IMAGE_HEADER_MAGIC;
+        s_hatch_dsc.header.cf     = LV_COLOR_FORMAT_A8;
+        s_hatch_dsc.header.flags  = 0;
+        s_hatch_dsc.header.w      = 8;
+        s_hatch_dsc.header.h      = 8;
+        s_hatch_dsc.header.stride = 8;
+        s_hatch_dsc.data_size     = sizeof(kHatchTile);
+        s_hatch_dsc.data          = kHatchTile;
+    }
+    lv_obj_set_style_bg_image_src(obj, &s_hatch_dsc, LV_PART_MAIN);
+    lv_obj_set_style_bg_image_tiled(obj, true, LV_PART_MAIN);
+    lv_obj_set_style_bg_image_recolor(obj, color, LV_PART_MAIN);
+    lv_obj_set_style_bg_image_recolor_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
+}
+
 void argus_style_pill_slider(lv_obj_t *slider)
 {
     lv_obj_set_style_bg_color(slider, ARGUS_RAISED, LV_PART_MAIN);
