@@ -43,6 +43,7 @@
 #include "power_mgmt.h"      // PMU charge policy + battery longevity setting
 #include "face_watch.h"      // Dot watchface customization (Tools > Face)
 #include "night_mode.h"      // Night time: quiet hours (no vibration / no notification wake)
+#include "boot_guard.h"      // detects a boot that never finished -> safe mode
 #include "mem_stats.h"       // internal-RAM readout on the serial console
 #include "tpms.h"
 #include "pager_screen.h"
@@ -3604,6 +3605,7 @@ void setup()
     delay(50);   // let the USB-CDC link settle so the banner isn't truncated
     Serial.printf("\n%s firmware v%s  (T-Watch Ultra)  build %s %s\n",
                   FW_NAME, FW_VERSION, __DATE__, __TIME__);
+    boot_guard_begin();   // raises the "boot in progress" mark; decides normal / safe / reset
 
     instance.begin();
     coex_log_heap("after-instance-begin");
@@ -4119,6 +4121,7 @@ void setup()
     s_last_activity_ms = millis();
     coex_log_heap("before-ble");
 
+    boot_guard_stage("ble-keepalive");
 #if ARGUS_RADIO_COEXIST || ARGUS_COEX_MEASURE
     // Bring the BLE (Bluedroid) controller up ONCE now - late in setup, after the
     // display/LVGL and clock are up, and while WiFi is still OFF. This is the
@@ -4126,7 +4129,7 @@ void setup()
     // WiFi coming up later COEXISTS instead of hanging. Matches upstream r3dfish;
     // the mutual-exclusion guards are compiled out via radio_coexist.h. If this
     // ever hangs the watch, flip ARGUS_RADIO_COEXIST to 0 and reflash.
-    ble_scan_boot_keepalive();
+    if (!boot_guard_safe_mode()) ble_scan_boot_keepalive();
     coex_log_heap("after-ble");
 #endif
 
@@ -4278,10 +4281,15 @@ void setup()
     // via boot_prefs (/Settings/boot_radios.txt). WiFi and BLE are mutually
     // exclusive in the chooser, so at most one of the two is ever set. If BLE-at-
     // boot boot-loops, recover by setting ble=0 in boot_radios.txt (card reader).
-    if (boot_prefs_get(BOOT_RADIO_GPS))  gps_screen_restore_power();
-    if (boot_prefs_get(BOOT_RADIO_WIFI)) wifi_radio_screen_restore_power();
-    if (boot_prefs_get(BOOT_RADIO_BLE))  bluetooth_screen_restore_power();
-    if (boot_prefs_get(BOOT_RADIO_LORA)) lora_screen_restore_power();
+    // A boot that follows an unfinished one skips them all (safe mode); the opt-ins
+    // stay on the card and come back on the next normal boot.
+    boot_guard_stage("boot-radios");
+    if (!boot_guard_safe_mode()) {
+        if (boot_prefs_get(BOOT_RADIO_GPS))  gps_screen_restore_power();
+        if (boot_prefs_get(BOOT_RADIO_WIFI)) wifi_radio_screen_restore_power();
+        if (boot_prefs_get(BOOT_RADIO_BLE))  bluetooth_screen_restore_power();
+        if (boot_prefs_get(BOOT_RADIO_LORA)) lora_screen_restore_power();
+    }
     // Repaint the radio indicators now that the boot radios are up (the earlier
     // update_*_indicator() calls ran before this and would show them off).
     update_lora_indicator();
@@ -4291,7 +4299,8 @@ void setup()
     // Re-apply persisted phone-notification state (Daily-wear). Done LAST, after
     // the boot radios, so it correctly no-ops if WiFi-at-boot or a BLE scanner is
     // already holding the radio (and keeps the preference for next time).
-    device_mode_restore_boot();
+    boot_guard_stage("notify-restore");
+    if (!boot_guard_safe_mode()) device_mode_restore_boot();
     // First-boot-after-flash nudge: if Notify has never been configured, tell the
     // user how to make the watch pairable (see maybe_show_pairing_hint). No-op on
     // a normal reboot, where the saved state is already being restored above.
@@ -4302,18 +4311,24 @@ void setup()
     // Deferred ~10 s and crash-guarded inside detector_toggle; after the boot
     // radios and notifications, so a detector whose radio is taken just stays
     // off this boot and keeps its saved choice.
-    detector_restore_on_boot();
+    boot_guard_stage("detector-restore");
+    if (!boot_guard_safe_mode()) detector_restore_on_boot();
 
     // Restore the cached health snapshot + the fixed step goal (shown as stale
     // until the phone relay refreshes them).
+    boot_guard_stage("health-restore");
     health_boot_restore();
+    boot_guard_stage("haptic-restore");
     haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
     night_mode_boot_restore();   // saved Night time window (re-silences the motor if inside it)
+    boot_guard_stage("face-restore");
     dot_tiles_boot_restore();   // restore the two Dot-face data slot choices
     face_watch_boot_restore();  // restore Dot-face fonts / accent / date order
     clock_screen_apply_face_custom();   // re-apply the restored look to the built face
+    boot_guard_stage("power-config");
     power_boot_config();     // PMU: VINDPM anti-brownout, input cap, deep-discharge
                              // guard, and the saved charge target (full / long-life)
+    boot_guard_stage("setup-done");
     coex_log_heap("setup-done");
 }
 
@@ -4753,6 +4768,18 @@ void loop()
     // of timing on this setup. Reverted. The Bluetooth toggle stays on its
     // on-demand bring-up (works when BT is toggled BEFORE WiFi is up); a robust
     // proper fix needs an async/off-thread bring-up, tracked separately.
+
+    // A boot that follows an unfinished one runs in safe mode; once it has run
+    // healthily the choices it skipped are switched off (see boot_guard.h) and the
+    // wearer is told, so they know why Notify is off and can turn it back on.
+    if (boot_guard_tick()) {
+        low_mem_show_dialog(
+            "#ffb000 SAFE START#\n\n"
+            "The last start did not finish.\n"
+            "Notify and the detectors were\n"
+            "switched off to recover.\n\n"
+            "Turn them back on in Apps.");
+    }
 
     motion_wake_poll();   // accel-driven wake; no-op when toggle is off
     ans::service_gpx_rx(); // flush a BLE-received GPX route to /gpx (no-op if none)
