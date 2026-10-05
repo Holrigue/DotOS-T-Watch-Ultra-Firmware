@@ -484,8 +484,8 @@ static void draw_worldclock_icon(lv_obj_t *tile)
 {
     tile = icon_layer(tile);
 
-    lv_color_t steel = lv_color_make(0x9B, 0xBC, 0xD6);
-    lv_color_t dim   = lv_color_make(0x5B, 0x7C, 0x96);
+    lv_color_t steel = ARGUS_ACCENT;
+    lv_color_t dim   = ARGUS_ACCENT_DIM;
 
     lv_obj_t *g = lv_obj_create(tile);
     lv_obj_set_size(g, 100, 100);
@@ -526,7 +526,7 @@ static void draw_sunmoon_icon(lv_obj_t *tile)
     tile = icon_layer(tile);
 
     lv_color_t amber = lv_color_make(0xFF, 0xB0, 0x20);
-    lv_color_t steel = lv_color_make(0xC8, 0xDE, 0xF0);
+    lv_color_t steel = ARGUS_ACCENT_ACTIVE;
     lv_color_t dark  = lv_color_make(0x12, 0x18, 0x20);
 
     for (int i = 0; i < 8; i++) {                 // sun rays
@@ -631,7 +631,7 @@ static void draw_flashlight_icon(lv_obj_t *tile)
 static void draw_meshtastic_icon(lv_obj_t *tile)
 {
     tile = icon_layer(tile);
-    lv_color_t steel = lv_color_make(0x9B, 0xBC, 0xD6);
+    lv_color_t steel = ARGUS_ACCENT;
     lv_color_t green = lv_color_make(0x3C, 0xDC, 0x78);
 
     static lv_point_precise_t ms_l1[] = { {60, 58}, {120, 58} };
@@ -664,7 +664,7 @@ static void draw_meshtastic_icon(lv_obj_t *tile)
 static void draw_settings_icon(lv_obj_t *tile)
 {
     tile = icon_layer(tile);
-    lv_color_t steel = lv_color_make(0x9B, 0xBC, 0xD6);
+    lv_color_t steel = ARGUS_ACCENT;
     lv_color_t dark  = lv_color_make(0x12, 0x18, 0x20);
     int cx = 90, cy = 76;
 

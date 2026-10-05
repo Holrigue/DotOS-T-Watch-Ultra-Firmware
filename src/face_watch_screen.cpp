@@ -33,7 +33,7 @@ static lv_obj_t *wall_sw;
 // The accents offered in the picker, in display order. (Not simply 0..COUNT: the
 // numeric values are pinned for saved settings and one of them is retired.)
 static const FaceAccent kAccentChoices[] = {
-    FACE_ACC_RED, FACE_ACC_GREY, FACE_ACC_AMBER, FACE_ACC_CYAN, FACE_ACC_GREEN,
+    FACE_ACC_RED, FACE_ACC_ORANGE, FACE_ACC_GREY, FACE_ACC_AMBER, FACE_ACC_CYAN, FACE_ACC_GREEN,
 };
 static constexpr int ACCENT_N = sizeof(kAccentChoices) / sizeof(kAccentChoices[0]);
 static lv_obj_t *accent_dots[ACCENT_N];
@@ -46,6 +46,7 @@ static uint32_t accent_swatch_rgb(int i)
         case FACE_ACC_AMBER: return 0xF0A020;
         case FACE_ACC_CYAN:  return 0x00E5FF;   // bright cyan
         case FACE_ACC_GREEN: return 0x2BFF66;   // vivid Pip-Boy green
+        case FACE_ACC_ORANGE:return 0xFF5A1A;   // DotOS design accent
         case FACE_ACC_RED:
         default:             return 0xE02020;
     }

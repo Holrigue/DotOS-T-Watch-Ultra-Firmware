@@ -31,7 +31,8 @@ enum FaceAccent : uint8_t {
     FACE_ACC_RED = 0, FACE_ACC_GREY = 1, FACE_ACC_AMBER = 2,
     // 3 = the retired steel-blue. Kept reserved; a saved 3 is read back as Grey.
     FACE_ACC_CYAN = 4, FACE_ACC_GREEN = 5,
-    FACE_ACC__COUNT = 6
+    FACE_ACC_ORANGE = 6,   // the DotOS design accent (appended: saved values stay valid)
+    FACE_ACC__COUNT = 7
 };
 constexpr uint8_t FACE_ACC_RETIRED_STEEL_BLUE = 3;
 
