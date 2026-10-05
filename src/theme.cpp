@@ -5,13 +5,13 @@
 
 // Runtime, state-aware brand accent (ARGUS -> HADES).
 //
-// The compile-time ARGUS_ACCENT macro paints the calm steel-blue resting brand
+// The compile-time ARGUS_ACCENT macro paints the DotOS orange resting brand
 // at ~67 low-traffic sites. This function is its live, threat-aware sibling:
 // callers that repaint frequently (the clock status bar, the Threat Radar
 // screen) call argus_accent() instead of the macro so the accent tracks the
 // threat state. When Threat Radar has a contact at TR_LVL_LIKELY or above — i.e.
 // something is co-moving with the wearer — the accent flips to HADES_RED so the
-// watch visibly "opens its red eyes"; otherwise it stays steel-blue. The flip is
+// watch visibly "opens its red eyes"; otherwise it stays on the base accent. The flip is
 // glanceable and returns to calm on its own once the tail clears the staleness
 // window (threatradar_top_level() reads only live contacts).
 // Pipeline-driven threat override. The WiFi detect_pipeline sets this true when
@@ -42,6 +42,42 @@ lv_color_t argus_accent(void)
 
     bool threat = s_pipeline_threat || threatradar_top_level() >= TR_LVL_LIKELY;
     return threat ? HADES_RED : argus_base_accent();
+}
+
+// ---- Design-language helpers (see theme.h) ----------------------------------
+
+lv_color_t argus_tile_text(ArgusTile kind)
+{
+    return kind == ArgusTile::Normal ? ARGUS_CREAM : lv_color_black();
+}
+
+void argus_style_tile(lv_obj_t *obj, ArgusTile kind, int radius)
+{
+    lv_color_t bg = ARGUS_TILE;
+    if (kind == ArgusTile::Focus)  bg = ARGUS_CREAM;
+    if (kind == ArgusTile::Accent) bg = ARGUS_ACCENT;
+    lv_obj_set_style_bg_color(obj, bg, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(obj, radius, LV_PART_MAIN);
+    lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+void argus_style_pill_slider(lv_obj_t *slider)
+{
+    lv_obj_set_style_bg_color(slider, ARGUS_RAISED, LV_PART_MAIN);
+    lv_obj_set_style_radius(slider, ARGUS_R_PILL, LV_PART_MAIN);
+    lv_obj_set_style_border_width(slider, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider, ARGUS_ACCENT, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(slider, ARGUS_R_PILL, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider, ARGUS_CREAM, LV_PART_KNOB);
+    lv_obj_set_style_radius(slider, ARGUS_R_PILL, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider, 8, LV_PART_KNOB);
+    lv_obj_set_style_border_width(slider, 0, LV_PART_KNOB);
+    lv_obj_set_ext_click_area(slider, 14);                    // finger-sized hit area
+    lv_obj_clear_flag(slider, LV_OBJ_FLAG_GESTURE_BUBBLE);    // a drag is not a page swipe
 }
 
 // ---- Persistent per-mode indicator (lv_layer_top overlay) -------------------
@@ -115,7 +151,7 @@ void argus_mode_indicator_refresh(void)
     lv_obj_add_flag(s_mode_frame, LV_OBJ_FLAG_HIDDEN);
 
     // --- "DEF" / "OFF" corner chip: DISABLED, see the note on the statics. ---
-    // Chip: hidden in Daily (innocent), "DEF" (steel) in Defense, "OFF" in Offense.
+    // Chip: hidden in Daily (innocent), "DEF" (accent) in Defense, "OFF" in Offense.
     // if (m == ArgusMode::Daily) {
     //     lv_obj_add_flag(s_mode_chip, LV_OBJ_FLAG_HIDDEN);
     // } else {

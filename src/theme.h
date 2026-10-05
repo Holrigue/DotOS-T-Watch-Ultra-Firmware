@@ -4,23 +4,60 @@
 // The 13-37 base hardcoded its matrix-green accent as lv_color_make(0x00,0xCC,0x66)
 // (and a brighter "active" lv_color_make(0x00,0xFF,0x80)) at ~67 sites across the
 // screens. This header centralizes the ARGUS brand palette so the accent lives
-// in one place: calm steel-blue at rest, HADES threat-red for the alert state
+// in one place: DotOS orange at rest, HADES threat-red for the alert state
 // (brand-as-functional-state). Colors are lv_color_make(r,g,b); LVGL converts to
 // the panel's native format.
 #include <lvgl.h>
 
-// Brand accent, at rest (calm) — ARGUS steel-blue (#9BBCD6).
-// Drop-in replacement for the old matrix-green lv_color_make(0x00,0xCC,0x66).
-#define ARGUS_ACCENT         lv_color_make(0x9B, 0xBC, 0xD6)
+// ---- DotOS design language -------------------------------------------------
+// Black base, ONE orange accent, a cream "inverted" tile for the focused item,
+// diagonal-hatch fills, squircle tiles and bold type (see docs/design/). The
+// accent family below used to be steel-blue; every screen that uses these macros
+// follows the palette from this one place.
+//
+// Static design accent (#FF5A1A). The wearer's Facewatch choice still drives the
+// title/chrome colour through argus_base_accent(); "Orange" there is this same colour.
+#define ARGUS_ACCENT         lv_color_make(0xFF, 0x5A, 0x1A)
 
-// Brighter "active / live" accent — drop-in for lv_color_make(0x00,0xFF,0x80).
-#define ARGUS_ACCENT_ACTIVE  lv_color_make(0xC8, 0xDE, 0xF0)
+// Brighter "active / live" accent.
+#define ARGUS_ACCENT_ACTIVE  lv_color_make(0xFF, 0x8A, 0x4D)
 
 // Dim accent for idle / secondary structure.
-#define ARGUS_ACCENT_DIM     lv_color_make(0x5B, 0x7C, 0x96)
+#define ARGUS_ACCENT_DIM     lv_color_make(0x8F, 0x35, 0x12)
+
+// Surfaces. Pure black base (the panel is AMOLED: black pixels are off), then two
+// lifts for tiles and for raised controls inside a tile.
+#define ARGUS_BG             lv_color_make(0x00, 0x00, 0x00)
+#define ARGUS_TILE           lv_color_make(0x16, 0x16, 0x16)
+#define ARGUS_RAISED         lv_color_make(0x20, 0x20, 0x20)
+
+// Cream: the "inverted" tile of the focused / selected item, and its dark text.
+#define ARGUS_CREAM          lv_color_make(0xF4, 0xF2, 0xEC)
+
+// Quiet secondary text, readable on tiles without competing with the accent.
+#define ARGUS_QUIET          lv_color_make(0x8A, 0x8A, 0x86)
+
+// Corner radii. The panel itself is a rounded rectangle, so big radii nest with it.
+#define ARGUS_R_TILE         46     // app / data tile
+#define ARGUS_R_ROW          34     // settings row, list card
+#define ARGUS_R_PILL         LV_RADIUS_CIRCLE   // buttons, toggles, bars
+
+// The three looks a tile takes. Normal sits on the black base; Focus is the cream
+// inverted tile; Accent is the orange one (the active or primary item).
+enum class ArgusTile { Normal, Focus, Accent };
+
+// Style a plain lv_obj as a tile: background, radius, no border/padding/scroll.
+// Children place themselves; use argus_tile_text() for the readable text colour.
+void argus_style_tile(lv_obj_t *obj, ArgusTile kind, int radius = ARGUS_R_TILE);
+
+// Text colour that reads on a tile of this kind (black on cream/orange, white on normal).
+lv_color_t argus_tile_text(ArgusTile kind);
+
+// Style an lv_slider as a fat pill (track + orange fill + a knob that is easy to grab).
+void argus_style_pill_slider(lv_obj_t *slider);
 
 // Secondary body/label TEXT colour. The maintainer preferred the secondary text in a
-// warm white/cream over the steel-blue accent, so these carry body text while the
+// warm white/cream over the accent, so these carry body text while the
 // accent is reserved for structure/titles. ARGUS_TEXT = bright cream, _DIM = a
 // softer warm grey for captions/hints.
 #define ARGUS_TEXT           lv_color_make(0xED, 0xE8, 0xDA)
@@ -30,12 +67,12 @@
 #define HADES_RED            lv_color_make(0xDB, 0x61, 0x5A)
 
 // Offense-mode base accent — aggressive red-team red (#F02E2E). Distinct from
-// the calm steel-blue (Daily/Defense). Drives the Offense border + "OFF" chip
+// the calm accent (Daily/Defense). Drives the Offense border + "OFF" chip
 // and the offense tool icons, so Offense reads unmistakably "red team". HADES_RED
 // (a softer coral) still overlays as the live threat/alert state on top of this.
 #define ARGUS_OFFENSE_ACCENT lv_color_make(0xF0, 0x2E, 0x2E)
 
-// Runtime, state-aware accent. Returns ARGUS_ACCENT (steel-blue) at rest and
+// Runtime, state-aware accent. Returns ARGUS_ACCENT at rest and
 // HADES_RED when Threat Radar is flagging a tail (top level >= TR_LVL_LIKELY).
 //
 // RESERVED FOR ALERT SURFACES ONLY. Red on the Defense side means "a threat is
@@ -45,7 +82,7 @@
 // see argus_base_accent() below. Defined in theme.cpp.
 lv_color_t argus_accent(void);
 
-// Mode-aware BASE accent (no threat overlay): steel-blue in Daily/Defense,
+// Mode-aware BASE accent (no threat overlay): the base accent in Daily/Defense,
 // red-team red in Offense. argus_accent() layers the threat-red flip on top of
 // this (except in Daily, which stays innocent and never flips).
 //

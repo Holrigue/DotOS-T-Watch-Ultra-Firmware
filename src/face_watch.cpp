@@ -74,6 +74,7 @@ uint32_t face_accent_rgb()
         case FACE_ACC_AMBER: return 0xF0A020;
         case FACE_ACC_CYAN:  return 0x00E5FF;   // bright cyan
         case FACE_ACC_GREEN: return 0x2BFF66;   // vivid Pip-Boy green
+        case FACE_ACC_ORANGE:return 0xFF5A1A;   // DotOS design accent
         case FACE_ACC_RED:
         default:             return 0xE02020;   // dot face red
     }
