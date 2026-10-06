@@ -110,18 +110,37 @@ drflac_bool32 flac_seek_cb(void *user_data, int offset, drflac_seek_origin origi
     return f->seek(pos) ? DRFLAC_TRUE : DRFLAC_FALSE;
 }
 
+char s_err_buf[96];
+
+// Record why playback did not start. The numbers are on purpose: they show on the track
+// list, so a photo of the screen tells us how much internal RAM was left.
 void fail(const char *why)
 {
-    s_last_error = why;
-    Serial.printf("[music] %s (internal free %u, largest block %u)\n", why,
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+    unsigned fr = (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    unsigned bl = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    snprintf(s_err_buf, sizeof(s_err_buf), "%s\nfree %uK, block %uK", why, fr / 1024, bl / 1024);
+    s_last_error = s_err_buf;
+    Serial.printf("[music] %s (internal free %u, largest block %u)\n", why, fr, bl);
+}
+
+// Internal RAM is what the watch is short of (the display's DMA buffers take 82 KB of it),
+// so the player puts its big buffers there only when plenty is left over, and in PSRAM
+// otherwise. The reserve keeps room for the task stack and for BLE/WiFi/SD.
+constexpr size_t INTERNAL_RESERVE = 20 * 1024;
+
+void *alloc_flex(size_t n)
+{
+    void *p = nullptr;
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) >= n + INTERNAL_RESERVE)
+        p = heap_caps_calloc(1, n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!p) p = heap_caps_calloc(1, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p;
 }
 
 void close_decoder()
 {
     if (s_scratch) { heap_caps_free(s_scratch); s_scratch = nullptr; }
-    if (s_mp3)  { mp3dec_ex_close(s_mp3); free(s_mp3); s_mp3 = nullptr; }
+    if (s_mp3)  { mp3dec_ex_close(s_mp3); heap_caps_free(s_mp3); s_mp3 = nullptr; }
     if (s_flac) { drflac_close(s_flac);   s_flac = nullptr; }
     if (s_file) s_file.close();
     s_kind = Kind::None;
@@ -144,17 +163,15 @@ bool open_decoder(const char *path)
         s_sample_rate   = s_flac->sampleRate;
         s_total_frames  = s_flac->totalPCMFrameCount;
     } else {
-        s_mp3 = (mp3dec_ex_t *)calloc(1, sizeof(mp3dec_ex_t));
-        s_scratch = heap_caps_malloc(sizeof(mp3dec_scratch_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-        if (!s_scratch)   // internal RAM is tight: PSRAM is slower but plays fine
-            s_scratch = heap_caps_malloc(sizeof(mp3dec_scratch_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!s_mp3 || !s_scratch) { close_decoder(); fail("Not enough memory"); return false; }
+        s_mp3     = (mp3dec_ex_t *)alloc_flex(sizeof(mp3dec_ex_t));
+        s_scratch = alloc_flex(sizeof(mp3dec_scratch_t));
+        if (!s_mp3 || !s_scratch) { close_decoder(); fail("No memory: MP3 decoder"); return false; }
         s_mp3_io.read = mp3_read_cb; s_mp3_io.read_data = &s_file;
         s_mp3_io.seek = mp3_seek_cb; s_mp3_io.seek_data = &s_file;
         // DO_NOT_SCAN: no whole-file pass to learn the length (seconds of SD reads inside
         // the touch handler). We never seek, so no frame index is needed either.
         if (mp3dec_ex_open_cb(s_mp3, &s_mp3_io, MP3D_DO_NOT_SCAN) != 0) {
-            close_decoder(); fail("Can't read this MP3"); return false;
+            close_decoder(); fail("Can't read this MP3 (or no memory for its buffer)"); return false;
         }
         s_kind          = Kind::Mp3;
         s_channels      = s_mp3->info.channels;
@@ -201,8 +218,8 @@ void player_task(void *)
     i2s_set_clk(PLAYER_I2S_PORT, s_sample_rate, I2S_BITS_PER_SAMPLE_16BIT,
                 s_channels == 2 ? I2S_CHANNEL_STEREO : I2S_CHANNEL_MONO);
 
-    int16_t *chunk = (int16_t *)malloc(PCM_CHUNK_SAMPLES * sizeof(int16_t));
-    if (!chunk) s_last_error = "Not enough memory";
+    int16_t *chunk = (int16_t *)alloc_flex(PCM_CHUNK_SAMPLES * sizeof(int16_t));
+    if (!chunk) fail("No memory: audio buffer");
     if (chunk) {
         while (s_running) {
             if (s_paused) {
@@ -220,7 +237,7 @@ void player_task(void *)
             }
             instance.player.write(chunk, frames * s_channels * sizeof(int16_t));
         }
-        free(chunk);
+        heap_caps_free(chunk);
     }
 
     instance.powerControl(POWER_SPEAK, false);
@@ -266,13 +283,13 @@ bool music_player_play(int artist_idx, int track_idx)
     s_running = true;
     s_paused  = false;
     // The decode scratch is heap memory now (see s_scratch), so the task only needs a
-    // normal stack. With the scratch on the stack it needed 24 KB of internal RAM in one
-    // piece and the task could not be created on a watch with fragmented RAM.
-    if (xTaskCreatePinnedToCore(player_task, "music_player", 12288, NULL, 1, &s_task, 0) != pdPASS) {
+    // normal stack: the decoder's own frames add up to ~2 KB. 8 KB is what this watch
+    // already allocated for this task on the first test; 12 KB failed for lack of a block.
+    if (xTaskCreatePinnedToCore(player_task, "music_player", 8192, NULL, 1, &s_task, 0) != pdPASS) {
         s_running = false; s_task = nullptr;
         close_decoder();
         s_artist_idx = -1; s_track_idx = -1;
-        fail("Not enough memory");
+        fail("No memory: playback task");
         return false;
     }
     return true;
