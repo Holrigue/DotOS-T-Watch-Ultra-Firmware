@@ -20,12 +20,16 @@
 #include <LilyGoLib.h>
 #include <driver/i2s.h>
 #include <cstring>
+#include <esp_heap_caps.h>
 
 // ---- vendored decoders -------------------------------------------------------
 // MINIMP3_IMPLEMENTATION/DR_FLAC_IMPLEMENTATION must be defined in exactly one
 // translation unit (else duplicate-symbol link errors) - this is that unit;
 // nothing else in the firmware includes these headers.
 #define MINIMP3_IMPLEMENTATION
+// The decode scratch (~16 KB) comes from music_mp3_scratch(), not the task stack.
+static void *music_mp3_scratch(void);
+#define MINIMP3_EXTERNAL_SCRATCH music_mp3_scratch
 #define MINIMP3_ONLY_MP3    // strip MP1/MP2 decode - we only ever feed .mp3
 #define MINIMP3_NO_SIMD     // Xtensa has none of minimp3's x86/ARM SIMD paths
 #include <minimp3.h>
@@ -51,6 +55,8 @@ mp3dec_ex_t  *s_mp3  = nullptr;         // heap: large struct, keep off the task
 // open_decoder(). It used to be a local there: the first decode then called through a
 // dangling stack pointer and the watch rebooted as soon as a track started.
 mp3dec_io_t   s_mp3_io;
+void         *s_scratch = nullptr;      // minimp3's decode scratch (internal RAM if it fits, else PSRAM)
+const char   *s_last_error = "";        // why the last play() failed, for the screen / log
 drflac       *s_flac = nullptr;
 
 int      s_channels    = 0;
@@ -104,8 +110,17 @@ drflac_bool32 flac_seek_cb(void *user_data, int offset, drflac_seek_origin origi
     return f->seek(pos) ? DRFLAC_TRUE : DRFLAC_FALSE;
 }
 
+void fail(const char *why)
+{
+    s_last_error = why;
+    Serial.printf("[music] %s (internal free %u, largest block %u)\n", why,
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+}
+
 void close_decoder()
 {
+    if (s_scratch) { heap_caps_free(s_scratch); s_scratch = nullptr; }
     if (s_mp3)  { mp3dec_ex_close(s_mp3); free(s_mp3); s_mp3 = nullptr; }
     if (s_flac) { drflac_close(s_flac);   s_flac = nullptr; }
     if (s_file) s_file.close();
@@ -119,24 +134,27 @@ bool open_decoder(const char *path)
 {
     close_decoder();
     s_file = SD.open(path);
-    if (!s_file) return false;
+    if (!s_file) { fail("Can't open the file"); return false; }
 
     if (has_ext(path, ".flac")) {
         s_flac = drflac_open(flac_read_cb, flac_seek_cb, nullptr, &s_file, nullptr);
-        if (!s_flac) { s_file.close(); return false; }
+        if (!s_flac) { s_file.close(); fail("Can't read this FLAC"); return false; }
         s_kind          = Kind::Flac;
         s_channels      = s_flac->channels;
         s_sample_rate   = s_flac->sampleRate;
         s_total_frames  = s_flac->totalPCMFrameCount;
     } else {
         s_mp3 = (mp3dec_ex_t *)calloc(1, sizeof(mp3dec_ex_t));
-        if (!s_mp3) { s_file.close(); return false; }
+        s_scratch = heap_caps_malloc(sizeof(mp3dec_scratch_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        if (!s_scratch)   // internal RAM is tight: PSRAM is slower but plays fine
+            s_scratch = heap_caps_malloc(sizeof(mp3dec_scratch_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_mp3 || !s_scratch) { close_decoder(); fail("Not enough memory"); return false; }
         s_mp3_io.read = mp3_read_cb; s_mp3_io.read_data = &s_file;
         s_mp3_io.seek = mp3_seek_cb; s_mp3_io.seek_data = &s_file;
         // DO_NOT_SCAN: no whole-file pass to learn the length (seconds of SD reads inside
         // the touch handler). We never seek, so no frame index is needed either.
         if (mp3dec_ex_open_cb(s_mp3, &s_mp3_io, MP3D_DO_NOT_SCAN) != 0) {
-            mp3dec_ex_close(s_mp3); free(s_mp3); s_mp3 = nullptr; s_file.close(); return false;
+            close_decoder(); fail("Can't read this MP3"); return false;
         }
         s_kind          = Kind::Mp3;
         s_channels      = s_mp3->info.channels;
@@ -152,6 +170,7 @@ bool open_decoder(const char *path)
     }
     if (s_channels <= 0 || s_channels > 2 || s_sample_rate == 0) {
         close_decoder();   // something we can't play (e.g. >2 channels)
+        fail("Unsupported audio format");
         return false;
     }
     return true;
@@ -183,6 +202,7 @@ void player_task(void *)
                 s_channels == 2 ? I2S_CHANNEL_STEREO : I2S_CHANNEL_MONO);
 
     int16_t *chunk = (int16_t *)malloc(PCM_CHUNK_SAMPLES * sizeof(int16_t));
+    if (!chunk) s_last_error = "Not enough memory";
     if (chunk) {
         while (s_running) {
             if (s_paused) {
@@ -194,7 +214,10 @@ void player_task(void *)
                 continue;
             }
             size_t frames = decode_chunk(chunk);
-            if (frames == 0) { s_running = false; break; }   // EOF or decode error
+            if (frames == 0) {                                 // EOF or decode error
+                if (s_cur_frame == 0) s_last_error = "Decode failed";   // never produced a sample
+                s_running = false; break;
+            }
             instance.player.write(chunk, frames * s_channels * sizeof(int16_t));
         }
         free(chunk);
@@ -221,11 +244,14 @@ void stop_task_and_wait()
 
 }  // namespace
 
+static void *music_mp3_scratch(void) { return s_scratch; }
+
 bool music_player_play(int artist_idx, int track_idx)
 {
     const MusicArtist *a = music_lib_artist(artist_idx);
     if (!a || track_idx < 0 || track_idx >= a->track_count) return false;
-    if (alarm_chime_is_active()) return false;   // I2S is busy; try again shortly
+    s_last_error = "";
+    if (alarm_chime_is_active()) { s_last_error = "Speaker busy (alarm)"; return false; }   // try again shortly
 
     stop_task_and_wait();
 
@@ -239,9 +265,16 @@ bool music_player_play(int artist_idx, int track_idx)
     if (!s_pause_sem) s_pause_sem = xSemaphoreCreateBinary();
     s_running = true;
     s_paused  = false;
-    // minimp3 keeps its ~16 KB decode scratch ON THE STACK (mp3dec_decode_frame), so the old
-    // 8 KB stack overflowed on the first frame: "stack canary" panic and a reboot.
-    xTaskCreatePinnedToCore(player_task, "music_player", 24576, NULL, 1, &s_task, 0);
+    // The decode scratch is heap memory now (see s_scratch), so the task only needs a
+    // normal stack. With the scratch on the stack it needed 24 KB of internal RAM in one
+    // piece and the task could not be created on a watch with fragmented RAM.
+    if (xTaskCreatePinnedToCore(player_task, "music_player", 12288, NULL, 1, &s_task, 0) != pdPASS) {
+        s_running = false; s_task = nullptr;
+        close_decoder();
+        s_artist_idx = -1; s_track_idx = -1;
+        fail("Not enough memory");
+        return false;
+    }
     return true;
 }
 
@@ -280,6 +313,7 @@ bool music_player_prev()
 bool music_player_is_playing() { return s_task != nullptr && s_running && !s_paused; }
 bool music_player_is_paused()  { return s_task != nullptr && s_running && s_paused; }
 
+const char *music_player_last_error()     { return s_last_error; }
 const char *music_player_current_title()  { return s_title; }
 const char *music_player_current_artist() { return s_artist; }
 
