@@ -34,6 +34,17 @@ lv_color_t argus_base_accent(void)
     return lv_color_hex(face_accent_rgb());
 }
 
+// Brighter / dimmer tints of the chosen accent (orange: ~#FF8353 / ~#8F3210).
+lv_color_t argus_accent_active(void)
+{
+    return lv_color_mix(lv_color_white(), argus_base_accent(), 70);
+}
+
+lv_color_t argus_accent_dim(void)
+{
+    return lv_color_mix(lv_color_black(), argus_base_accent(), 112);
+}
+
 lv_color_t argus_accent(void)
 {
     // Daily stays INNOCENT: it never flips to the threat-red alert state, so a

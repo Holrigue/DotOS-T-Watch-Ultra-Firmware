@@ -10,6 +10,7 @@
 // content stays clear of the panel's rounded corners.
 #include "apps_screen.h"
 #include "theme.h"
+#include "face_watch.h"     // accent colour (the tile grid is refilled when it changes)
 #include "pin_pad_screen.h"   // Offense double opt-in: consent -> PIN pad
 #include "argus_mode.h"       // is_offense_unlocked()
 
@@ -31,6 +32,8 @@ void main_loop_request_lvgl_priority(int cycles);
 
 // Launcher targets - forward-declared (names verified against the headers).
 void notifications_screen_show();
+bool clock_has_unread_notifications();      // main.cpp
+void clock_notifications_acknowledge();     // main.cpp
 void music_screen_show();
 void find_screen_show();
 void compass_screen_show();
@@ -73,7 +76,6 @@ static const lv_color_t AW   = lv_color_hex(0xFFFFFF);            // title text
 static const lv_color_t AG   = lv_color_hex(0x9A9A9A);            // secondary
 static const lv_color_t AR   = lv_color_hex(0xE02020);           // accent red
 static const lv_color_t AROW = ARGUS_TILE;                       // row fill
-static const lv_color_t AON  = ARGUS_ACCENT;                     // toggle ON pill
 static const lv_color_t AOFF = ARGUS_RAISED;                     // toggle OFF pill
 
 namespace {
@@ -228,7 +230,7 @@ static void set_pill(lv_obj_t *pill, bool on)
 {
     lv_label_set_text(pill, on ? "ON" : "OFF");
     lv_obj_set_style_text_color(pill, on ? lv_color_black() : AG, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(pill, on ? AON : AOFF, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(pill, on ? ARGUS_ACCENT : AOFF, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(pill, ARGUS_R_PILL, LV_PART_MAIN);
     lv_obj_set_style_pad_hor(pill, 14, LV_PART_MAIN);
@@ -523,7 +525,7 @@ void on_home_tile(lv_event_t *e)
 {
     HomeTile t = (HomeTile)(intptr_t)lv_event_get_user_data(e);
     switch (t) {
-    case HT_NOTIFY:    notifications_screen_show(); break;
+    case HT_NOTIFY:    clock_notifications_acknowledge(); notifications_screen_show(); break;
     case HT_SETTINGS:  settings_screen_show(); break;
     case HT_TRACKING:  on_cat_row_for(CAT_TRACKING);  break;
     case HT_DEFENSE:   on_cat_row_for(CAT_DEFENSE);   break;
@@ -534,12 +536,14 @@ void on_home_tile(lv_event_t *e)
     }
 }
 
-lv_obj_t *make_home_tile(lv_obj_t *grid, HomeTile t)
+lv_obj_t *make_home_tile(lv_obj_t *grid, HomeTile t, bool unread)
 {
+    // The Notifications tile is coloured only while something is unread.
+    const bool lit = (t == HT_NOTIFY) && unread;
     lv_obj_t *tile = lv_obj_create(grid);
     lv_obj_remove_style_all(tile);
     lv_obj_set_size(tile, TILE_SIZE, TILE_SIZE);
-    argus_style_tile(tile, t == HT_NOTIFY ? ArgusTile::Accent : ArgusTile::Normal);
+    argus_style_tile(tile, lit ? ArgusTile::Accent : ArgusTile::Normal);
     lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_flag(tile, LV_OBJ_FLAG_GESTURE_BUBBLE);      // swipes still reach the screen
     // Pressed: lift to the raised tone and shrink a touch (cheap, no animation).
@@ -548,13 +552,13 @@ lv_obj_t *make_home_tile(lv_obj_t *grid, HomeTile t)
     lv_obj_set_style_transform_height(tile, -6, LV_PART_MAIN | LV_STATE_PRESSED);
     lv_obj_add_event_cb(tile, on_home_tile, LV_EVENT_CLICKED, (void *)(intptr_t)t);
 
-    // The Notifications tile is the orange one: its icon must stay legible on orange.
+    // On the coloured (unread) tile the icon is inverted so it stays legible on the accent.
     lv_obj_t *box = lv_obj_create(tile);
     lv_obj_remove_style_all(box);
     lv_obj_set_size(box, 96, 80);
     lv_obj_set_pos(box, 18, 16);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE);
-    if (t == HT_NOTIFY) {
+    if (lit) {
         hatch_shape(box, 2, 2, 66, 66, LV_RADIUS_CIRCLE, ARGUS_ACCENT, lv_color_black());
         shape(box, 34, 30, 40, 40, LV_RADIUS_CIRCLE, ARGUS_CREAM);
     } else {
@@ -562,18 +566,44 @@ lv_obj_t *make_home_tile(lv_obj_t *grid, HomeTile t)
     }
 
     lv_obj_t *l = lv_label_create(tile);
-    lv_obj_set_width(l, TILE_SIZE - 24);
+    lv_obj_set_width(l, TILE_SIZE - 38);
     lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
-    lv_obj_set_style_text_color(l, argus_tile_text(t == HT_NOTIFY ? ArgusTile::Accent : ArgusTile::Normal),
+    lv_obj_set_style_text_color(l, argus_tile_text(lit ? ArgusTile::Accent : ArgusTile::Normal),
                                 LV_PART_MAIN);
     lv_obj_set_style_text_line_space(l, -2, LV_PART_MAIN);
     lv_label_set_text(l, TILE_LABEL[t]);
-    lv_obj_align(l, LV_ALIGN_BOTTOM_LEFT, 14, -14);
+    lv_obj_align(l, LV_ALIGN_BOTTOM_LEFT, 24, -14);
     return tile;
 }
 
 }  // namespace
+
+// The tile grid is refilled (not rebuilt) when the accent colour or the unread state
+// changed since it was built: tiles bake their colours in at creation.
+static lv_obj_t *s_grid = nullptr;
+static uint32_t  s_home_sig = 0;
+
+static uint32_t home_signature()
+{
+    return (face_accent_rgb() << 1) | (clock_has_unread_notifications() ? 1u : 0u);
+}
+
+static void fill_home_tiles()
+{
+    s_home_sig = home_signature();
+    lv_obj_clean(s_grid);
+    for (int t = 0; t < HT_COUNT; t++)
+        make_home_tile(s_grid, (HomeTile)t, (s_home_sig & 1u) != 0);
+}
+
+// Called on the way IN (the clock's swipe), never from inside a tile's own event, so
+// nothing being dispatched is freed. Skipped while the home is already on screen.
+static void refresh_home_if_stale()
+{
+    if (!s_home || !s_grid || lv_screen_active() == s_home) return;
+    if (home_signature() != s_home_sig) fill_home_tiles();
+}
 
 static void build()
 {
@@ -590,6 +620,7 @@ static void build()
     lv_obj_align(hdr, LV_ALIGN_TOP_MID, 0, 26);
 
     lv_obj_t *grid = lv_obj_create(s_home);
+    s_grid = grid;
     lv_obj_remove_style_all(grid);
     lv_obj_set_size(grid, 2 * TILE_SIZE + 18 + 8, 410);
     lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 62);
@@ -604,7 +635,7 @@ static void build()
     lv_obj_set_scrollbar_mode(grid, LV_SCROLLBAR_MODE_OFF);
     lv_obj_add_flag(grid, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-    for (int t = 0; t < HT_COUNT; t++) make_home_tile(grid, (HomeTile)t);
+    fill_home_tiles();
     lv_obj_add_event_cb(s_home, on_home_gesture, LV_EVENT_GESTURE, NULL);
 
     // One pre-built screen per category (no rebuilding during a tap).
@@ -618,6 +649,7 @@ void apps_screen_create() { if (!s_home) build(); }
 void apps_screen_show()
 {
     if (!s_home) build();
+    refresh_home_if_stale();
     main_loop_request_lvgl_priority(12);   // keep the first flick smooth
     lv_scr_load(s_home);
 }
@@ -628,6 +660,7 @@ void apps_screen_show()
 void apps_screen_show_apps_category()
 {
     if (!s_home) build();
+    refresh_home_if_stale();
     main_loop_request_lvgl_priority(12);   // keep the first flick smooth
     open_category(CAT_APPS);
 }

@@ -19,7 +19,7 @@ source [`ui-direction.html`](ui-direction.html)). It is a direction, not final a
 | `ARGUS_TILE` | `#161616` | tile |
 | `ARGUS_RAISED` | `#202020` | control inside a tile |
 | `ARGUS_CREAM` | `#F4F2EC` | focused / inverted tile |
-| `ARGUS_ACCENT` | `#FF5A1A` | the accent (`_ACTIVE` `#FF8A4D`, `_DIM` `#8F3512`) |
+| `ARGUS_ACCENT` | `#FF5A1A` by default | the accent: the wearer's Face > Accent colour (`_ACTIVE` / `_DIM` are tints of it) |
 | `ARGUS_QUIET` | `#8A8A86` | secondary text |
 | `ARGUS_R_TILE` / `_ROW` / `_PILL` | 46 / 34 / circle | corner radii |
 
@@ -27,9 +27,9 @@ Helpers: `argus_style_tile(obj, ArgusTile::Normal|Focus|Accent)`, `argus_tile_te
 `argus_style_pill_slider(slider)`.
 
 ## Accent colours
-`ARGUS_ACCENT` is the fixed design accent. The wearer's Facewatch choice still drives
-`argus_base_accent()` (screen titles, chrome); **Orange** is now one of its choices and
-equals `ARGUS_ACCENT`. Threat red (HADES) and the Offense red keep their meaning.
+`ARGUS_ACCENT` is an expression, not a constant: it returns the colour picked in Face > Accent
+(Orange by default; Pale orange, Red, Atomic purple, Cyan, Green, Grey), so tiles, toggle pills
+and icons all follow it. Never cache it in a `static` or a file-scope `const`. Threat red (HADES) and the Offense red keep their meaning.
 
 ## Order of work
 1. Tokens and helpers (this step).

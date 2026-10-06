@@ -907,12 +907,29 @@ static void build_dot_status_row(lv_obj_t *parent)
 // there are unread notifications; tapping marks the current batch seen so the
 // envelope clears on return. Accent colour is re-applied by
 // clock_screen_apply_face_custom().
+// Unread = phone notifications beyond the last-seen baseline, or any unread
+// Meshtastic message. The baseline can only be as high as the current stored count
+// (notifs may be retracted or cleared), so it is clamped down first.
+bool clock_has_unread_notifications()
+{
+    int n = (int)notify::center().count();
+    if (n < 0) n = 0;
+    if ((uint32_t)n < s_notif_seen) s_notif_seen = (uint32_t)n;
+    return ((uint32_t)n > s_notif_seen) || (meshtastic_get_unread() > 0);
+}
+
+// Mark the current batch seen; used by every way of opening the notification list.
+void clock_notifications_acknowledge()
+{
+    s_notif_seen = (uint32_t)notify::center().count();
+    meshtastic_mark_read();
+}
+
 static void on_dot_notif_clicked(lv_event_t *)
 {
     // Acknowledge the current batch (mark read) before opening the list, so the
     // envelope is clear when the wearer returns home; new arrivals re-light it.
-    s_notif_seen = (uint32_t)notify::center().count();
-    meshtastic_mark_read();
+    clock_notifications_acknowledge();
     notifications_screen_show();
 }
 
@@ -999,10 +1016,7 @@ static void update_dot_status()
     // beyond the last-seen baseline, or any unread Meshtastic message. The
     // baseline can only be as high as the current stored count (notifs may be
     // retracted or cleared), so clamp it down first.
-    int notify_cnt = (int)notify::center().count();
-    if (notify_cnt < 0) notify_cnt = 0;
-    if ((uint32_t)notify_cnt < s_notif_seen) s_notif_seen = (uint32_t)notify_cnt;
-    bool has_unread = ((uint32_t)notify_cnt > s_notif_seen) || (meshtastic_get_unread() > 0);
+    bool has_unread = clock_has_unread_notifications();
 
     uint32_t state = (uint32_t)lora | (uint32_t)bt << 1 | (uint32_t)wifi << 2
                    | (uint32_t)sd << 3 | (uint32_t)nfc << 4 | (uint32_t)wd << 5
@@ -2129,10 +2143,8 @@ static void layout_battery_indicators()
 static lv_obj_t *build_clock_icon(lv_obj_t *parent, bool wide_cap,
                                   int16_t hand_rotation_deci_deg)
 {
-    // const (not constexpr): ARGUS_ACCENT uses the runtime lv_color_make(); the
-    // stock code's LV_COLOR_MAKE brace-init was constexpr, but our themed accent
-    // is centralized as a function-form macro (needed for the ternary/arg sites).
-    static const lv_color_t green = ARGUS_ACCENT;
+    // Not static: the accent follows the Face > Accent choice, read on every build.
+    const lv_color_t green = ARGUS_ACCENT;
 
     lv_obj_t *icon = lv_obj_create(parent);
     lv_obj_set_size(icon, 20, 24);

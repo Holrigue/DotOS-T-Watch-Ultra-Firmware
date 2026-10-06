@@ -32,7 +32,8 @@ enum FaceAccent : uint8_t {
     // 3 = the retired steel-blue. Kept reserved; a saved 3 is read back as Grey.
     FACE_ACC_CYAN = 4, FACE_ACC_GREEN = 5,
     FACE_ACC_ORANGE = 6,   // the DotOS design accent (appended: saved values stay valid)
-    FACE_ACC__COUNT = 7
+    FACE_ACC_PURPLE = 7,   // "Atomic purple"
+    FACE_ACC__COUNT = 8
 };
 constexpr uint8_t FACE_ACC_RETIRED_STEEL_BLUE = 3;
 
@@ -68,3 +69,7 @@ void face_set_text_font(FaceTextFont v);
 
 // The current accent colour as a 0xRRGGBB value.
 uint32_t face_accent_rgb();
+
+// Colour and display name of any preset (the Face > Accent picker lists them).
+uint32_t    face_accent_rgb_of(FaceAccent a);
+const char *face_accent_name(FaceAccent a);
