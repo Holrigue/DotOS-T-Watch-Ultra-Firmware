@@ -12,6 +12,7 @@
 // would require).
 #include "music_player.h"
 #include "music_lib.h"
+#include "music_duration.h"
 #include "alarm.h"   // alarm_chime_is_active() - shared-I2S interlock
 
 #include <Arduino.h>
@@ -46,6 +47,10 @@ constexpr size_t    PCM_CHUNK_SAMPLES  = PCM_CHUNK_FRAMES * 2;   // stereo-worst
 Kind          s_kind = Kind::None;
 File          s_file;                  // backs whichever decoder is open
 mp3dec_ex_t  *s_mp3  = nullptr;         // heap: large struct, keep off the task stack
+// minimp3 keeps a POINTER to this and calls through it on every read, so it must outlive
+// open_decoder(). It used to be a local there: the first decode then called through a
+// dangling stack pointer and the watch rebooted as soon as a track started.
+mp3dec_io_t   s_mp3_io;
 drflac       *s_flac = nullptr;
 
 int      s_channels    = 0;
@@ -124,22 +129,26 @@ bool open_decoder(const char *path)
         s_sample_rate   = s_flac->sampleRate;
         s_total_frames  = s_flac->totalPCMFrameCount;
     } else {
-        s_mp3 = (mp3dec_ex_t *)malloc(sizeof(mp3dec_ex_t));
+        s_mp3 = (mp3dec_ex_t *)calloc(1, sizeof(mp3dec_ex_t));
         if (!s_mp3) { s_file.close(); return false; }
-        mp3dec_io_t io;
-        io.read = mp3_read_cb; io.read_data = &s_file;
-        io.seek = mp3_seek_cb; io.seek_data = &s_file;
-        if (mp3dec_ex_open_cb(s_mp3, &io, MP3D_SEEK_TO_SAMPLE) != 0) {
-            free(s_mp3); s_mp3 = nullptr; s_file.close(); return false;
+        s_mp3_io.read = mp3_read_cb; s_mp3_io.read_data = &s_file;
+        s_mp3_io.seek = mp3_seek_cb; s_mp3_io.seek_data = &s_file;
+        // DO_NOT_SCAN: no whole-file pass to learn the length (seconds of SD reads inside
+        // the touch handler). We never seek, so no frame index is needed either.
+        if (mp3dec_ex_open_cb(s_mp3, &s_mp3_io, MP3D_DO_NOT_SCAN) != 0) {
+            mp3dec_ex_close(s_mp3); free(s_mp3); s_mp3 = nullptr; s_file.close(); return false;
         }
         s_kind          = Kind::Mp3;
         s_channels      = s_mp3->info.channels;
         s_sample_rate   = s_mp3->info.hz;
-        // mp3dec_ex reports total interleaved samples; divide out channels for
-        // a frame count (one frame = one sample per channel), matching FLAC's
-        // totalPCMFrameCount so the rest of this file need not care which
-        // decoder is live.
-        s_total_frames  = s_channels ? (s_mp3->samples / (uint64_t)s_channels) : 0;
+        if (s_channels > 0 && s_mp3->samples > 0) {
+            // A length tag was found: samples are interleaved, so divide out the channels.
+            s_total_frames = s_mp3->samples / (uint64_t)s_channels;
+        } else {
+            uint64_t audio = (uint64_t)s_file.size();
+            if (audio > s_mp3->start_offset) audio -= s_mp3->start_offset;
+            s_total_frames = mp3_estimate_frames(audio, s_mp3->info.bitrate_kbps, (int)s_sample_rate);
+        }
     }
     if (s_channels <= 0 || s_channels > 2 || s_sample_rate == 0) {
         close_decoder();   // something we can't play (e.g. >2 channels)
@@ -230,7 +239,9 @@ bool music_player_play(int artist_idx, int track_idx)
     if (!s_pause_sem) s_pause_sem = xSemaphoreCreateBinary();
     s_running = true;
     s_paused  = false;
-    xTaskCreatePinnedToCore(player_task, "music_player", 8192, NULL, 1, &s_task, 0);
+    // minimp3 keeps its ~16 KB decode scratch ON THE STACK (mp3dec_decode_frame), so the old
+    // 8 KB stack overflowed on the first frame: "stack canary" panic and a reboot.
+    xTaskCreatePinnedToCore(player_task, "music_player", 24576, NULL, 1, &s_task, 0);
     return true;
 }
 
