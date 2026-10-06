@@ -29,7 +29,7 @@ on:
   release:
     types: [published]
   push:
-    branches: [main]
+    branches: [develop]
     paths:
       - flasher/**
       - .github/workflows/pages.yml
