@@ -1,0 +1,7 @@
+Flash these four files at these offsets (flash mode/freq/size: keep):
+  0x0      bootloader.bin
+  0x8000   partitions.bin
+  0xe000   boot_app0.bin
+  0x10000  firmware.bin
+
+Built from 9f4013d374033ca192244ca28ddc95b5257ac6c3 (20/merge).

@@ -1,8 +1,0 @@
-{
-  "targets": {
-    "tlora_pager": false,
-    "twatch_ultra": false,
-    "twatchs3": true
-  },
-  "active_radio": "Radio_SX1262"
-}
