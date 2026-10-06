@@ -129,6 +129,19 @@ jobs:
           echo "Flash budget is 4194304 bytes (app0, resized 2026-09-28 from 3MB - see boards/partitions_argus_16mb.csv)."
           pio run -e twatch_ultra --target size 2>/dev/null | tail -20 || true
 
+      # Where the static internal RAM goes (the scarce budget: see docs/MEMORY.md). Reads the
+      # linker map the build already writes; never fails the build, it only reports.
+      - name: Report static RAM by owner
+        if: always()
+        run: |
+          map=.pio/build/twatch_ultra/firmware.map
+          if [ -f "$map" ]; then
+            python3 tools/ram_report.py "$map" --top 40 | tee ram_report.txt
+            { echo '### Static internal RAM by owner'; echo '```'; cat ram_report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no linker map at $map (PlatformIO did not write one) - skipping"
+          fi
+
       # Test builds: publish the four component binaries of THIS build so a
       # branch can be flashed without cutting a release. Same four files at the
       # same four offsets as release.yml (never a merged image: see the
