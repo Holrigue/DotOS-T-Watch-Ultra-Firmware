@@ -1,14 +1,13 @@
 // apps_screen.cpp - see apps_screen.h.
 //
 // The unified launcher, organised as category sub-menus. The home screen is a
-// short list: Notifications (pinned at the top), then four category rows
-// (Tracking / Defense / Offense / Apps), plus a pinned Settings gear in the
-// corner. Each category opens a short, readable list; detectors appear inline
-// as ON/OFF toggle rows, launchers open their screen.
+// scrolling grid of squircle tiles (DotOS design language, docs/design/):
+// Notifications, the five categories and Settings, each with a small icon drawn
+// from plain LVGL shapes. A category opens a short, readable list; detectors
+// appear inline as ON/OFF toggle rows, launchers open their screen.
 //
-// Everything is plain LVGL (a flex-column of full-width rows) - no icons, no
-// drag-reorder, no mode gating. Kept deliberately narrow and centred so the
-// text stays readable inside the round display.
+// No bitmaps, no drag-reorder, no mode gating. Kept narrow and centred so the
+// content stays clear of the panel's rounded corners.
 #include "apps_screen.h"
 #include "theme.h"
 #include "pin_pad_screen.h"   // Offense double opt-in: consent -> PIN pad
@@ -73,9 +72,9 @@ void settings_screen_show();
 static const lv_color_t AW   = lv_color_hex(0xFFFFFF);            // title text
 static const lv_color_t AG   = lv_color_hex(0x9A9A9A);            // secondary
 static const lv_color_t AR   = lv_color_hex(0xE02020);           // accent red
-static const lv_color_t AROW = lv_color_hex(0x161616);           // row fill
-static const lv_color_t AON  = lv_color_make(0x00, 0x66, 0x2A);  // toggle ON pill
-static const lv_color_t AOFF = lv_color_make(0x2A, 0x2A, 0x2A);  // toggle OFF pill
+static const lv_color_t AROW = ARGUS_TILE;                       // row fill
+static const lv_color_t AON  = ARGUS_ACCENT;                     // toggle ON pill
+static const lv_color_t AOFF = ARGUS_RAISED;                     // toggle OFF pill
 
 namespace {
 
@@ -205,8 +204,8 @@ static lv_obj_t *make_row(lv_obj_t *list, const char *title, const char *right,
     lv_obj_set_height(row, 60);
     lv_obj_set_style_bg_color(row, AROW, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(row, 14, LV_PART_MAIN);
-    lv_obj_set_style_pad_hor(row, 16, LV_PART_MAIN);
+    lv_obj_set_style_radius(row, ARGUS_R_ROW, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(row, 20, LV_PART_MAIN);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, ud);
@@ -228,33 +227,12 @@ static lv_obj_t *make_row(lv_obj_t *list, const char *title, const char *right,
 static void set_pill(lv_obj_t *pill, bool on)
 {
     lv_label_set_text(pill, on ? "ON" : "OFF");
-    lv_obj_set_style_text_color(pill, on ? AW : AG, LV_PART_MAIN);
+    lv_obj_set_style_text_color(pill, on ? lv_color_black() : AG, LV_PART_MAIN);
     lv_obj_set_style_bg_color(pill, on ? AON : AOFF, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(pill, 10, LV_PART_MAIN);
-    lv_obj_set_style_pad_hor(pill, 10, LV_PART_MAIN);
-    lv_obj_set_style_pad_ver(pill, 3, LV_PART_MAIN);
-}
-
-// A fixed "Settings" footer pinned to the bottom of the menu page. It is a
-// direct child of the screen (NOT inside the scrolling list), created last so
-// it renders above the list, and opaque so rows scroll under it cleanly.
-static void add_settings_footer(lv_obj_t *screen)
-{
-    lv_obj_t *f = lv_button_create(screen);
-    lv_obj_set_size(f, 344, 52);
-    lv_obj_align(f, LV_ALIGN_BOTTOM_MID, 0, -6);
-    lv_obj_set_style_bg_color(f, AROW, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(f, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(f, 14, LV_PART_MAIN);
-    lv_obj_set_style_border_width(f, 0, LV_PART_MAIN);
-    lv_obj_add_event_cb(f, [](lv_event_t *) { settings_screen_show(); }, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *l = lv_label_create(f);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, LV_PART_MAIN);
-    lv_obj_set_style_text_color(l, AW, LV_PART_MAIN);
-    lv_label_set_text(l, "Settings");
-    lv_obj_center(l);
-    lv_obj_move_foreground(f);   // stay above the scrolling list (z-order)
+    lv_obj_set_style_radius(pill, ARGUS_R_PILL, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(pill, 14, LV_PART_MAIN);
+    lv_obj_set_style_pad_ver(pill, 4, LV_PART_MAIN);
 }
 
 // ---- callbacks --------------------------------------------------------------
@@ -386,15 +364,13 @@ static void show_offense_consent()
     lv_obj_center(al);
 }
 
-static void on_cat_row(lv_event_t *e)
+// Offense is a double opt-in: a consent card, then the PIN pad. Once Offense
+// is unlocked this session (via any route) it opens directly.
+static void on_cat_row_for(Cat c)
 {
-    Cat c = (Cat)(intptr_t)lv_event_get_user_data(e);
-    // Offense is a double opt-in: a consent card, then the PIN pad. Once Offense
-    // is unlocked this session (via any route) it opens directly.
     if (c == CAT_OFFENSE && !is_offense_unlocked()) show_offense_consent();
     else                                            open_category(c);
 }
-static void on_notifications(lv_event_t *) { notifications_screen_show(); }
 
 // Nav convention: LEFT -> home clock. On a category page, UP (or RIGHT) goes
 // back up to the Apps home; on the Apps home itself, LEFT/RIGHT go home.
@@ -439,20 +415,196 @@ static void build_category_screen(Cat c)
     s_cat_screen[c] = scr;
 }
 
+// ---- home tiles -----------------------------------------------------------
+
+namespace {
+
+enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_COUNT };
+
+constexpr int TILE_SIZE = 158;
+
+// Small shape helpers for the icons: every icon is a few plain LVGL objects.
+lv_obj_t *shape(lv_obj_t *parent, int x, int y, int w, int h, int radius, lv_color_t bg)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_style_radius(o, radius, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(o, bg, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    return o;
+}
+
+// A hatched shape that keeps its rounded outline: the stripes live in a child that
+// the parent's corner clip trims to the radius (a bg image alone stays square).
+lv_obj_t *hatch_shape(lv_obj_t *parent, int x, int y, int w, int h, int radius,
+                      lv_color_t bg, lv_color_t stripe)
+{
+    lv_obj_t *o = shape(parent, x, y, w, h, radius, bg);
+    lv_obj_set_style_clip_corner(o, true, LV_PART_MAIN);
+    lv_obj_t *s = lv_obj_create(o);
+    lv_obj_remove_style_all(s);
+    lv_obj_set_size(s, w, h);
+    lv_obj_remove_flag(s, LV_OBJ_FLAG_CLICKABLE);
+    argus_style_hatch(s, stripe);
+    return o;
+}
+
+lv_obj_t *ring(lv_obj_t *parent, int x, int y, int d, int width, lv_color_t col)
+{
+    lv_obj_t *o = lv_obj_create(parent);
+    lv_obj_remove_style_all(o);
+    lv_obj_set_size(o, d, d);
+    lv_obj_set_pos(o, x, y);
+    lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_border_color(o, col, LV_PART_MAIN);
+    lv_obj_set_style_border_width(o, width, LV_PART_MAIN);
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    return o;
+}
+
+// The icon sits in a 96 x 80 box at the top-left of the tile.
+void build_icon(lv_obj_t *box, HomeTile t)
+{
+    const lv_color_t ink = ARGUS_CREAM, acc = ARGUS_ACCENT;
+    switch (t) {
+    case HT_NOTIFY:        // hatched disc + the orange dot
+        hatch_shape(box, 2, 2, 66, 66, LV_RADIUS_CIRCLE, ARGUS_TILE, ink);
+        shape(box, 34, 30, 40, 40, LV_RADIUS_CIRCLE, acc);
+        break;
+    case HT_TRACKING:      // radar rings + a contact
+        ring(box, 0, 0, 74, 3, ink);
+        ring(box, 20, 20, 34, 3, ink);
+        shape(box, 52, 14, 14, 14, LV_RADIUS_CIRCLE, acc);
+        break;
+    case HT_DEFENSE:       // shield: hatched body, orange core
+    {
+        lv_obj_t *body = hatch_shape(box, 6, 0, 62, 72, 28, ARGUS_TILE, ink);
+        lv_obj_set_style_border_color(body, ink, LV_PART_MAIN);
+        lv_obj_set_style_border_width(body, 3, LV_PART_MAIN);
+        shape(box, 25, 24, 24, 24, LV_RADIUS_CIRCLE, acc);
+        break;
+    }
+    case HT_OFFENSE:       // crosshair
+        ring(box, 0, 0, 74, 3, acc);
+        shape(box, 35, 0, 4, 74, 2, ink);
+        shape(box, 0, 35, 74, 4, 2, ink);
+        shape(box, 29, 29, 16, 16, LV_RADIUS_CIRCLE, acc);
+        break;
+    case HT_APPS:          // 2 x 2 squircles, one orange
+        shape(box, 0, 0, 34, 34, 11, ink);
+        shape(box, 40, 0, 34, 34, 11, ink);
+        shape(box, 0, 40, 34, 34, 11, ink);
+        shape(box, 40, 40, 34, 34, 11, acc);
+        break;
+    case HT_TIMECLOCK: {   // dial with two hands
+        ring(box, 0, 0, 74, 3, ink);
+        shape(box, 35, 12, 4, 26, 2, ink);       // minute hand
+        shape(box, 37, 35, 22, 4, 2, ink);       // hour hand
+        shape(box, 31, 31, 12, 12, LV_RADIUS_CIRCLE, acc);
+        break; }
+    case HT_SETTINGS:      // three sliders
+        for (int i = 0; i < 3; i++) {
+            shape(box, 0, 6 + i * 26, 74, 6, 3, ARGUS_RAISED);
+            shape(box, 0, 6 + i * 26, 20 + i * 18, 6, 3, ink);
+            shape(box, 14 + i * 20, i * 26, 18, 18, LV_RADIUS_CIRCLE, acc);
+        }
+        break;
+    default: break;
+    }
+}
+
+const char *TILE_LABEL[HT_COUNT] = { "Notifications", "Tracking", "Defense", "Offense",
+                                      "Apps", "Time & Clock", "Settings" };
+
+void on_home_tile(lv_event_t *e)
+{
+    HomeTile t = (HomeTile)(intptr_t)lv_event_get_user_data(e);
+    switch (t) {
+    case HT_NOTIFY:    notifications_screen_show(); break;
+    case HT_SETTINGS:  settings_screen_show(); break;
+    case HT_TRACKING:  on_cat_row_for(CAT_TRACKING);  break;
+    case HT_DEFENSE:   on_cat_row_for(CAT_DEFENSE);   break;
+    case HT_OFFENSE:   on_cat_row_for(CAT_OFFENSE);   break;
+    case HT_APPS:      on_cat_row_for(CAT_APPS);      break;
+    case HT_TIMECLOCK: on_cat_row_for(CAT_TIMECLOCK); break;
+    default: break;
+    }
+}
+
+lv_obj_t *make_home_tile(lv_obj_t *grid, HomeTile t)
+{
+    lv_obj_t *tile = lv_obj_create(grid);
+    lv_obj_remove_style_all(tile);
+    lv_obj_set_size(tile, TILE_SIZE, TILE_SIZE);
+    argus_style_tile(tile, t == HT_NOTIFY ? ArgusTile::Accent : ArgusTile::Normal);
+    lv_obj_add_flag(tile, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(tile, LV_OBJ_FLAG_GESTURE_BUBBLE);      // swipes still reach the screen
+    // Pressed: lift to the raised tone and shrink a touch (cheap, no animation).
+    lv_obj_set_style_bg_color(tile, ARGUS_RAISED, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_transform_width(tile, -6, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_transform_height(tile, -6, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_add_event_cb(tile, on_home_tile, LV_EVENT_CLICKED, (void *)(intptr_t)t);
+
+    // The Notifications tile is the orange one: its icon must stay legible on orange.
+    lv_obj_t *box = lv_obj_create(tile);
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, 96, 80);
+    lv_obj_set_pos(box, 18, 16);
+    lv_obj_remove_flag(box, LV_OBJ_FLAG_CLICKABLE);
+    if (t == HT_NOTIFY) {
+        hatch_shape(box, 2, 2, 66, 66, LV_RADIUS_CIRCLE, ARGUS_ACCENT, lv_color_black());
+        shape(box, 34, 30, 40, 40, LV_RADIUS_CIRCLE, ARGUS_CREAM);
+    } else {
+        build_icon(box, t);
+    }
+
+    lv_obj_t *l = lv_label_create(tile);
+    lv_obj_set_width(l, TILE_SIZE - 24);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_font(l, theme_text_font(16), LV_PART_MAIN);
+    lv_obj_set_style_text_color(l, argus_tile_text(t == HT_NOTIFY ? ArgusTile::Accent : ArgusTile::Normal),
+                                LV_PART_MAIN);
+    lv_obj_set_style_text_line_space(l, -2, LV_PART_MAIN);
+    lv_label_set_text(l, TILE_LABEL[t]);
+    lv_obj_align(l, LV_ALIGN_BOTTOM_LEFT, 14, -14);
+    return tile;
+}
+
+}  // namespace
+
 static void build()
 {
-    // Home: Notifications pinned at the top, then the category rows.
+    // Home: a scrolling grid of squircle tiles.
     s_home = lv_obj_create(NULL);
-    lv_obj_t *hlist = make_list(s_home, "Menu", NULL);
-    make_row(hlist, "Notifications", LV_SYMBOL_RIGHT, AW, on_notifications, NULL);
-    make_row(hlist, "Tracking",     LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TRACKING);
-    make_row(hlist, "Defense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_DEFENSE);
-    make_row(hlist, "Offense",      LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_OFFENSE);
-    make_row(hlist, "Apps",         LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_APPS);
-    make_row(hlist, "Time & Clock", LV_SYMBOL_RIGHT, AW, on_cat_row, (void *)(intptr_t)CAT_TIMECLOCK);
-    // Shrink the list so it ends above the fixed Settings footer (no overlap).
-    lv_obj_set_height(hlist, 348);
-    add_settings_footer(s_home);
+    lv_obj_set_style_bg_color(s_home, ARGUS_BG, LV_PART_MAIN);
+    lv_obj_clear_flag(s_home, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *hdr = lv_label_create(s_home);
+    lv_obj_set_style_text_font(hdr, theme_text_font(20), LV_PART_MAIN);
+    lv_obj_set_style_text_color(hdr, ARGUS_QUIET, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(hdr, 3, LV_PART_MAIN);
+    lv_label_set_text(hdr, "MENU");
+    lv_obj_align(hdr, LV_ALIGN_TOP_MID, 0, 26);
+
+    lv_obj_t *grid = lv_obj_create(s_home);
+    lv_obj_remove_style_all(grid);
+    lv_obj_set_size(grid, 2 * TILE_SIZE + 18 + 8, 410);
+    lv_obj_align(grid, LV_ALIGN_TOP_MID, 0, 62);
+    lv_obj_set_style_pad_all(grid, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(grid, 16, LV_PART_MAIN);
+    lv_obj_set_style_pad_column(grid, 18, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(grid, 40, LV_PART_MAIN);   // last row can scroll clear of the corners
+    lv_obj_set_layout(grid, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(grid, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_scroll_dir(grid, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(grid, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(grid, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+    for (int t = 0; t < HT_COUNT; t++) make_home_tile(grid, (HomeTile)t);
     lv_obj_add_event_cb(s_home, on_home_gesture, LV_EVENT_GESTURE, NULL);
 
     // One pre-built screen per category (no rebuilding during a tap).
