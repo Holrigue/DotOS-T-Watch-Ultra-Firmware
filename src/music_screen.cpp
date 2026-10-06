@@ -30,6 +30,7 @@ static lv_obj_t *s_return = nullptr;   // where the Artists screen's back-gestur
 static lv_obj_t *s_artists_list;
 static lv_obj_t *s_tracks_list;
 static lv_obj_t *s_tracks_title;
+static lv_obj_t *s_tracks_status;   // why a track did not start (empty when fine)
 
 static lv_obj_t *s_np_title;
 static lv_obj_t *s_np_artist;
@@ -169,12 +170,23 @@ static void on_tracks_gesture(lv_event_t *e)
     if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT) lv_scr_load(s_artists_scr);
 }
 
+static void show_track_error(const char *msg)
+{
+    if (!s_tracks_status) return;
+    lv_label_set_text(s_tracks_status, msg ? msg : "");
+}
+
 static void on_track_row_clicked(lv_event_t *e)
 {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    show_track_error("");
     if (music_player_play(s_cur_artist, idx)) {
         now_playing_screen_build();
         lv_scr_load(s_playing_scr);
+    } else {
+        // Silence here used to look like a frozen button; say what went wrong.
+        const char *why = music_player_last_error();
+        show_track_error(*why ? why : "Could not start the track");
     }
 }
 
@@ -189,10 +201,19 @@ static void tracks_screen_build(int artist_idx)
         lv_obj_clear_flag(s_tracks_scr, LV_OBJ_FLAG_SCROLLABLE);
         s_tracks_title = make_title(s_tracks_scr, "");
         s_tracks_list  = make_list_box(s_tracks_scr);
+        s_tracks_status = lv_label_create(s_tracks_scr);
+        lv_obj_set_style_text_font(s_tracks_status, theme_text_font(16), LV_PART_MAIN);
+        lv_obj_set_style_text_color(s_tracks_status, NR, LV_PART_MAIN);
+        lv_obj_set_style_text_align(s_tracks_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_label_set_long_mode(s_tracks_status, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(s_tracks_status, 300);
+        lv_label_set_text(s_tracks_status, "");
+        lv_obj_align(s_tracks_status, LV_ALIGN_TOP_MID, 0, 402);
         lv_obj_add_event_cb(s_tracks_scr, on_tracks_gesture, LV_EVENT_GESTURE, NULL);
     }
 
     lv_label_set_text(s_tracks_title, a ? a->name : "");
+    show_track_error("");
     lv_obj_clean(s_tracks_list);
     if (!a || a->track_count == 0) {
         make_empty_msg(s_tracks_list, "No tracks.");
@@ -247,7 +268,8 @@ static void on_np_tick(lv_timer_t *)
     if (!s_playing_scr || lv_screen_active() != s_playing_scr) return;
     if (!music_player_is_playing() && !music_player_is_paused()) {
         // The track ended (or was never started) - fall back a level rather
-        // than sit on a dead Now Playing screen.
+        // than sit on a dead Now Playing screen. If it died at once, say why.
+        show_track_error(music_player_last_error());
         lv_scr_load(s_tracks_scr);
         return;
     }

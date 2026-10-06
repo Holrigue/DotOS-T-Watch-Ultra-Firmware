@@ -29,6 +29,10 @@ bool music_player_prev();
 bool music_player_is_playing();   // decoding + writing PCM right now
 bool music_player_is_paused();    // a track is loaded but held
 
+// Why the last play() failed or a track died at once ("Not enough memory", "Can't open the
+// file", ...); empty when the last attempt was fine. For the screen and the serial log.
+const char *music_player_last_error();
+
 // Empty string when nothing is loaded.
 const char *music_player_current_title();
 const char *music_player_current_artist();

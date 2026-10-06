@@ -1715,7 +1715,17 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
     int i = 0, igr, frame_size = 0, success = 1;
     const uint8_t *hdr;
     bs_t bs_frame[1];
+#ifdef MINIMP3_EXTERNAL_SCRATCH
+    /* DotOS: the ~16 KB scratch normally lives on the stack. A build can supply it from
+       the heap instead (MINIMP3_EXTERNAL_SCRATCH() returns a mp3dec_scratch_t*), so the
+       decode task does not need a 24 KB stack out of scarce internal RAM. */
+    mp3dec_scratch_t *scratch_ext = (mp3dec_scratch_t *)MINIMP3_EXTERNAL_SCRATCH();
+    if (!scratch_ext)
+        return 0;
+#define scratch (*scratch_ext)
+#else
     mp3dec_scratch_t scratch;
+#endif
 
     if (mp3_bytes > 4 && dec->header[0] == 0xff && hdr_compare(dec->header, mp3))
     {
@@ -1804,6 +1814,9 @@ int mp3dec_decode_frame(mp3dec_t *dec, const uint8_t *mp3, int mp3_bytes, mp3d_s
     }
     return success*hdr_frame_samples(dec->header);
 }
+#ifdef MINIMP3_EXTERNAL_SCRATCH
+#undef scratch
+#endif
 
 #ifdef MINIMP3_FLOAT_OUTPUT
 void mp3dec_f32_to_s16(const float *in, int16_t *out, int num_samples)
