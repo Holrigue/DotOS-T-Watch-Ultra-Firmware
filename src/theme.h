@@ -53,6 +53,12 @@ void argus_style_tile(lv_obj_t *obj, ArgusTile kind, int radius = ARGUS_R_TILE);
 // Text colour that reads on a tile of this kind (black on cream/orange, white on normal).
 lv_color_t argus_tile_text(ArgusTile kind);
 
+// Diagonal hatch fill (the "Figma charts" stripe): paints a tiled 8x8 A8 stripe over
+// the object's background in `color`. For flat strips and panels (radius 0 reads
+// best); the object's own bg colour shows between the stripes. Costs no RAM: the
+// tile is a 64-byte constant.
+void argus_style_hatch(lv_obj_t *obj, lv_color_t color);
+
 // Style an lv_slider as a fat pill (track + orange fill + a knob that is easy to grab).
 void argus_style_pill_slider(lv_obj_t *slider);
 
