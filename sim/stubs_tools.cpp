@@ -17,9 +17,9 @@
 #include <cstdint>
 
 // theme.cpp (built here) now reads the Facewatch accent via face_accent_rgb(),
-// but face_watch.cpp is not in the sim's sources. Return the default red accent
+// but face_watch.cpp is not in the sim's sources. Return the default orange accent
 // so the simulator renders the resting look; the real value lives on-device.
-uint32_t face_accent_rgb() { return 0xE02020; }
+uint32_t face_accent_rgb() { return 0xFF5A1A; }
 
 // theme.cpp's theme_text_font()/theme_title_font() read the Facewatch "Global
 // text" choice through face_text_font(); face_watch.cpp is not in the sim, so

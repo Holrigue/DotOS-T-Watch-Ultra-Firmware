@@ -15,15 +15,16 @@
 // accent family below used to be steel-blue; every screen that uses these macros
 // follows the palette from this one place.
 //
-// Static design accent (#FF5A1A). The wearer's Facewatch choice still drives the
-// title/chrome colour through argus_base_accent(); "Orange" there is this same colour.
-#define ARGUS_ACCENT         lv_color_make(0xFF, 0x5A, 0x1A)
-
-// Brighter "active / live" accent.
-#define ARGUS_ACCENT_ACTIVE  lv_color_make(0xFF, 0x8A, 0x4D)
-
-// Dim accent for idle / secondary structure.
-#define ARGUS_ACCENT_DIM     lv_color_make(0x8F, 0x35, 0x12)
+// The design accent FOLLOWS the wearer's Face > Accent choice (Orange by default,
+// #FF5A1A), so tiles, toggle pills, icons and chrome all take the colour they picked.
+// These are expressions evaluated where they are used: never cache one in a static or
+// a file-scope const, or it will keep the colour it had at boot.
+lv_color_t argus_base_accent(void);
+lv_color_t argus_accent_active(void);   // brighter "active / live" tint of the accent
+lv_color_t argus_accent_dim(void);      // dim tint for idle / secondary structure
+#define ARGUS_ACCENT         argus_base_accent()
+#define ARGUS_ACCENT_ACTIVE  argus_accent_active()
+#define ARGUS_ACCENT_DIM     argus_accent_dim()
 
 // Surfaces. Pure black base (the panel is AMOLED: black pixels are off), then two
 // lifts for tiles and for raised controls inside a tile.
