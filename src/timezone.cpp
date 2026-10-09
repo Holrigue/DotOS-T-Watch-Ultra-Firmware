@@ -197,10 +197,14 @@ static bool http_get_offset(int *out_h)
     return ok;
 }
 
+static void tz_start_worker();
+
+// One-shot worker: it exists only while a sync runs and deletes itself afterwards. It used
+// to loop forever (polling every 250 ms) and held an 8 KB internal stack for the whole
+// uptime, for something that runs once per Wi-Fi join.
 static void tz_worker(void *)
 {
-    for (;;) {
-        if (!s_sync_pending) { vTaskDelay(pdMS_TO_TICKS(250)); continue; }
+    while (s_sync_pending) {
         s_sync_pending = false;
         if (WiFi.status() != WL_CONNECTED) continue;
 
@@ -224,18 +228,28 @@ static void tz_worker(void *)
         s_got_offset   = got_off;
         s_result_ready = true;
     }
+    s_task = nullptr;
+    // A GOT_IP that arrived after the loop test above but before s_task was cleared saw a
+    // live task and did not start one: pick it up here.
+    if (s_sync_pending) tz_start_worker();
+    vTaskDelete(nullptr);
+}
+
+static void tz_start_worker()
+{
+    if (!s_task)
+        xTaskCreate(tz_worker, "tz_sync", 8192, nullptr, 3, &s_task);
 }
 
 static void on_wifi_got_ip(arduino_event_id_t, arduino_event_info_t)
 {
-    s_sync_pending = true;   // worker picks it up
+    s_sync_pending = true;
+    tz_start_worker();
 }
 
 void timezone_init()
 {
-    WiFi.onEvent(on_wifi_got_ip, ARDUINO_EVENT_WIFI_STA_GOT_IP);
-    if (!s_task)
-        xTaskCreate(tz_worker, "tz_sync", 8192, nullptr, 3, &s_task);
+    WiFi.onEvent(on_wifi_got_ip, ARDUINO_EVENT_WIFI_STA_GOT_IP);   // the worker starts on demand
 }
 
 void timezone_bg_tick()

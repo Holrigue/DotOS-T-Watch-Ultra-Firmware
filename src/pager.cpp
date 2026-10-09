@@ -1,4 +1,5 @@
 #include "pager.h"
+#include "psram_array.h"
 
 void clock_screen_get_local_time(struct tm *out);
 #include "lora_screen.h"
@@ -71,7 +72,7 @@ static uint32_t  s_scan_hop_at_ms    = 0;
 static uint32_t  s_scan_sticky_until = 0;
 
 // Ring buffer — s_head is the index of the newest message.
-static PagerMsg  s_msgs[PAGER_MSG_MAX];
+static PsramArray<PagerMsg, PAGER_MSG_MAX> s_msgs;   // PSRAM, on first use
 static int       s_head  = 0;
 static int       s_count = 0;
 

@@ -1,4 +1,5 @@
 #include "aprs.h"
+#include "psram_array.h"
 
 void clock_screen_get_local_time(struct tm *out);
 #include "lora_screen.h"
@@ -27,7 +28,7 @@ static int16_t   s_last_error = 0;
 static char      s_callsign[APRS_CALLSIGN_MAX] = "N0CALL";
 
 // Received-packet ring buffer. s_head is the index of the newest packet.
-static AprsPacket s_pkts[APRS_PKT_MAX];
+static PsramArray<AprsPacket, APRS_PKT_MAX> s_pkts;   // 14 KB: PSRAM, allocated on first use
 static int        s_head  = -1;
 static int        s_count = 0;
 

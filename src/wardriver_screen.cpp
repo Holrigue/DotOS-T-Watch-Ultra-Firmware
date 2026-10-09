@@ -83,6 +83,8 @@ static int           total_bt_count   = 0;
 // drains it on the next pass by rolling the session.
 static volatile bool s_rollover_pending = false;
 static QueueHandle_t ap_queue    = nullptr;
+static StaticQueue_t  s_ap_queue_ctl;           // control block of the PSRAM-backed queue
+static uint8_t       *s_ap_queue_mem = nullptr;  // its storage (PSRAM)
 static volatile bool is_running  = false;
 static bool          bt_ready    = false;
 static bool          wd_wifi_en  = true;
@@ -453,8 +455,20 @@ static bool start_wardriving() {
     skimmer_reset_count();
     evil_twin_reset_count();
 
-    if (!ap_queue)
-        ap_queue = xQueueCreate(WD_QUEUE_LEN, sizeof(RawAp));
+    if (!ap_queue) {
+        // 256 x RawAp = 25.6 KB. A normal xQueueCreate takes it from INTERNAL RAM and the
+        // queue is never deleted, so after the first Start it stayed for the whole uptime.
+        // The queue's storage can sit in PSRAM (only the 80-byte control block must stay
+        // internal): senders and the receiver are tasks, not ISRs. If PSRAM is not there,
+        // fall back to the old internal queue.
+        if (!s_ap_queue_mem)
+            s_ap_queue_mem = (uint8_t *)heap_caps_malloc(WD_QUEUE_LEN * sizeof(RawAp),
+                                                         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (s_ap_queue_mem)
+            ap_queue = xQueueCreateStatic(WD_QUEUE_LEN, sizeof(RawAp), s_ap_queue_mem, &s_ap_queue_ctl);
+        if (!ap_queue)
+            ap_queue = xQueueCreate(WD_QUEUE_LEN, sizeof(RawAp));
+    }
 
     open_new_csv();
 
