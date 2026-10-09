@@ -1,4 +1,5 @@
 #include "evil_twin.h"
+#include "psram_array.h"
 #include "threat_radar.h"
 #include "hexhound.h"       // feed HexHound on a confirmed detector hit
 #include "detect_log_sd.h"
@@ -54,8 +55,8 @@ struct EvilTwinHit {
     uint8_t channel;
 };
 
-static SsidEntry    s_ssid_table[ET_SSID_TABLE_SIZE] = {};
-static PairEntry    s_pair_table[ET_PAIR_TABLE_SIZE] = {};
+static PsramArray<SsidEntry, ET_SSID_TABLE_SIZE> s_ssid_table;   // PSRAM, on first use
+static PsramArray<PairEntry, ET_PAIR_TABLE_SIZE> s_pair_table;
 static int          s_count = 0;
 static QueueHandle_t s_queue = nullptr;
 
@@ -190,8 +191,8 @@ int  evil_twin_get_count() { return s_count; }
 void evil_twin_reset_count()
 {
     s_count = 0;
-    memset(s_ssid_table, 0, sizeof(s_ssid_table));
-    memset(s_pair_table, 0, sizeof(s_pair_table));
+    s_ssid_table.clear();
+    s_pair_table.clear();
     if (s_queue) {
         EvilTwinHit dummy;
         while (xQueueReceive(s_queue, &dummy, 0) == pdTRUE) {}
