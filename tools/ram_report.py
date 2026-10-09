@@ -27,6 +27,7 @@ HEX = r"0x[0-9a-fA-F]+"
 # "  .bss.s_foo   0x3fc9a2c0   0x400 path/to/obj.o"  (the name may sit alone on the line before)
 INPUT_RE = re.compile(r"^\s+(\.\S+)\s+(%s)\s+(%s)\s+(\S.*?)\s*$" % (HEX, HEX))
 NAME_ONLY_RE = re.compile(r"^\s+(\.\S+)\s*$")
+FILL_RE = re.compile(r"^\s+\*fill\*\s+(%s)\s+(%s)" % (HEX, HEX))
 CONT_RE = re.compile(r"^\s+(%s)\s+(%s)\s+(\S.*?)\s*$" % (HEX, HEX))
 OUTSEC_RE = re.compile(r"^(\.\S+)\s+(%s)\s+(%s)" % (HEX, HEX))
 OUTSEC_NAME_ONLY = re.compile(r"^(\.\S+)\s*$")
@@ -35,6 +36,8 @@ OUTSEC_NAME_ONLY = re.compile(r"^(\.\S+)\s*$")
 def owner_of(path):
     """Map an object path to a (group, owner) pair."""
     p = path.replace("\\", "/")
+    if p == "(alignment padding)":
+        return ("Alignment padding", "(between symbols)")
     m = re.search(r"/(lib[\w+.-]+\.a)\(", p)
     if m:
         return ("ESP-IDF / prebuilt", m.group(1))
@@ -71,6 +74,11 @@ def parse(path):
                 out_sec, pending = m.group(1), None
                 continue
             if out_sec is None:
+                continue
+            m = FILL_RE.match(line)
+            if m:
+                rows.append((out_sec, int(m.group(2), 16), "*fill*", "(alignment padding)"))
+                pending = None
                 continue
             m = INPUT_RE.match(line)
             if m:
