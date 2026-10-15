@@ -514,12 +514,14 @@ void build_icon(lv_obj_t *box, HomeTile t)
             shape(box, 14 + i * 20, i * 26, 18, 18, LV_RADIUS_CIRCLE, acc);
         }
         break;
-    case HT_MUSIC: {       // cassette: body + two reels, one orange
-        shape(box, 2, 14, 74, 46, 12, ARGUS_TILE);
-        ring(box, 12, 26, 22, 3, ink);
-        shape(box, 20, 34, 6, 6, LV_RADIUS_CIRCLE, ink);
-        ring(box, 44, 26, 22, 3, acc);
-        shape(box, 52, 34, 6, 6, LV_RADIUS_CIRCLE, acc);
+    case HT_MUSIC: {       // cassette: cream body outline, label strip, two reels (one orange)
+        shape(box, 4, 14, 88, 54, 12, ink);              // cream body
+        shape(box, 8, 18, 80, 46, 9, ARGUS_TILE);        // punch the inside back to the tile -> outline
+        shape(box, 30, 22, 36, 6, 2, acc);               // label / tape strip
+        ring(box, 17, 33, 22, 3, ink);                   // left reel
+        shape(box, 25, 41, 6, 6, LV_RADIUS_CIRCLE, ink);
+        ring(box, 57, 33, 22, 3, acc);                   // right reel
+        shape(box, 65, 41, 6, 6, LV_RADIUS_CIRCLE, acc);
         break; }
     default: break;
     }
