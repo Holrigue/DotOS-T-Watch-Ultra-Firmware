@@ -24,6 +24,7 @@ static Notification  s_pending_notif;
 // mute_call). 0 = not muted. Set on the UI thread, read on the BLE task.
 static constexpr uint32_t CALL_MUTE_MS = 120000;   // ~2 min covers one call
 static volatile uint32_t  s_call_mute_until = 0;
+static volatile bool      s_call_ended = false;
 
 bool take_pending(Notification& out)
 {
@@ -131,7 +132,14 @@ void publish(Notification n)
 
 void retract(uint32_t uid)
 {
+    // A retracted incoming call (iOS ANCS "removed") means the call is over.
+    bool was_call = false;
+    for (int i = 0; i < center().count(); i++) {
+        const Notification *p = center().get(i);
+        if (p && p->uid == uid && p->category == Category::IncomingCall) { was_call = true; break; }
+    }
     if (center().remove_uid(uid)) {
+        if (was_call) end_call();
         NLOG("[notify] retract uid=%lu\n", (unsigned long)uid);
     }
 }
@@ -139,6 +147,24 @@ void retract(uint32_t uid)
 void clear_all()
 {
     center().clear();
+}
+
+bool call_muted()
+{
+    return (int32_t)(s_call_mute_until - millis()) > 0;
+}
+
+void end_call()
+{
+    s_call_ended = true;
+    s_call_mute_until = 0;   // the next call must ring again
+}
+
+bool take_call_ended()
+{
+    if (!s_call_ended) return false;
+    s_call_ended = false;
+    return true;
 }
 
 void mute_call()
