@@ -1,7 +1,8 @@
 // notify_center.cpp - see notify_center.h.
 #include "notify_center.h"
 #include "notify_log.h"
-#include "../haptic.h"     // haptic_alert_soft() - gentler ring for incoming calls
+#include "../haptic.h"            // haptic_alert_soft() - gentler ring for incoming calls
+#include "../notify_buzz_gate.h"  // rate-limit ordinary buzzes so nothing vibrates non-stop
 #include <Arduino.h>
 #include <LilyGoLib.h>
 
@@ -25,6 +26,12 @@ static Notification  s_pending_notif;
 static constexpr uint32_t CALL_MUTE_MS = 120000;   // ~2 min covers one call
 static volatile uint32_t  s_call_mute_until = 0;
 static volatile bool      s_call_ended = false;
+
+// No ordinary notification buzz within this gap of the previous one, so a phone
+// app that re-posts many notifications a second can't vibrate the watch non-stop
+// (e.g. a ChatGPT voice session's live updates). Calls are exempt.
+static constexpr uint32_t BUZZ_MIN_GAP_MS = 2500;
+static uint32_t           s_last_buzz_ms  = 0;
 
 bool take_pending(Notification& out)
 {
@@ -107,9 +114,13 @@ void publish(Notification n)
         bool muted_call = is_call && (int32_t)(s_call_mute_until - millis()) > 0;
         if (!muted_call) {
             // Incoming calls get the soft "wake" tap (restored right after) so a
-            // ring feels calm; everything else keeps the user's buzz setting.
-            if (is_call) haptic_alert_soft();
-            else         instance.vibrator();
+            // ring feels calm; everything else keeps the user's buzz setting but is
+            // rate-limited so a chatty app can't buzz the watch non-stop.
+            if (is_call) {
+                haptic_alert_soft();
+            } else if (notify_buzz_gate_allow(s_last_buzz_ms, (uint32_t)millis(), BUZZ_MIN_GAP_MS)) {
+                instance.vibrator();
+            }
         }
     }
 
