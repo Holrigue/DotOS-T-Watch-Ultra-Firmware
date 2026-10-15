@@ -124,7 +124,9 @@ static lv_obj_t   *s_heading_label;
 static lv_timer_t *s_poll_timer = nullptr;
 static int         s_last_drawn = -1000; // last heading we rendered (whole deg)
 
-LV_DRAW_BUF_DEFINE_STATIC(s_arrow_buf, ARROW_CV, ARROW_CV, LV_COLOR_FORMAT_ARGB8888);
+// 64x64 ARGB8888 = 16 KB. It used to be a static buffer (internal .bss, resident even if the
+// compass was never opened); lv_draw_buf_create() allocates through lv_malloc, i.e. PSRAM.
+static lv_draw_buf_t *s_arrow_buf = nullptr;
 
 // Clear the canvas and paint the arrowhead rotated so it points at pinned north.
 static void draw_arrow(float heading)
@@ -243,12 +245,14 @@ static void build()
 
     // Arrow: a transparent canvas centred on the dial; draw_arrow() paints a red
     // navigation triangle into it, rotated to point at pinned north.
-    LV_DRAW_BUF_INIT_STATIC(s_arrow_buf);
-    s_arrow = lv_canvas_create(screen);
-    lv_canvas_set_draw_buf(s_arrow, &s_arrow_buf);
-    lv_obj_align(s_arrow, LV_ALIGN_CENTER, 0, -14);
-    lv_obj_clear_flag(s_arrow, LV_OBJ_FLAG_SCROLLABLE);
-    lv_canvas_fill_bg(s_arrow, lv_color_black(), LV_OPA_TRANSP);
+    s_arrow_buf = lv_draw_buf_create(ARROW_CV, ARROW_CV, LV_COLOR_FORMAT_ARGB8888, 0);
+    if (s_arrow_buf) {   // no buffer: no arrow (draw_arrow() already ignores a null canvas), the dial still works
+        s_arrow = lv_canvas_create(screen);
+        lv_canvas_set_draw_buf(s_arrow, s_arrow_buf);
+        lv_obj_align(s_arrow, LV_ALIGN_CENTER, 0, -14);
+        lv_obj_clear_flag(s_arrow, LV_OBJ_FLAG_SCROLLABLE);
+        lv_canvas_fill_bg(s_arrow, lv_color_black(), LV_OPA_TRANSP);
+    }
 
     // Heading read-out below the dial so the arrow never covers it.
     s_heading_label = lv_label_create(screen);

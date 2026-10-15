@@ -1,4 +1,5 @@
 #include "threat_radar.h"
+#include "psram_array.h"
 #include "detect_log_sd.h"
 
 void clock_screen_get_local_time(struct tm *out);   // defined in main.cpp
@@ -64,7 +65,7 @@ struct TrContact {
 };
 
 static QueueHandle_t s_queue   = nullptr;
-static TrContact     s_contacts[TR_MAX_CONTACTS];
+static PsramArray<TrContact, TR_MAX_CONTACTS> s_contacts;   // PSRAM, on first use
 static int           s_count   = 0;
 
 // Pending alert edge (consumed by the screen) + a tiny non-blocking buzz
@@ -397,7 +398,7 @@ bool threatradar_take_alert(TrThreat *out)
 
 void threatradar_reset()
 {
-    memset(s_contacts, 0, sizeof(s_contacts));
+    s_contacts.clear();
     s_count = 0;
     s_alert_pending = false;
     s_buzz_left = 0;

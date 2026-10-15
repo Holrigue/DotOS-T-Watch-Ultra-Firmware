@@ -1,4 +1,5 @@
 #include "meshtastic.h"
+#include "psram_array.h"
 #include "tracker_rep.h"
 #include "usb_sd.h"
 #include "gps_screen.h"
@@ -106,7 +107,7 @@ static uint32_t      s_pos_request_dest    = 0;
 // Outgoing-TEXT tracker. Each entry holds the pkt_id we generated +
 // the message body so the Send screen can poll for ACK state. Newest
 // at index 0; aged out by bg_tick once PENDING crosses kAckTimeoutMs.
-static MeshOutgoing  s_outgoing[MESH_MAX_OUTGOING];
+static PsramArray<MeshOutgoing, MESH_MAX_OUTGOING> s_outgoing;
 static int           s_outgoing_count = 0;
 static const uint32_t kAckTimeoutMs   = 30000;
 static char          s_long_name[MESH_MAX_LONG_NAME]   = "ARGUS";
@@ -125,12 +126,12 @@ static uint8_t  s_rb_head         = 0;   // next slot to send
 static uint8_t  s_rb_count        = 0;   // queued items
 static uint32_t s_rb_send_after_ms = 0;  // earliest millis() to send next
 
-static MeshMessage s_msgs[MESH_MAX_MESSAGES];
+static PsramArray<MeshMessage, MESH_MAX_MESSAGES> s_msgs;
 static int s_count  = 0;   // messages stored (max MESH_MAX_MESSAGES)
 static int s_total  = 0;   // total ever received
 static int s_unread = 0;
 
-static MeshNode s_nodes[MESH_MAX_NODES];
+static PsramArray<MeshNode, MESH_MAX_NODES> s_nodes;   // PSRAM, on first use
 static int      s_node_count = 0;   // distinct nodes heard (max MESH_MAX_NODES)
 
 static volatile int  s_isr_count = 0;
@@ -2076,7 +2077,7 @@ const MeshMessage *meshtastic_get_message(int idx)
 // clock-face indicator drops back to its idle state.
 void meshtastic_clear_messages()
 {
-    memset(s_msgs, 0, sizeof(s_msgs));
+    s_msgs.clear();
     s_count  = 0;
     s_unread = 0;
     clock_screen_set_mesh_count(0);

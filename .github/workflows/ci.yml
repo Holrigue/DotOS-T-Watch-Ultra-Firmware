@@ -129,6 +129,35 @@ jobs:
           echo "Flash budget is 4194304 bytes (app0, resized 2026-09-28 from 3MB - see boards/partitions_argus_16mb.csv)."
           pio run -e twatch_ultra --target size 2>/dev/null | tail -20 || true
 
+      # Where the static internal RAM goes (the scarce budget: see docs/MEMORY.md). Reads the
+      # linker map the build already writes; never fails the build, it only reports.
+      - name: Report static RAM by owner
+        if: always()
+        run: |
+          map=.pio/build/twatch_ultra/firmware.map
+          if [ -f "$map" ]; then
+            python3 tools/ram_report.py "$map" --top 40 | tee ram_report.txt
+            { echo '### Static internal RAM by owner'; echo '```'; cat ram_report.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no linker map at $map (PlatformIO did not write one) - skipping"
+          fi
+
+      # The Arduino core ships a PRECOMPILED ESP-IDF, so its sdkconfig cannot be changed from
+      # here, but it can be READ: these are the values that decide how much internal RAM the
+      # Wi-Fi/BLE/LwIP stacks and the task stacks take, and whether PSRAM can hold .bss.
+      - name: Report precompiled sdkconfig (memory-relevant)
+        if: always()
+        run: |
+          d=~/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3
+          h=$(find "$d" -name sdkconfig.h -path "*qio_qspi*" 2>/dev/null | head -1)
+          if [ -n "$h" ] && [ -f "$h" ]; then
+            echo "using $h"
+            grep -E 'CONFIG_(SPIRAM_(USE|MALLOC|ALLOW|TRY|CACHE|FETCH|SPEED|MODE)|ESP32_WIFI_(STATIC|DYNAMIC|TX_BUFFER|RX_BA|AMPDU|CACHE|MGMT|IRAM|RX_IRAM)|LWIP_(MAX_SOCKETS|TCPIP_TASK_STACK|TCP_WND|TCP_SND|TCP_MSS|UDP_RECVMBOX|TCP_RECVMBOX|IRAM)|BT_(ENABLED|BLUEDROID|NIMBLE|BLE_MAX|ACL|GATT|BTC_TASK|BTU_TASK|BLE_ESTAB|CTRL_BLE|BLE_DYNAMIC|BLE_SMP|SMP|ALLOCATION|BLE_42|BLE_50|BLE_DYNAMIC_ENV)|BTDM_CTRL_(BLE_MAX|MODE|BLE_SCAN|LEGACY|AUTO)|ARDUINO_(LOOP|EVENT|UDP|RUN)|ESP_(MAIN_TASK|TIMER_TASK|SYSTEM_EVENT|IPC_TASK|INT_WDT|TASK_WDT)|FREERTOS_(TIMER_TASK|ISR_STACKSIZE|IDLE|CHECK|UNICORE)|ESP_COREDUMP|COREDUMP|HEAP_(POISONING|TRACING|TASK|ABORT)|MBEDTLS_(DYNAMIC|ASYMMETRIC|SSL_(IN|OUT|MAX)|EXTERNAL_MEM|MEM)|TINYUSB|USB_|ESP_CONSOLE|LOG_DEFAULT|ESP32S3_(INSTRUCTION|DATA)_CACHE|ESP32S3_REV|ESP_DEFAULT_CPU|SPI_FLASH_(AUTO|ROM|SUSPEND|PLACE)|ESP_PHY_(REDUCE|INIT)|ESP_WIFI_|ESP_NETIF|FATFS_(LFN|MAX|CODEPAGE|PER_FILE|SECTOR)|ESP_ERR|DRAM|IRAM|ALLOC)' "$h" | sort | tee sdkconfig_memory.txt
+            { echo '### Precompiled sdkconfig (memory-relevant)'; echo '```'; cat sdkconfig_memory.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no sdkconfig.h found under $d - skipping"; find "$d" -name "sdkconfig*" 2>/dev/null | head
+          fi
+
       # Test builds: publish the four component binaries of THIS build so a
       # branch can be flashed without cutting a release. Same four files at the
       # same four offsets as release.yml (never a merged image: see the

@@ -1,4 +1,5 @@
 #include "map_screen.h"
+#include "psram_array.h"
 #include "theme.h"
 #include "gps_screen.h"
 #include "meshtastic.h"
@@ -46,7 +47,7 @@ static lv_obj_t *node_dots[MESH_MAX_NODES];
 static lv_obj_t *node_labels[MESH_MAX_NODES];
 
 // Per-tile path buffers — kept alive while LVGL uses them as the image source.
-static char  s_paths[TILES][80];
+static PsramArray<char[80], TILES> s_paths;   // tile file paths (PSRAM)
 
 // GPX track overlay (hiking follow). One lv_line polyline, projected from the
 // loaded track each refresh so it tracks pan/zoom like the peer dots. The point
@@ -55,7 +56,7 @@ static char  s_paths[TILES][80];
 // remaining while a track is loaded.
 #define TRACK_MAXPTS 400
 static lv_obj_t          *track_line = nullptr;
-static lv_point_precise_t s_track_pts[TRACK_MAXPTS];
+static PsramArray<lv_point_precise_t, TRACK_MAXPTS> s_track_pts;   // PSRAM (3.2 KB)
 static lv_obj_t          *dist_badge = nullptr;
 static lv_obj_t          *dist_label = nullptr;
 static bool               s_gpx_autoload_tried = false;
@@ -313,7 +314,7 @@ static void render_gpx_track(double view_lat, double view_lon)
     project(n - 1, m++);   // always land exactly on the last point
 
     if (m < 2) { lv_obj_add_flag(track_line, LV_OBJ_FLAG_HIDDEN); return; }
-    lv_line_set_points(track_line, s_track_pts, m);
+    lv_line_set_points(track_line, s_track_pts.data(), m);
     lv_obj_clear_flag(track_line, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -797,7 +798,7 @@ bool map_screen_available()
 // object is cleaned from inside a click handler). Reachable as its own launcher
 // entry ("GPX Track").
 #define GPX_MAX_FILES 20
-static char      s_gpx_paths[GPX_MAX_FILES][96];   // persistent row payloads
+static PsramArray<char[96], GPX_MAX_FILES> s_gpx_paths;   // persistent row payloads (PSRAM)
 static lv_obj_t *s_picker = nullptr;
 
 static void on_pick_clicked(lv_event_t *e)
