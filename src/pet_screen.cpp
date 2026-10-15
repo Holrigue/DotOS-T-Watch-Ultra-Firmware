@@ -1,6 +1,8 @@
 #include "pet_screen.h"
 #include "hexhound.h"
 #include "theme.h"
+#include "hexhound_sprite.h"
+#include "face_watch.h"   // face_accent_rgb(): the creature wears the user's accent
 // NOTE: threat_radar.h intentionally NOT included. Threat awareness reaches the
 // pet only through hexhound_set_threat_level() (see hexhound.h) so this cluster
 // stays decoupled from the Threat Radar bundle. main.cpp and detect_pipeline.cpp
@@ -17,11 +19,11 @@
 
 // ── ARGUS HexHound — LVGL renderer ─────────────────────────────────────
 //
-// The HexHound is an 8-bit pixel-art mascot (a pwnagotchi/Tamagotchi-style face)
-// drawn on-device into a small ARGB buffer — no SD card, no PNG decode. It bobs
-// inside a set of sonar rings that pulse as it sweeps the airwaves; both the face
-// and the rings recolour by mood (calm steel-blue / HADES-red on a threat) as the
-// at-a-glance cue. (The previous build loaded per-stage HD PNGs from the SD card;
+// The HexHound is an 8-bit pixel-art creature (one per evolution stage, a face
+// per mood; see hexhound_sprite.h) drawn on-device into a small ARGB buffer — no
+// SD card, no PNG decode. It wears the user's accent colour and bobs inside a set
+// of sonar rings that pulse as it sweeps the airwaves; the rings recolour by mood
+// (HADES-red on a threat) as the at-a-glance cue. (The previous build loaded per-stage HD PNGs from the SD card;
 // that decode froze the menu -> HexHound transition, so it was replaced by this
 // self-contained renderer.) Everything below reads engine state through the
 // hexhound_*() accessors; no game logic lives here.
@@ -30,7 +32,7 @@ static lv_obj_t  *s_screen    = nullptr;
 static lv_obj_t  *s_sprite    = nullptr;   // 8-bit mascot face: lv_image over an ARGB buffer
 static uint32_t     *s_masc_buf = nullptr; // mascot pixels in PSRAM (ARGB8888)
 static lv_image_dsc_t s_masc_dsc;          // descriptor pointing at s_masc_buf
-static uint8_t    s_masc_mood = 0xFF;      // last-drawn mood (redraw only on a change)
+static uint64_t   s_masc_key = ~0ull;      // last-drawn stage/mood/accent (redraw only on a change)
 static lv_obj_t  *s_ring[3]   = { nullptr, nullptr, nullptr };  // sonar sweep
 static lv_obj_t  *s_stage_lbl = nullptr;
 static lv_obj_t  *s_ability   = nullptr;
@@ -63,74 +65,45 @@ static void pet_wifi_cb(const WifiBeacon *b)
     if (b) hexhound_note_wifi(b->bssid);   // feed distinct-AP XP
 }
 
-// ── 8-bit mascot (pixel face, drawn on-device) ──────────────────────────────
-// A pwnagotchi/Tamagotchi-style face rendered into a small ARGB buffer and shown
-// as an lv_image. Drawn entirely on-device: opening HexHound never touches the
-// SD card, which is what the old HD-PNG decode did — and that decode froze the
-// menu -> HexHound transition. The expression tracks the pet's mood.
-static constexpr int MASC_CELL = 16;                     // one chunky "8-bit" block
-static constexpr int MASC_COLS = 10, MASC_ROWS = 8;
-static constexpr int MASC_W = MASC_COLS * MASC_CELL;     // 160
-static constexpr int MASC_H = MASC_ROWS * MASC_CELL;     // 128
+// ── 8-bit mascot (16x16 pixel creature, drawn on-device) ─────────────────────
+// One creature per evolution stage, with a face per mood, composed by
+// hexhound_sprite.h into palette codes and painted here into a small ARGB buffer
+// shown as an lv_image. The body takes the accent picked in Face > Accent (the
+// palette is derived from it, so no sprite is stored per colour). Drawn entirely
+// on-device: opening HexHound never touches the SD card, which is what the old
+// HD-PNG decode did — and that decode froze the menu -> HexHound transition.
+static constexpr int MASC_CELL = 9;                          // one chunky "8-bit" block
+static constexpr int MASC_W = HEX_SPRITE_N * MASC_CELL;      // 144
+static constexpr int MASC_H = HEX_SPRITE_N * MASC_CELL;      // 144
 
-// Mood -> face colour (ARGB8888). Mirrors mood_color()'s intent but as a raw
-// pixel value for the buffer: threat red, bright/amber/dim steel by mood.
-static uint32_t masc_color(uint8_t mood)
+// Paint the creature for a stage + mood in the current accent. Transparent
+// background; refresh() calls it only when stage, mood or accent changed.
+static void draw_mascot(uint8_t stage, uint8_t mood, uint32_t accent_rgb)
 {
-    switch (mood) {
-        case HEX_WARY:    return 0xFFE02020;   // red eyes on a threat
-        case HEX_EXCITED: return 0xFF9BBCD6;   // bright steel
-        case HEX_HUNGRY:  return 0xFFC89B5A;   // amber-ish
-        case HEX_SLEEPY:  return 0xFF5C6B7A;   // dim steel
-        default:          return 0xFF7FA8C9;   // calm steel-blue
-    }
-}
-
-// Fill one grid cell (a chunky pixel) in the mascot buffer.
-static void masc_block(int col, int row, uint32_t argb)
-{
-    for (int y = 0; y < MASC_CELL; y++)
-        for (int x = 0; x < MASC_CELL; x++) {
-            int px = col * MASC_CELL + x, py = row * MASC_CELL + y;
-            if (px >= 0 && px < MASC_W && py >= 0 && py < MASC_H)
-                s_masc_buf[py * MASC_W + px] = argb;
+    if (!s_masc_buf) return;
+    uint8_t grid[HEX_SPRITE_N][HEX_SPRITE_N];
+    uint32_t pal[HXP_COUNT];
+    hexhound_sprite_compose(stage, mood, grid);
+    hexhound_sprite_palette(accent_rgb, pal);
+    for (int gy = 0; gy < HEX_SPRITE_N; gy++)
+        for (int y = 0; y < MASC_CELL; y++) {
+            uint32_t *row = s_masc_buf + (size_t)(gy * MASC_CELL + y) * MASC_W;
+            for (int gx = 0; gx < HEX_SPRITE_N; gx++) {
+                const uint32_t c = pal[grid[gy][gx]];
+                for (int x = 0; x < MASC_CELL; x++) row[gx * MASC_CELL + x] = c;
+            }
         }
 }
 
-// Redraw the face for a mood (transparent background + accent-coloured blocks).
-// Cheap; refresh() calls it only when the mood actually changes.
-static void draw_mascot(uint8_t mood)
+// Redraw + repush the mascot image if stage, mood or accent changed. Cheap on a no-op.
+static void update_sprite(uint8_t stage, uint8_t mood)
 {
-    if (!s_masc_buf) return;
-    memset(s_masc_buf, 0, (size_t)MASC_W * (size_t)MASC_H * 4u);   // transparent
-    const uint32_t c = masc_color(mood);
-
-    // Eyes: open 2x2 blocks, or a single closed bar when sleepy.
-    if (mood == HEX_SLEEPY) {
-        masc_block(2, 3, c); masc_block(3, 3, c); masc_block(6, 3, c); masc_block(7, 3, c);
-    } else {
-        masc_block(2, 2, c); masc_block(3, 2, c); masc_block(2, 3, c); masc_block(3, 3, c);
-        masc_block(6, 2, c); masc_block(7, 2, c); masc_block(6, 3, c); masc_block(7, 3, c);
-    }
-    // Angry brows when wary (threat).
-    if (mood == HEX_WARY) { masc_block(2, 1, c); masc_block(7, 1, c); }
-
-    // Mouth: smile (excited), open (hungry), or flat (calm/wary).
-    if (mood == HEX_EXCITED) {
-        masc_block(3, 5, c); masc_block(6, 5, c); masc_block(4, 6, c); masc_block(5, 6, c);
-    } else if (mood == HEX_HUNGRY) {
-        masc_block(4, 5, c); masc_block(5, 5, c); masc_block(4, 6, c); masc_block(5, 6, c);
-    } else {
-        masc_block(3, 5, c); masc_block(4, 5, c); masc_block(5, 5, c); masc_block(6, 5, c);
-    }
-}
-
-// Redraw + repush the mascot image if the mood changed. Cheap on a no-op.
-static void update_sprite(uint8_t mood)
-{
-    if (!s_sprite || !s_masc_buf || mood == s_masc_mood) return;
-    s_masc_mood = mood;
-    draw_mascot(mood);
+    if (!s_sprite || !s_masc_buf) return;
+    const uint32_t accent = face_accent_rgb() & 0xFFFFFFu;
+    const uint64_t key = ((uint64_t)stage << 40) | ((uint64_t)mood << 32) | accent;
+    if (key == s_masc_key) return;
+    s_masc_key = key;
+    draw_mascot(stage, mood, accent);
     lv_image_set_src(s_sprite, NULL);
     lv_image_set_src(s_sprite, &s_masc_dsc);
     lv_obj_invalidate(s_sprite);
@@ -141,8 +114,8 @@ static void refresh()
     const HexHoundState &st = hexhound_state();
     lv_color_t accent = mood_color(st.mood);
 
-    // Redraw the mascot face for the current mood (no-op unless it changed).
-    update_sprite(st.mood);
+    // Redraw the creature for the current stage + mood (no-op unless it changed).
+    update_sprite(st.stage, st.mood);
 
     // Sonar rings track mood: calm steel-blue, or HADES-red on a confirmed
     // threat. With the creature now a fixed sprite, the rings are the pet's
