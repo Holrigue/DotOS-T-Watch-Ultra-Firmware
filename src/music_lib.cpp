@@ -1,5 +1,6 @@
 // music_lib.cpp - see music_lib.h.
 #include "music_lib.h"
+#include "music_path.h"
 
 #include <Arduino.h>
 #include <SD.h>
@@ -34,9 +35,9 @@ void free_index()
     s_artist_count = 0;
 }
 
-// basename idiom shared with loot_screen.cpp / background.cpp: File::name()
-// returns the full path, so the display name is whatever follows the last
-// '/'. Also strips the extension for the track title.
+// basename idiom shared with loot_screen.cpp / background.cpp: the display name is
+// whatever follows the last '/' (File::name() is already a base name on this core, a
+// full path on older ones). Also strips the extension for the track title.
 const char *basename_of(const char *path)
 {
     const char *slash = strrchr(path, '/');
@@ -78,7 +79,7 @@ void fill_tracks(File &dir, MusicArtist &artist, const char *artist_path)
         if (!e.isDirectory() && music_lib_is_supported_file(e.name())) {
             MusicTrack &t = artist.tracks[i];
             title_from_filename(e.name(), t.title, sizeof(t.title));
-            snprintf(t.path, sizeof(t.path), "%s/%s", artist_path, basename_of(e.name()));
+            if (!music_join_path(artist_path, e.name(), t.path, sizeof(t.path))) { e.close(); continue; }
             i++;
         }
         e.close();
@@ -109,8 +110,9 @@ int music_lib_scan()
          e = root.openNextFile()) {
         if (!e.isDirectory()) { e.close(); continue; }   // stray file at /music root
 
+        // File::name() is the BASE name on this core, so join it to /music (see music_path.h).
         char artist_path[MUSIC_PATH_LEN];
-        snprintf(artist_path, sizeof(artist_path), "%s", e.name());
+        if (!music_join_path(MUSIC_ROOT, e.name(), artist_path, sizeof(artist_path))) { e.close(); continue; }
 
         File adir = SD.open(artist_path);
         if (!adir) { e.close(); continue; }

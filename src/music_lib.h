@@ -15,7 +15,7 @@
 #include <cstdint>
 
 #define MUSIC_TITLE_LEN  48   // filename without extension, truncated if longer
-#define MUSIC_PATH_LEN   160  // full SD path, ready to hand to SD.open()
+#define MUSIC_PATH_LEN   256  // full SD path, ready to hand to SD.open()
 #define MUSIC_ARTIST_LEN 40   // folder name, truncated if longer
 
 struct MusicTrack {

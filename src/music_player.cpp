@@ -12,6 +12,7 @@
 // would require).
 #include "music_player.h"
 #include "music_lib.h"
+#include "music_duration.h"
 #include "alarm.h"   // alarm_chime_is_active() - shared-I2S interlock
 
 #include <Arduino.h>
@@ -19,12 +20,16 @@
 #include <LilyGoLib.h>
 #include <driver/i2s.h>
 #include <cstring>
+#include <esp_heap_caps.h>
 
 // ---- vendored decoders -------------------------------------------------------
 // MINIMP3_IMPLEMENTATION/DR_FLAC_IMPLEMENTATION must be defined in exactly one
 // translation unit (else duplicate-symbol link errors) - this is that unit;
 // nothing else in the firmware includes these headers.
 #define MINIMP3_IMPLEMENTATION
+// The decode scratch (~16 KB) comes from music_mp3_scratch(), not the task stack.
+static void *music_mp3_scratch(void);
+#define MINIMP3_EXTERNAL_SCRATCH music_mp3_scratch
 #define MINIMP3_ONLY_MP3    // strip MP1/MP2 decode - we only ever feed .mp3
 #define MINIMP3_NO_SIMD     // Xtensa has none of minimp3's x86/ARM SIMD paths
 #include <minimp3.h>
@@ -46,6 +51,12 @@ constexpr size_t    PCM_CHUNK_SAMPLES  = PCM_CHUNK_FRAMES * 2;   // stereo-worst
 Kind          s_kind = Kind::None;
 File          s_file;                  // backs whichever decoder is open
 mp3dec_ex_t  *s_mp3  = nullptr;         // heap: large struct, keep off the task stack
+// minimp3 keeps a POINTER to this and calls through it on every read, so it must outlive
+// open_decoder(). It used to be a local there: the first decode then called through a
+// dangling stack pointer and the watch rebooted as soon as a track started.
+mp3dec_io_t   s_mp3_io;
+void         *s_scratch = nullptr;      // minimp3's decode scratch (internal RAM if it fits, else PSRAM)
+const char   *s_last_error = "";        // why the last play() failed, for the screen / log
 drflac       *s_flac = nullptr;
 
 int      s_channels    = 0;
@@ -99,9 +110,37 @@ drflac_bool32 flac_seek_cb(void *user_data, int offset, drflac_seek_origin origi
     return f->seek(pos) ? DRFLAC_TRUE : DRFLAC_FALSE;
 }
 
+char s_err_buf[96];
+
+// Record why playback did not start. The numbers are on purpose: they show on the track
+// list, so a photo of the screen tells us how much internal RAM was left.
+void fail(const char *why)
+{
+    unsigned fr = (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    unsigned bl = (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    snprintf(s_err_buf, sizeof(s_err_buf), "%s\nfree %uK, block %uK", why, fr / 1024, bl / 1024);
+    s_last_error = s_err_buf;
+    Serial.printf("[music] %s (internal free %u, largest block %u)\n", why, fr, bl);
+}
+
+// Internal RAM is what the watch is short of (the display's DMA buffers take 82 KB of it),
+// so the player puts its big buffers there only when plenty is left over, and in PSRAM
+// otherwise. The reserve keeps room for the task stack and for BLE/WiFi/SD.
+constexpr size_t INTERNAL_RESERVE = 20 * 1024;
+
+void *alloc_flex(size_t n)
+{
+    void *p = nullptr;
+    if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) >= n + INTERNAL_RESERVE)
+        p = heap_caps_calloc(1, n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!p) p = heap_caps_calloc(1, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p;
+}
+
 void close_decoder()
 {
-    if (s_mp3)  { mp3dec_ex_close(s_mp3); free(s_mp3); s_mp3 = nullptr; }
+    if (s_scratch) { heap_caps_free(s_scratch); s_scratch = nullptr; }
+    if (s_mp3)  { mp3dec_ex_close(s_mp3); heap_caps_free(s_mp3); s_mp3 = nullptr; }
     if (s_flac) { drflac_close(s_flac);   s_flac = nullptr; }
     if (s_file) s_file.close();
     s_kind = Kind::None;
@@ -114,35 +153,41 @@ bool open_decoder(const char *path)
 {
     close_decoder();
     s_file = SD.open(path);
-    if (!s_file) return false;
+    if (!s_file) { fail("Can't open the file"); return false; }
 
     if (has_ext(path, ".flac")) {
         s_flac = drflac_open(flac_read_cb, flac_seek_cb, nullptr, &s_file, nullptr);
-        if (!s_flac) { s_file.close(); return false; }
+        if (!s_flac) { s_file.close(); fail("Can't read this FLAC"); return false; }
         s_kind          = Kind::Flac;
         s_channels      = s_flac->channels;
         s_sample_rate   = s_flac->sampleRate;
         s_total_frames  = s_flac->totalPCMFrameCount;
     } else {
-        s_mp3 = (mp3dec_ex_t *)malloc(sizeof(mp3dec_ex_t));
-        if (!s_mp3) { s_file.close(); return false; }
-        mp3dec_io_t io;
-        io.read = mp3_read_cb; io.read_data = &s_file;
-        io.seek = mp3_seek_cb; io.seek_data = &s_file;
-        if (mp3dec_ex_open_cb(s_mp3, &io, MP3D_SEEK_TO_SAMPLE) != 0) {
-            free(s_mp3); s_mp3 = nullptr; s_file.close(); return false;
+        s_mp3     = (mp3dec_ex_t *)alloc_flex(sizeof(mp3dec_ex_t));
+        s_scratch = alloc_flex(sizeof(mp3dec_scratch_t));
+        if (!s_mp3 || !s_scratch) { close_decoder(); fail("No memory: MP3 decoder"); return false; }
+        s_mp3_io.read = mp3_read_cb; s_mp3_io.read_data = &s_file;
+        s_mp3_io.seek = mp3_seek_cb; s_mp3_io.seek_data = &s_file;
+        // DO_NOT_SCAN: no whole-file pass to learn the length (seconds of SD reads inside
+        // the touch handler). We never seek, so no frame index is needed either.
+        if (mp3dec_ex_open_cb(s_mp3, &s_mp3_io, MP3D_DO_NOT_SCAN) != 0) {
+            close_decoder(); fail("Can't read this MP3 (or no memory for its buffer)"); return false;
         }
         s_kind          = Kind::Mp3;
         s_channels      = s_mp3->info.channels;
         s_sample_rate   = s_mp3->info.hz;
-        // mp3dec_ex reports total interleaved samples; divide out channels for
-        // a frame count (one frame = one sample per channel), matching FLAC's
-        // totalPCMFrameCount so the rest of this file need not care which
-        // decoder is live.
-        s_total_frames  = s_channels ? (s_mp3->samples / (uint64_t)s_channels) : 0;
+        if (s_channels > 0 && s_mp3->samples > 0) {
+            // A length tag was found: samples are interleaved, so divide out the channels.
+            s_total_frames = s_mp3->samples / (uint64_t)s_channels;
+        } else {
+            uint64_t audio = (uint64_t)s_file.size();
+            if (audio > s_mp3->start_offset) audio -= s_mp3->start_offset;
+            s_total_frames = mp3_estimate_frames(audio, s_mp3->info.bitrate_kbps, (int)s_sample_rate);
+        }
     }
     if (s_channels <= 0 || s_channels > 2 || s_sample_rate == 0) {
         close_decoder();   // something we can't play (e.g. >2 channels)
+        fail("Unsupported audio format");
         return false;
     }
     return true;
@@ -173,7 +218,8 @@ void player_task(void *)
     i2s_set_clk(PLAYER_I2S_PORT, s_sample_rate, I2S_BITS_PER_SAMPLE_16BIT,
                 s_channels == 2 ? I2S_CHANNEL_STEREO : I2S_CHANNEL_MONO);
 
-    int16_t *chunk = (int16_t *)malloc(PCM_CHUNK_SAMPLES * sizeof(int16_t));
+    int16_t *chunk = (int16_t *)alloc_flex(PCM_CHUNK_SAMPLES * sizeof(int16_t));
+    if (!chunk) fail("No memory: audio buffer");
     if (chunk) {
         while (s_running) {
             if (s_paused) {
@@ -185,10 +231,13 @@ void player_task(void *)
                 continue;
             }
             size_t frames = decode_chunk(chunk);
-            if (frames == 0) { s_running = false; break; }   // EOF or decode error
+            if (frames == 0) {                                 // EOF or decode error
+                if (s_cur_frame == 0) s_last_error = "Decode failed";   // never produced a sample
+                s_running = false; break;
+            }
             instance.player.write(chunk, frames * s_channels * sizeof(int16_t));
         }
-        free(chunk);
+        heap_caps_free(chunk);
     }
 
     instance.powerControl(POWER_SPEAK, false);
@@ -212,11 +261,14 @@ void stop_task_and_wait()
 
 }  // namespace
 
+static void *music_mp3_scratch(void) { return s_scratch; }
+
 bool music_player_play(int artist_idx, int track_idx)
 {
     const MusicArtist *a = music_lib_artist(artist_idx);
     if (!a || track_idx < 0 || track_idx >= a->track_count) return false;
-    if (alarm_chime_is_active()) return false;   // I2S is busy; try again shortly
+    s_last_error = "";
+    if (alarm_chime_is_active()) { s_last_error = "Speaker busy (alarm)"; return false; }   // try again shortly
 
     stop_task_and_wait();
 
@@ -230,7 +282,16 @@ bool music_player_play(int artist_idx, int track_idx)
     if (!s_pause_sem) s_pause_sem = xSemaphoreCreateBinary();
     s_running = true;
     s_paused  = false;
-    xTaskCreatePinnedToCore(player_task, "music_player", 8192, NULL, 1, &s_task, 0);
+    // The decode scratch is heap memory now (see s_scratch), so the task only needs a
+    // normal stack: the decoder's own frames add up to ~2 KB. 8 KB is what this watch
+    // already allocated for this task on the first test; 12 KB failed for lack of a block.
+    if (xTaskCreatePinnedToCore(player_task, "music_player", 8192, NULL, 1, &s_task, 0) != pdPASS) {
+        s_running = false; s_task = nullptr;
+        close_decoder();
+        s_artist_idx = -1; s_track_idx = -1;
+        fail("No memory: playback task");
+        return false;
+    }
     return true;
 }
 
@@ -269,6 +330,7 @@ bool music_player_prev()
 bool music_player_is_playing() { return s_task != nullptr && s_running && !s_paused; }
 bool music_player_is_paused()  { return s_task != nullptr && s_running && s_paused; }
 
+const char *music_player_last_error()     { return s_last_error; }
 const char *music_player_current_title()  { return s_title; }
 const char *music_player_current_artist() { return s_artist; }
 
