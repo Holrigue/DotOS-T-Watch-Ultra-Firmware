@@ -33,6 +33,16 @@ void clear_all();
 // calls this; subsequent IncomingCall arrivals within the window do not buzz.
 void mute_call();
 
+// True while the incoming-call mute window is open (set by mute_call()).
+bool call_muted();
+
+// The phone says the call is over (answered, rejected, or answered on another device such
+// as Teams on a PC, which removes the notification). Stops the watch ringing at once: the
+// UI thread picks this up with take_call_ended() and drops the call banner. Callable from
+// the BLE task.
+void end_call();
+bool take_call_ended();   // true once per end_call(); consumes it
+
 // Hand-off for the on-screen banner. publish() runs on the BLE task, but LVGL
 // must be driven from the UI thread, so publish() stashes the newest arrival and
 // the UI-thread popup timer drains it here. Returns true and fills `out` if a new

@@ -9,6 +9,7 @@
 #include "night_mode.h"    // night_mode_active() - quiet hours
 #include "ancs.h"          // ancs::dismiss() - decline a call on iOS
 #include "theme.h"
+#include "haptic.h"        // haptic_alert_soft() - the calm ring
 
 #include <LilyGoLib.h>
 
@@ -29,6 +30,15 @@ static bool        s_boosted       = false;   // brightness raised for the banne
 static uint32_t    s_call_uid      = 0;        // uid of the call the banner is showing
 
 static constexpr uint32_t POPUP_MS = 6000;   // auto-dismiss after 6s
+// An incoming call is different: it must stay up long enough to reach Mute / Hang up (6 s
+// vanished before a wrist could be raised), and it rings gently until it is answered
+// elsewhere (the phone says "call ended"), muted, hung up, or this cap runs out.
+static constexpr uint32_t CALL_POPUP_MS  = 45000;
+static constexpr uint32_t RING_PERIOD_MS = 2600;   // one calm double tap every 2.6 s
+static constexpr uint32_t RING_GAP_MS    = 170;    // gap between the two taps
+
+static lv_timer_t *s_ring_timer = nullptr;
+static bool        s_call_banner = false;           // the banner on screen is a ringing call
 // While a banner is up the panel runs 15% (of full scale) above the active
 // brightness, so the message is readable at a glance; an arrival also wakes a
 // dimmed or switched-off screen, and the boost drops back as the banner goes.
@@ -45,6 +55,8 @@ static void boost_brightness()
 
 static void delete_banner()
 {
+    if (s_ring_timer)    { lv_timer_del(s_ring_timer);    s_ring_timer    = nullptr; }
+    s_call_banner = false;
     if (s_dismiss_timer) { lv_timer_del(s_dismiss_timer); s_dismiss_timer = nullptr; }
     if (s_banner)        { lv_obj_del(s_banner);          s_banner        = nullptr; }
 }
@@ -67,6 +79,20 @@ static void dismiss_banner(bool repaint)
 }
 
 static void on_dismiss_timer(lv_timer_t *) { dismiss_banner(true); }
+
+// The second tap of the ring's double tap (a one-shot timer).
+static void on_ring_second_tap(lv_timer_t *) { haptic_alert_soft(); }
+
+// While a call banner is up and not muted: a soft double tap, repeating. The very first
+// tap comes from notify::publish(); this keeps the rhythm going without ever becoming the
+// sustained, stressful buzz.
+static void on_ring_timer(lv_timer_t *)
+{
+    if (notify::call_muted()) return;
+    haptic_alert_soft();
+    lv_timer_t *t = lv_timer_create(on_ring_second_tap, RING_GAP_MS, NULL);
+    lv_timer_set_repeat_count(t, 1);
+}
 
 static void on_banner_click(lv_event_t *)
 {
@@ -212,15 +238,28 @@ static void show_banner(const notify::Notification &n)
         lv_obj_center(ml);
     }
 
-    s_dismiss_timer = lv_timer_create(on_dismiss_timer, POPUP_MS, NULL);
+    const bool call = (n.category == notify::Category::IncomingCall);
+    s_dismiss_timer = lv_timer_create(on_dismiss_timer, call ? CALL_POPUP_MS : POPUP_MS, NULL);
     lv_timer_set_repeat_count(s_dismiss_timer, 1);   // one-shot
+    if (call) {
+        s_call_banner = true;
+        s_ring_timer = lv_timer_create(on_ring_timer, RING_PERIOD_MS, NULL);
+    }
 }
 
 // Runs on the UI thread (lv_timer_handler). Drains a pending arrival, if any.
 static void poll(lv_timer_t *)
 {
+    // The phone says the call is over: stop ringing and take the banner down.
+    if (notify::take_call_ended() && s_call_banner) dismiss_banner(true);
+
     notify::Notification n;
-    if (notify::take_pending(n)) show_banner(n);
+    if (notify::take_pending(n)) {
+        // A muted call re-rings with a fresh arrival every few seconds; it stays in the
+        // list, but must not pop the banner up again.
+        if (n.category == notify::Category::IncomingCall && notify::call_muted()) return;
+        show_banner(n);
+    }
 }
 
 void notify_popup_init()

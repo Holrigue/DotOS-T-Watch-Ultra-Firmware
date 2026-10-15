@@ -1,5 +1,6 @@
 // ans.cpp - see ans.h. Alert Notification Service GATT server for Gadgetbridge.
 #include "ans.h"
+#include "notify/ans_packet.h"
 #include "notify/notify_center.h"
 #include "notify/notify_log.h"
 #include "health_state.h"   // health packet ingest (Phase 2.2)
@@ -108,6 +109,7 @@ notify::Category map_category(uint8_t c)
 void parse_new_alert(const uint8_t *d, size_t len)
 {
     if (len < 2) return;
+    if (ans_is_call_end(d, len)) { notify::end_call(); return; }   // the phone says the call is over
     uint8_t cat = d[0];
     // Walk the 0x00-separated payload after the 2-byte header, skipping empties.
     const char *fields[2] = { nullptr, nullptr };
