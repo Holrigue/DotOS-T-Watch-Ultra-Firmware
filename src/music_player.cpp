@@ -14,6 +14,7 @@
 #include "music_lib.h"
 #include "music_duration.h"
 #include "alarm.h"   // alarm_chime_is_active() - shared-I2S interlock
+#include "usb_sd.h"  // usb_sd_is_running() - don't write the SD while it's a USB drive
 
 #include <Arduino.h>
 #include <SD.h>
@@ -64,10 +65,16 @@ uint32_t s_sample_rate = 0;
 uint64_t s_total_frames = 0;
 volatile uint64_t s_cur_frame = 0;      // written by the task, read by the UI poll
 
-int  s_artist_idx = -1;
-int  s_track_idx  = -1;
+// The browse list the user tapped becomes the play queue; next/prev walk it.
+MusicBrowse s_mode  = MUSIC_BY_ARTIST;
+int  s_group = -1;
+int  s_pos   = -1;
 char s_title[MUSIC_TITLE_LEN]   = "";
 char s_artist[MUSIC_ARTIST_LEN] = "";
+
+// Playback volume 0..100 (MAX98357A has no HW volume - we scale PCM). -1 until loaded.
+volatile int s_volume = -1;
+constexpr const char *MUSIC_CFG = "/Settings/music.txt";
 
 TaskHandle_t      s_task = nullptr;
 volatile bool     s_running = false;    // task should keep decoding/writing
@@ -235,6 +242,14 @@ void player_task(void *)
                 if (s_cur_frame == 0) s_last_error = "Decode failed";   // never produced a sample
                 s_running = false; break;
             }
+            // Software volume: scale each sample by s_volume/100 (no HW volume on
+            // the MAX98357A). A plain multiply/shift per sample; cheap at 44.1 kHz.
+            int vol = s_volume;
+            if (vol < 100) {
+                if (vol < 0) vol = 100;
+                size_t ns = frames * (size_t)s_channels;
+                for (size_t i = 0; i < ns; i++) chunk[i] = (int16_t)(((int)chunk[i] * vol) / 100);
+            }
             instance.player.write(chunk, frames * s_channels * sizeof(int16_t));
         }
         heap_caps_free(chunk);
@@ -242,7 +257,7 @@ void player_task(void *)
 
     instance.powerControl(POWER_SPEAK, false);
     close_decoder();
-    s_artist_idx = -1; s_track_idx = -1;
+    s_group = -1; s_pos = -1;
     s_title[0] = '\0'; s_artist[0] = '\0';
     s_task = nullptr;
     vTaskDelete(NULL);
@@ -263,21 +278,37 @@ void stop_task_and_wait()
 
 static void *music_mp3_scratch(void) { return s_scratch; }
 
-bool music_player_play(int artist_idx, int track_idx)
+// Load the saved volume the first time it is needed (default 70%).
+static void volume_load()
 {
-    const MusicArtist *a = music_lib_artist(artist_idx);
-    if (!a || track_idx < 0 || track_idx >= a->track_count) return false;
+    if (s_volume >= 0) return;
+    s_volume = 70;
+    File f = SD.open(MUSIC_CFG, FILE_READ);
+    if (f) {
+        char line[32]; size_t n = f.readBytesUntil('\n', line, sizeof line - 1); line[n] = '\0';
+        if (!strncmp(line, "volume=", 7)) { int v = atoi(line + 7); if (v >= 0 && v <= 100) s_volume = v; }
+        f.close();
+    }
+}
+
+bool music_player_play(MusicBrowse mode, int group, int pos)
+{
+    int gidx = music_lib_group_track(mode, group, pos);   // global track index, -1 if out of range
+    const MusicTrack *t = music_lib_track(gidx);
+    if (!t) return false;
     s_last_error = "";
+    volume_load();
     if (alarm_chime_is_active()) { s_last_error = "Speaker busy (alarm)"; return false; }   // try again shortly
 
     stop_task_and_wait();
 
-    if (!open_decoder(a->tracks[track_idx].path)) return false;
+    if (!open_decoder(t->path)) return false;
 
-    s_artist_idx = artist_idx;
-    s_track_idx  = track_idx;
-    snprintf(s_title,  sizeof(s_title),  "%s", a->tracks[track_idx].title);
-    snprintf(s_artist, sizeof(s_artist), "%s", a->name);
+    s_mode  = mode;
+    s_group = group;
+    s_pos   = pos;
+    snprintf(s_title,  sizeof(s_title),  "%s", t->title);
+    snprintf(s_artist, sizeof(s_artist), "%s", t->artist[0] ? t->artist : "Unknown");
 
     if (!s_pause_sem) s_pause_sem = xSemaphoreCreateBinary();
     s_running = true;
@@ -288,7 +319,7 @@ bool music_player_play(int artist_idx, int track_idx)
     if (xTaskCreatePinnedToCore(player_task, "music_player", 8192, NULL, 1, &s_task, 0) != pdPASS) {
         s_running = false; s_task = nullptr;
         close_decoder();
-        s_artist_idx = -1; s_track_idx = -1;
+        s_group = -1; s_pos = -1;
         fail("No memory: playback task");
         return false;
     }
@@ -315,16 +346,15 @@ void music_player_stop()
 
 bool music_player_next()
 {
-    if (s_artist_idx < 0) return false;
-    const MusicArtist *a = music_lib_artist(s_artist_idx);
-    if (!a || s_track_idx + 1 >= a->track_count) return false;
-    return music_player_play(s_artist_idx, s_track_idx + 1);
+    if (s_group < 0) return false;
+    if (s_pos + 1 >= music_lib_group_track_count(s_mode, s_group)) return false;
+    return music_player_play(s_mode, s_group, s_pos + 1);
 }
 
 bool music_player_prev()
 {
-    if (s_artist_idx < 0 || s_track_idx <= 0) return false;
-    return music_player_play(s_artist_idx, s_track_idx - 1);
+    if (s_group < 0 || s_pos <= 0) return false;
+    return music_player_play(s_mode, s_group, s_pos - 1);
 }
 
 bool music_player_is_playing() { return s_task != nullptr && s_running && !s_paused; }
@@ -341,4 +371,23 @@ float music_player_position_s()
 float music_player_duration_s()
 {
     return s_sample_rate ? (float)s_total_frames / (float)s_sample_rate : 0.0f;
+}
+
+int music_player_get_volume()
+{
+    volume_load();
+    return s_volume;
+}
+
+void music_player_set_volume(int pct)
+{
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    s_volume = pct;    // the running task reads s_volume each chunk, so this is live
+    // Persist (best-effort; skipped if the SD is busy as a USB drive).
+    if (!usb_sd_is_running() && instance.isCardReady()) {
+        if (!SD.exists("/Settings")) SD.mkdir("/Settings");
+        File f = SD.open(MUSIC_CFG, FILE_WRITE);
+        if (f) { f.printf("volume=%d\n", pct); f.close(); }
+    }
 }

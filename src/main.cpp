@@ -2238,6 +2238,7 @@ static void update_wardriver_indicator()
 // indev's PRESSED / RELEASED events (LVGL 9 forwards both to the indev) give the
 // exact start and end points, which a plain LV_EVENT_GESTURE does not expose.
 static int32_t s_press_x = -1, s_press_y = -1;
+static bool    s_press_on_slider = false;   // press landed on a slider: it owns the drag
 static constexpr int32_t TOP_EDGE_PX  = 60;   // a pull must start this close to the top
 static constexpr int32_t PULL_MIN_PX  = 70;   // and travel at least this far down
 
@@ -2253,15 +2254,23 @@ static void on_touch_pressed(lv_event_t *e)
     lv_indev_get_point(indev, &p);
     s_press_x = p.x;
     s_press_y = p.y;
+    // A press that lands on a slider belongs to that slider (dragging it adjusts
+    // the value). Without this, a slider that has scrolled up near the top edge
+    // turned a horizontal adjust-drag into the pull-down shade, kicking the user
+    // out of Settings mid-adjustment.
+    lv_obj_t *act = lv_indev_get_active_obj();
+    s_press_on_slider = act && lv_obj_check_type(act, &lv_slider_class);
 }
 
 static void on_touch_released(lv_event_t *e)
 {
     lv_indev_t *indev = (lv_indev_t *)lv_event_get_user_data(e);
     bool from_top = touch_started_at_top_edge();
+    bool on_slider = s_press_on_slider;
     int32_t x0 = s_press_x, y0 = s_press_y;
     s_press_x = s_press_y = -1;
-    if (!from_top) return;
+    s_press_on_slider = false;
+    if (!from_top || on_slider) return;   // a slider drag is never the pull-down shade
 
     lv_point_t p;
     lv_indev_get_point(indev, &p);

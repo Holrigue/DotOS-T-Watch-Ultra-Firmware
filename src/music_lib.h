@@ -2,47 +2,37 @@
 //
 // music_lib.h - indexes music files on the SD card for the Music tool.
 //
-// Convention: /music/<Artist>/<anything>.mp3|.flac - the folder name IS the
-// artist. This is the simplest, most robust "browse by artist" scheme for an
-// embedded player with no ID3/Vorbis-comment tag-parsing budget: it needs no
-// tag library, survives files with missing/garbled tags, and matches how most
-// people already organise a music folder by hand. The track title shown is
-// the filename without its extension.
-//
-// Everything the scan builds lives in PSRAM (heap_caps_malloc, MALLOC_CAP_
-// SPIRAM) - same posture as the Dot watchface's dot-matrix raster - since the
-// index can hold hundreds of entries and the watch's internal RAM is scarce.
+// The scan walks /music one and two levels deep (/music/<Artist>/track and
+// /music/<Artist>/<Album>/track) and builds ONE flat PSRAM array of tracks.
+// Each track carries its title, artist, album and track number, read from the
+// file's tags (ID3v2 / ID3v1 for MP3, Vorbis comments for FLAC; see
+// music_tags.h) and completed from the folder/file names for anything a file
+// left untagged. The browse screens then present that one list three ways -
+// by artist, by album, or as one flat track list - via music_build_order()
+// (music_group.h, host-tested), which only reorders indices, never copies a
+// track. Everything lives in PSRAM since the index can hold hundreds of
+// entries and the watch's internal RAM is scarce.
 #include <cstdint>
+#include "music_group.h"   // MusicTrack, MusicBrowse, music_build_order()
 
-#define MUSIC_TITLE_LEN  48   // filename without extension, truncated if longer
-#define MUSIC_PATH_LEN   256  // full SD path, ready to hand to SD.open()
-#define MUSIC_ARTIST_LEN 40   // folder name, truncated if longer
-
-struct MusicTrack {
-    char title[MUSIC_TITLE_LEN];
-    char path[MUSIC_PATH_LEN];
-};
-
-struct MusicArtist {
-    char        name[MUSIC_ARTIST_LEN];
-    MusicTrack *tracks;        // PSRAM array, `track_count` entries
-    int         track_count;
-};
-
-// Scans /music once (call after SD.begin(), on first Tools > Music open - not
-// at boot, so a watch that never opens Music never pays the SD-scan cost).
-// Safe to call again to rescan (frees the previous index first, e.g. after
-// the user swaps SD cards). Returns the artist count (0 if /music is absent,
-// empty, or holds no folders with a supported file in them).
+// Scans /music once (call after SD.begin(), on first Music open - not at boot,
+// so a watch that never opens Music never pays the SD-scan cost). Safe to call
+// again to rescan. Returns the track count (0 if /music is absent or empty).
 int music_lib_scan();
 
-// True once music_lib_scan() has run at least once and found something.
+// True once music_lib_scan() has run at least once.
 bool music_lib_is_scanned();
 
-int                music_lib_artist_count();
-const MusicArtist *music_lib_artist(int index);   // nullptr if out of range
+// The one flat track list.
+int                music_lib_track_count();
+const MusicTrack  *music_lib_track(int index);   // nullptr if out of range
 
-// True if `path`'s extension is one this player can decode (.mp3 or .flac,
-// case-insensitive). Shared with music_player so the "what counts as a music
-// file" rule lives in exactly one place.
+// ---- grouped browse views (computed once per scan from the flat list) -------
+// For BY_TRACK there is a single group holding every track, title-sorted.
+int         music_lib_group_count(MusicBrowse mode);
+const char *music_lib_group_name(MusicBrowse mode, int group);        // "" -> caller shows a placeholder
+int         music_lib_group_track_count(MusicBrowse mode, int group);
+int         music_lib_group_track(MusicBrowse mode, int group, int i); // global track index, -1 if out of range
+
+// True if `path`'s extension is one this player can decode (.mp3 or .flac).
 bool music_lib_is_supported_file(const char *path);

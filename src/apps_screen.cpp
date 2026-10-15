@@ -421,7 +421,7 @@ static void build_category_screen(Cat c)
 
 namespace {
 
-enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_COUNT };
+enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_MUSIC, HT_COUNT };
 
 constexpr int TILE_SIZE = 158;
 
@@ -514,12 +514,19 @@ void build_icon(lv_obj_t *box, HomeTile t)
             shape(box, 14 + i * 20, i * 26, 18, 18, LV_RADIUS_CIRCLE, acc);
         }
         break;
+    case HT_MUSIC: {       // cassette: body + two reels, one orange
+        shape(box, 2, 14, 74, 46, 12, ARGUS_TILE);
+        ring(box, 12, 26, 22, 3, ink);
+        shape(box, 20, 34, 6, 6, LV_RADIUS_CIRCLE, ink);
+        ring(box, 44, 26, 22, 3, acc);
+        shape(box, 52, 34, 6, 6, LV_RADIUS_CIRCLE, acc);
+        break; }
     default: break;
     }
 }
 
 const char *TILE_LABEL[HT_COUNT] = { "Notifications", "Tracking", "Defense", "Offense",
-                                      "Apps", "Time & Clock", "Settings" };
+                                      "Apps", "Time & Clock", "Settings", "Music" };
 
 void on_home_tile(lv_event_t *e)
 {
@@ -527,6 +534,7 @@ void on_home_tile(lv_event_t *e)
     switch (t) {
     case HT_NOTIFY:    clock_notifications_acknowledge(); notifications_screen_show(); break;
     case HT_SETTINGS:  settings_screen_show(); break;
+    case HT_MUSIC:     music_screen_show(); break;
     case HT_TRACKING:  on_cat_row_for(CAT_TRACKING);  break;
     case HT_DEFENSE:   on_cat_row_for(CAT_DEFENSE);   break;
     case HT_OFFENSE:   on_cat_row_for(CAT_OFFENSE);   break;

@@ -9,22 +9,31 @@
 // playing first. Since the alarm chime and this player share the one I2S
 // peripheral, playback refuses to start while alarm_chime_is_active().
 #include <cstdint>
+#include "music_group.h"   // MusicBrowse
 
-// Start playing artist_idx/track_idx from the current music_lib index
-// (music_lib_scan() must have run first). Stops any track already playing.
-// Returns false if the index is out of range, the file can't be opened/
-// decoded, or the I2S output is busy with the alarm chime.
-bool music_player_play(int artist_idx, int track_idx);
+// Start playing the `pos`-th track of browse group `group` in `mode` (the list
+// the user is looking at becomes the play queue; next/prev walk it). music_lib_
+// scan() must have run first. Stops any track already playing. Returns false if
+// the position is out of range, the file can't be opened/decoded, or the I2S
+// output is busy with the alarm chime.
+bool music_player_play(MusicBrowse mode, int group, int pos);
 
 void music_player_pause();     // no-op if not playing
 void music_player_resume();    // no-op if not paused
 void music_player_stop();      // stop + release the I2S output
 
-// Move to the next/previous track within the current artist's list. No-op
-// (stays on the current track) past either end of the list - v1 doesn't
-// loop or shuffle. Returns false if there is no current track to move from.
+// Move to the next/previous track within the browsed group that started this
+// queue. No-op past either end (v1 doesn't loop/shuffle). Returns false if
+// there is no current track to move from.
 bool music_player_next();
 bool music_player_prev();
+
+// ---- volume (0..100) --------------------------------------------------------
+// The MAX98357A has no hardware volume, so the player scales each PCM sample by
+// this before writing it (0 = silent, 100 = unchanged). Applied live. Saved to
+// /Settings/music.txt and restored at first use.
+void music_player_set_volume(int pct);
+int  music_player_get_volume();
 
 bool music_player_is_playing();   // decoding + writing PCM right now
 bool music_player_is_paused();    // a track is loaded but held
