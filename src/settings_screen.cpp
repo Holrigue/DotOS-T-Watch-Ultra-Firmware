@@ -1119,7 +1119,7 @@ void settings_screen_create()
     lv_obj_t *motion_lbl = lv_label_create(motion_row);
     lv_obj_set_style_text_color(motion_lbl, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(motion_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(motion_lbl, "Motion brightens screen");
+    lv_label_set_text(motion_lbl, "Raise to wake");
     lv_obj_align(motion_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     motion_wake_val_label = lv_label_create(motion_row);
@@ -1154,7 +1154,7 @@ void settings_screen_create()
     lv_obj_t *sens_lbl = lv_label_create(sens_row);
     lv_obj_set_style_text_color(sens_lbl, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(sens_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(sens_lbl, "Sensitivity");
+    lv_label_set_text(sens_lbl, "Raise sensitivity");
     lv_obj_align(sens_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     motion_sens_slider = lv_slider_create(sens_row);
@@ -1536,13 +1536,16 @@ void settings_screen_create()
     // One toggle per boot-enableable radio. Each seeds from boot_prefs. WiFi and
     // Bluetooth are mutually exclusive (enforced in their callbacks) since the
     // two cannot run together on this board. Rows are evenly spaced 48px apart.
-    boot_wifi_switch = make_boot_row("WiFi", 1434, boot_prefs_get(BOOT_RADIO_WIFI),
+    // Y values follow the −130 reflow after the Wallpaper section was removed, so
+    // these rows sit right under the "Enable at boot" header (1264) instead of
+    // leaving a dead gap with the hint overlapping them.
+    boot_wifi_switch = make_boot_row("WiFi", 1304, boot_prefs_get(BOOT_RADIO_WIFI),
                                      on_boot_wifi_changed, &boot_wifi_val_label);
-    boot_ble_switch  = make_boot_row("Bluetooth", 1482, boot_prefs_get(BOOT_RADIO_BLE),
+    boot_ble_switch  = make_boot_row("Bluetooth", 1352, boot_prefs_get(BOOT_RADIO_BLE),
                                      on_boot_ble_changed,  &boot_ble_val_label);
-    boot_lora_switch = make_boot_row("LoRa", 1530, boot_prefs_get(BOOT_RADIO_LORA),
+    boot_lora_switch = make_boot_row("LoRa", 1400, boot_prefs_get(BOOT_RADIO_LORA),
                                      on_boot_lora_changed, &boot_lora_val_label);
-    boot_gps_switch  = make_boot_row("GPS",  1578, boot_prefs_get(BOOT_RADIO_GPS),
+    boot_gps_switch  = make_boot_row("GPS",  1448, boot_prefs_get(BOOT_RADIO_GPS),
                                      on_boot_gps_changed,  &boot_gps_val_label);
 
     // Hint: clarifies the boot-time behaviour and why BT isn't listed.
@@ -1602,11 +1605,13 @@ void settings_screen_create()
     lv_obj_align(mode_hdr, LV_ALIGN_TOP_MID, 0, 1784);
     register_shiftable(mode_hdr, 1784);
 
-    defense_switch = make_boot_row("Defense", 1954,
+    // −130 reflow (see boot rows above): sit under the "Mode" header (1784) with
+    // the hint (1920) below, not overlapping it.
+    defense_switch = make_boot_row("Defense", 1824,
         argus_mode_defense_selected(),
         on_defense_mode_changed, &defense_val_label);
 
-    defpersist_switch = make_boot_row("Keep on boot", 2002,
+    defpersist_switch = make_boot_row("Keep on boot", 1872,
         argus_mode_defense_persist(),
         on_defpersist_changed, &defpersist_val_label);
 

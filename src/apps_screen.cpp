@@ -534,9 +534,12 @@ void build_icon(lv_obj_t *box, HomeTile t)
     case HT_HEALTH: {      // heart: two lobes + a 45deg square point, all orange
         shape(box, 14, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // left lobe
         shape(box, 44, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // right lobe
-        lv_obj_t *pt = shape(box, 26, 22, 40, 40, 4, acc);   // bottom point
-        lv_obj_set_style_transform_pivot_x(pt, 20, LV_PART_MAIN);
-        lv_obj_set_style_transform_pivot_y(pt, 20, LV_PART_MAIN);
+        // Bottom point: a square rotated 45deg. Sized/placed so its TOP corner
+        // tucks exactly under where the two lobes meet (~y19) instead of poking
+        // up through the gap between them, which showed as a stray diamond/cross.
+        lv_obj_t *pt = shape(box, 29, 26, 34, 34, 4, acc);
+        lv_obj_set_style_transform_pivot_x(pt, 17, LV_PART_MAIN);
+        lv_obj_set_style_transform_pivot_y(pt, 17, LV_PART_MAIN);
         lv_obj_set_style_transform_rotation(pt, 450, LV_PART_MAIN);   // 45.0 deg
         break; }
     default: break;
@@ -669,7 +672,10 @@ static void build()
     // opens Settings while a swipe elsewhere still flows to the grid/home gestures.
     lv_obj_t *gear = lv_button_create(s_home);
     lv_obj_set_size(gear, 64, 64);
-    lv_obj_align(gear, LV_ALIGN_BOTTOM_RIGHT, -14, -14);
+    // The display's rounded bottom-right corner clips a circle pinned tight to it
+    // (the grid already keeps a 40px bottom pad for the same reason), so inset the
+    // gear well clear of the corner arc.
+    lv_obj_align(gear, LV_ALIGN_BOTTOM_RIGHT, -18, -40);
     lv_obj_set_style_radius(gear, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_bg_color(gear, ARGUS_RAISED, LV_PART_MAIN);
     lv_obj_set_style_bg_color(gear, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_PRESSED);
