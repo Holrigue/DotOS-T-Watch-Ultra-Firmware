@@ -10,6 +10,11 @@ bool settings_screen_is_active();
 // or no file exists — it just does nothing.
 void settings_screen_load();
 
+// Re-apply SD-persisted step goal + vibration intensity. Call once at boot AFTER
+// health_boot_restore() and haptic_boot_restore() so the SD value (which survives
+// a re-flash) wins over the NVS value (which a flash erases).
+void settings_apply_persisted_late();
+
 // Read by the screenshot module's poll loop to decide whether a 3 s touch
 // should fire a capture. Returns the AND of the user's "Screenshot long
 // press" switch state and SD availability — so when the card unmounts the

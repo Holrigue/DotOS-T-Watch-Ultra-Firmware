@@ -11,6 +11,7 @@
 #include "detect/log_retention.h"   // kMaxAgeDays, for the readout
 #include "health_state.h"           // daily step goal (Dot progress bar + Health screen)
 #include "haptic.h"                  // global vibration intensity
+#include "notify/notify_center.h"    // notification-vibration toggle (separate from touch feedback)
 #include "battery_screen.h"          // Settings > Battery sub-menu
 #include "night_screen.h"            // Settings > Night time sub-menu
 #include "night_mode.h"              // On/Off readout on the Night time row
@@ -29,8 +30,6 @@ void clock_screen_show();                    // go home to the watch face
 void face_watch_screen_show();               // Dot watchface customization (Settings entry)
 void clock_screen_set_face(int mode);        // DotOS only; arg ignored (always Dot)
 void clock_screen_set_12h(bool use_12h);
-void clock_screen_set_matrix(bool enabled);
-void clock_screen_set_wallpaper(bool enabled);
 void clock_screen_set_dim_timeout(uint32_t ms);
 void clock_screen_set_dim_brightness(uint8_t level);
 void clock_screen_set_show_day(bool show);
@@ -146,10 +145,6 @@ static int32_t   s_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
 static lv_obj_t *hour_format_row;
 static lv_obj_t *hour_format_switch;
 static lv_obj_t *hour_format_val_label;
-static lv_obj_t *matrix_switch;
-static lv_obj_t *matrix_val_label;
-static lv_obj_t *wallpaper_switch;
-static lv_obj_t *wallpaper_val_label;
 static lv_obj_t *dim_timeout_slider;
 static lv_obj_t *dim_timeout_val_label;
 static lv_obj_t *dim_brightness_slider;
@@ -161,7 +156,8 @@ static lv_obj_t *secs_row;
 static lv_obj_t *secs_switch;
 static lv_obj_t *show_day_switch;
 static lv_obj_t *show_date_switch;
-static lv_obj_t *vibrate_switch;
+static lv_obj_t *vibrate_switch;   // "Vibration": ordinary notifications buzz
+static lv_obj_t *touch_switch;     // "Touch feedback": UI gestures / button buzz
 static lv_obj_t *motion_wake_switch;
 static lv_obj_t *motion_wake_val_label;
 static lv_obj_t *motion_sens_slider;
@@ -207,6 +203,14 @@ static lv_obj_t *minute_roller;
 // loaded values via lv_obj_add_state / lv_dropdown_set_selected — which fire
 // LV_EVENT_VALUE_CHANGED — doesn't redundantly rewrite the file we just read.
 static bool g_loading = false;
+
+// Step goal and vibration intensity live in NVS (health / haptic modules), which
+// a re-flash ERASES, so they used to reset on every flash. We now also persist
+// them to the SD settings file (which survives a flash) and re-apply them LATE at
+// boot - after health_boot_restore() / haptic_boot_restore() have run - so the SD
+// value wins over the wiped-NVS default. -1 = no value in the SD file yet.
+static int s_sd_step_goal = -1;
+static int s_sd_vib       = -1;
 
 // ARGUS Daily/Defense mode controls (appended to the bottom of the list).
 static lv_obj_t *defense_switch;
@@ -347,22 +351,6 @@ static void on_hour_format_changed(lv_event_t *e)
     settings_save_to_sd();
 }
 
-static void on_matrix_changed(lv_event_t *e)
-{
-    bool on = lv_obj_has_state(matrix_switch, LV_STATE_CHECKED);
-    lv_label_set_text(matrix_val_label, on ? "On" : "Off");
-    clock_screen_set_matrix(on);
-    settings_save_to_sd();
-}
-
-static void on_wallpaper_changed(lv_event_t *e)
-{
-    bool on = lv_obj_has_state(wallpaper_switch, LV_STATE_CHECKED);
-    lv_label_set_text(wallpaper_val_label, on ? "On" : "Off");
-    clock_screen_set_wallpaper(on);
-    settings_save_to_sd();
-}
-
 // Format the dim-timeout value label (0 = OFF, else s / m / m ss).
 static void dim_timeout_show(uint32_t sec)
 {
@@ -415,7 +403,15 @@ static void on_secs_changed(lv_event_t *e)
 
 static void on_vibrate_changed(lv_event_t *e)
 {
-    clock_screen_set_vibrate(lv_obj_has_state(vibrate_switch, LV_STATE_CHECKED));
+    // "Vibration" now governs notification buzzes (touch feedback is separate).
+    notify::set_notif_vibrate(lv_obj_has_state(vibrate_switch, LV_STATE_CHECKED));
+    settings_save_to_sd();
+}
+
+static void on_touch_feedback_changed(lv_event_t *e)
+{
+    // UI gestures / the hardware button buzz, independent of notifications.
+    clock_screen_set_vibrate(lv_obj_has_state(touch_switch, LV_STATE_CHECKED));
     settings_save_to_sd();
 }
 
@@ -918,35 +914,6 @@ void settings_screen_create()
     lv_obj_add_event_cb(secs_switch, on_secs_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(secs_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
-    // Matrix background row — always visible, independent of watch face
-    lv_obj_t *matrix_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(matrix_row, 380, 40);
-    lv_obj_set_style_bg_opa(matrix_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(matrix_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(matrix_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(matrix_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(matrix_row, LV_ALIGN_TOP_MID, 0, 424);
-    register_shiftable(matrix_row, 424);
-
-    lv_obj_t *mx_lbl = lv_label_create(matrix_row);
-    lv_obj_set_style_text_color(mx_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(mx_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(mx_lbl, "Matrix BG");
-    lv_obj_align(mx_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    matrix_val_label = lv_label_create(matrix_row);
-    lv_obj_set_style_text_color(matrix_val_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(matrix_val_label, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(matrix_val_label, "Off");
-    lv_obj_align(matrix_val_label, LV_ALIGN_RIGHT_MID, -80, 0);
-
-    matrix_switch = lv_switch_create(matrix_row);
-    lv_obj_set_size(matrix_switch, 70, 34);
-    lv_obj_set_style_bg_color(matrix_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(matrix_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
-    lv_obj_add_event_cb(matrix_switch, on_matrix_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(matrix_switch, LV_ALIGN_RIGHT_MID, 0, 0);
-
     // Show Day row
     lv_obj_t *show_day_row = lv_obj_create(settings_screen);
     lv_obj_set_size(show_day_row, 380, 40);
@@ -954,8 +921,8 @@ void settings_screen_create()
     lv_obj_set_style_border_width(show_day_row, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(show_day_row, 0, LV_PART_MAIN);
     lv_obj_clear_flag(show_day_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(show_day_row, LV_ALIGN_TOP_MID, 0, 472);
-    register_shiftable(show_day_row, 472);
+    lv_obj_align(show_day_row, LV_ALIGN_TOP_MID, 0, 424);
+    register_shiftable(show_day_row, 424);
 
     lv_obj_t *show_day_lbl = lv_label_create(show_day_row);
     lv_obj_set_style_text_color(show_day_lbl, ARGUS_TEXT, LV_PART_MAIN);
@@ -978,8 +945,8 @@ void settings_screen_create()
     lv_obj_set_style_border_width(show_date_row, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(show_date_row, 0, LV_PART_MAIN);
     lv_obj_clear_flag(show_date_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(show_date_row, LV_ALIGN_TOP_MID, 0, 520);
-    register_shiftable(show_date_row, 520);
+    lv_obj_align(show_date_row, LV_ALIGN_TOP_MID, 0, 472);
+    register_shiftable(show_date_row, 472);
 
     lv_obj_t *show_date_lbl = lv_label_create(show_date_row);
     lv_obj_set_style_text_color(show_date_lbl, ARGUS_TEXT, LV_PART_MAIN);
@@ -1002,22 +969,46 @@ void settings_screen_create()
     lv_obj_set_style_border_width(vibrate_row, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(vibrate_row, 0, LV_PART_MAIN);
     lv_obj_clear_flag(vibrate_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(vibrate_row, LV_ALIGN_TOP_MID, 0, 568);
-    register_shiftable(vibrate_row, 568);
+    lv_obj_align(vibrate_row, LV_ALIGN_TOP_MID, 0, 520);
+    register_shiftable(vibrate_row, 520);
 
     lv_obj_t *vibrate_lbl = lv_label_create(vibrate_row);
     lv_obj_set_style_text_color(vibrate_lbl, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(vibrate_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(vibrate_lbl, "Vibrate");
+    lv_label_set_text(vibrate_lbl, "Vibration");
     lv_obj_align(vibrate_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     vibrate_switch = lv_switch_create(vibrate_row);
     lv_obj_set_size(vibrate_switch, 70, 34);
     lv_obj_set_style_bg_color(vibrate_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(vibrate_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
-    // default off — do not add LV_STATE_CHECKED
+    lv_obj_add_state(vibrate_switch, LV_STATE_CHECKED);   // notifications vibrate by default
     lv_obj_add_event_cb(vibrate_switch, on_vibrate_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(vibrate_switch, LV_ALIGN_RIGHT_MID, 0, 0);
+
+    // Touch feedback row (UI gestures / button buzz) - separate from notifications.
+    lv_obj_t *touch_row = lv_obj_create(settings_screen);
+    lv_obj_set_size(touch_row, 380, 40);
+    lv_obj_set_style_bg_opa(touch_row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(touch_row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(touch_row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(touch_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(touch_row, LV_ALIGN_TOP_MID, 0, 568);
+    register_shiftable(touch_row, 568);
+
+    lv_obj_t *touch_lbl = lv_label_create(touch_row);
+    lv_obj_set_style_text_color(touch_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(touch_lbl, theme_text_font(20), LV_PART_MAIN);
+    lv_label_set_text(touch_lbl, "Touch feedback");
+    lv_obj_align(touch_lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    touch_switch = lv_switch_create(touch_row);
+    lv_obj_set_size(touch_switch, 70, 34);
+    lv_obj_set_style_bg_color(touch_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(touch_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    // default off - UI taps stay silent unless the user turns this on
+    lv_obj_add_event_cb(touch_switch, on_touch_feedback_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_align(touch_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Separator before dim timer section
     lv_obj_t *sep2 = lv_obj_create(settings_screen);
@@ -1252,6 +1243,7 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(step_goal_slider, 6, LV_PART_KNOB);
     lv_obj_clear_flag(step_goal_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(step_goal_slider, on_step_goal_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(step_goal_slider, on_slider_released,    LV_EVENT_RELEASED,      NULL);
     lv_obj_align(step_goal_slider, LV_ALIGN_RIGHT_MID, -12, 0);
 
     step_goal_val_label = lv_label_create(goal_row);
@@ -1289,6 +1281,7 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(vib_intensity_slider, 6, LV_PART_KNOB);
     lv_obj_clear_flag(vib_intensity_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(vib_intensity_slider, on_vib_intensity_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(vib_intensity_slider, on_slider_released,        LV_EVENT_RELEASED,      NULL);
     lv_obj_align(vib_intensity_slider, LV_ALIGN_RIGHT_MID, -12, 0);
 
     vib_intensity_val_label = lv_label_create(vib_row);
@@ -1508,63 +1501,6 @@ void settings_screen_create()
     lv_obj_align(screenshot_hint, LV_ALIGN_TOP_MID, 0, 1190);
     register_shiftable(screenshot_hint, 1190);
 
-    // ---- Wallpaper (SD-card background image) section -----------------------
-    // Independent of the Matrix BG toggle so the two can coexist: with both
-    // on, a faint SD image sits behind the matrix rain (the intended default
-    // look). Placed at the bottom of the list so it doesn't disturb the tuned
-    // absolute-Y positions of the rows above. Mirrors the Matrix BG toggle
-    // wiring exactly (switch + on/off label + save/load key).
-    lv_obj_t *sep_bg = lv_obj_create(settings_screen);
-    lv_obj_set_size(sep_bg, 380, 1);
-    lv_obj_set_style_bg_color(sep_bg, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(sep_bg, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(sep_bg, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(sep_bg, 0, LV_PART_MAIN);
-    lv_obj_align(sep_bg, LV_ALIGN_TOP_MID, 0, 1250);
-    register_shiftable(sep_bg, 1250);
-
-    lv_obj_t *wallpaper_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(wallpaper_row, 380, 40);
-    lv_obj_set_style_bg_opa(wallpaper_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(wallpaper_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(wallpaper_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(wallpaper_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(wallpaper_row, LV_ALIGN_TOP_MID, 0, 1264);
-    register_shiftable(wallpaper_row, 1264);
-
-    lv_obj_t *wp_lbl = lv_label_create(wallpaper_row);
-    lv_obj_set_style_text_color(wp_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(wp_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(wp_lbl, "Wallpaper");
-    lv_obj_align(wp_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    wallpaper_val_label = lv_label_create(wallpaper_row);
-    lv_obj_set_style_text_color(wallpaper_val_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(wallpaper_val_label, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(wallpaper_val_label, "Off");
-    lv_obj_align(wallpaper_val_label, LV_ALIGN_RIGHT_MID, -80, 0);
-
-    wallpaper_switch = lv_switch_create(wallpaper_row);
-    lv_obj_set_size(wallpaper_switch, 70, 34);
-    lv_obj_set_style_bg_color(wallpaper_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(wallpaper_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
-    // default off — no image until the user drops one on the card + enables it
-    lv_obj_add_event_cb(wallpaper_switch, on_wallpaper_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(wallpaper_switch, LV_ALIGN_RIGHT_MID, 0, 0);
-
-    // Hint — tells the user where to drop the image on the SD card.
-    lv_obj_t *wp_hint = lv_label_create(settings_screen);
-    lv_obj_set_style_text_color(wp_hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
-    lv_obj_set_style_text_font(wp_hint, theme_text_font(14), LV_PART_MAIN);
-    lv_obj_set_style_text_align(wp_hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_width(wp_hint, 360);
-    lv_label_set_long_mode(wp_hint, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(wp_hint,
-        "Drop a PNG/BMP/JPG at /backgrounds/wallpaper.png on the SD card. "
-        "Shown faintly behind the clock; works alongside Matrix BG.");
-    lv_obj_align(wp_hint, LV_ALIGN_TOP_MID, 0, 1312);
-    register_shiftable(wp_hint, 1312);
-
     // ---- Enable at boot section ---------------------------------------------
     // Per-radio opt-in for auto-enabling a radio when the watch powers on. The
     // boot default is OFF for every radio - nothing comes up at boot unless the
@@ -1578,8 +1514,8 @@ void settings_screen_create()
     lv_obj_set_style_bg_opa(sep_boot, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(sep_boot, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sep_boot, 0, LV_PART_MAIN);
-    lv_obj_align(sep_boot, LV_ALIGN_TOP_MID, 0, 1380);
-    register_shiftable(sep_boot, 1380);
+    lv_obj_align(sep_boot, LV_ALIGN_TOP_MID, 0, 1250);
+    register_shiftable(sep_boot, 1250);
 
     // Section header
     lv_obj_t *boot_hdr_row = lv_obj_create(settings_screen);
@@ -1588,8 +1524,8 @@ void settings_screen_create()
     lv_obj_set_style_border_width(boot_hdr_row, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(boot_hdr_row, 0, LV_PART_MAIN);
     lv_obj_clear_flag(boot_hdr_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(boot_hdr_row, LV_ALIGN_TOP_MID, 0, 1394);
-    register_shiftable(boot_hdr_row, 1394);
+    lv_obj_align(boot_hdr_row, LV_ALIGN_TOP_MID, 0, 1264);
+    register_shiftable(boot_hdr_row, 1264);
 
     lv_obj_t *boot_hdr = lv_label_create(boot_hdr_row);
     lv_obj_set_style_text_color(boot_hdr, ARGUS_TEXT, LV_PART_MAIN);
@@ -1619,8 +1555,8 @@ void settings_screen_create()
     lv_label_set_text(boot_hint,
         "Radios turned on here power up automatically at boot. Everything is "
         "off by default. WiFi and Bluetooth cannot both auto-enable.");
-    lv_obj_align(boot_hint, LV_ALIGN_TOP_MID, 0, 1626);
-    register_shiftable(boot_hint, 1626);
+    lv_obj_align(boot_hint, LV_ALIGN_TOP_MID, 0, 1496);
+    register_shiftable(boot_hint, 1496);
 
     // --- System Info (read-only diagnostics; refreshed on screen show) --------
     lv_obj_t *sep_sys = lv_obj_create(settings_screen);
@@ -1629,23 +1565,23 @@ void settings_screen_create()
     lv_obj_set_style_bg_opa(sep_sys, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(sep_sys, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sep_sys, 0, LV_PART_MAIN);
-    lv_obj_align(sep_sys, LV_ALIGN_TOP_MID, 0, 1700);
-    register_shiftable(sep_sys, 1700);
+    lv_obj_align(sep_sys, LV_ALIGN_TOP_MID, 0, 1570);
+    register_shiftable(sep_sys, 1570);
 
     lv_obj_t *sys_hdr = lv_label_create(settings_screen);
     lv_obj_set_style_text_color(sys_hdr, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(sys_hdr, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(sys_hdr, "System Info");
-    lv_obj_align(sys_hdr, LV_ALIGN_TOP_MID, 0, 1714);
-    register_shiftable(sys_hdr, 1714);
+    lv_obj_align(sys_hdr, LV_ALIGN_TOP_MID, 0, 1584);
+    register_shiftable(sys_hdr, 1584);
 
     sysinfo_label = lv_label_create(settings_screen);
     lv_obj_set_style_text_color(sysinfo_label, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_obj_set_style_text_font(sysinfo_label, &font_argus_mono_16, LV_PART_MAIN);
     lv_obj_set_width(sysinfo_label, 360);
     lv_label_set_text(sysinfo_label, "");
-    lv_obj_align(sysinfo_label, LV_ALIGN_TOP_MID, 0, 1750);
-    register_shiftable(sysinfo_label, 1750);
+    lv_obj_align(sysinfo_label, LV_ALIGN_TOP_MID, 0, 1620);
+    register_shiftable(sysinfo_label, 1620);
 
     // --- Mode (ARGUS Daily / Defense) ----------------------------------------
     // Appended at the bottom (safe insertion into the fixed-Y layout). Offense is
@@ -1656,15 +1592,15 @@ void settings_screen_create()
     lv_obj_set_style_bg_opa(sep_mode, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(sep_mode, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sep_mode, 0, LV_PART_MAIN);
-    lv_obj_align(sep_mode, LV_ALIGN_TOP_MID, 0, 1900);
-    register_shiftable(sep_mode, 1900);
+    lv_obj_align(sep_mode, LV_ALIGN_TOP_MID, 0, 1770);
+    register_shiftable(sep_mode, 1770);
 
     lv_obj_t *mode_hdr = lv_label_create(settings_screen);
     lv_obj_set_style_text_color(mode_hdr, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(mode_hdr, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(mode_hdr, "Mode");
-    lv_obj_align(mode_hdr, LV_ALIGN_TOP_MID, 0, 1914);
-    register_shiftable(mode_hdr, 1914);
+    lv_obj_align(mode_hdr, LV_ALIGN_TOP_MID, 0, 1784);
+    register_shiftable(mode_hdr, 1784);
 
     defense_switch = make_boot_row("Defense", 1954,
         argus_mode_defense_selected(),
@@ -1679,8 +1615,8 @@ void settings_screen_create()
     lv_obj_set_style_text_font(mode_hint, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_width(mode_hint, 360);
     lv_label_set_text(mode_hint, "Defense shows the anti-surveillance detectors. Daily hides them for an innocent look.");
-    lv_obj_align(mode_hint, LV_ALIGN_TOP_MID, 0, 2050);
-    register_shiftable(mode_hint, 2050);
+    lv_obj_align(mode_hint, LV_ALIGN_TOP_MID, 0, 1920);
+    register_shiftable(mode_hint, 1920);
 
     // ONE Offense button. Outside Offense it is the TEMPORARY test entry to the PIN
     // pad (the real entry is the power-key knock; keep this until the knock is
@@ -1693,8 +1629,8 @@ void settings_screen_create()
     lv_obj_set_style_bg_color(s_ofs_btn, lv_color_make(0x2A, 0x1E, 0x10), LV_PART_MAIN);
     lv_obj_set_style_border_color(s_ofs_btn, ARGUS_OFFENSE_ACCENT, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_ofs_btn, 1, LV_PART_MAIN);
-    lv_obj_align(s_ofs_btn, LV_ALIGN_TOP_MID, 0, 2110);
-    register_shiftable(s_ofs_btn, 2110);
+    lv_obj_align(s_ofs_btn, LV_ALIGN_TOP_MID, 0, 1980);
+    register_shiftable(s_ofs_btn, 1980);
     s_ofs_lbl = lv_label_create(s_ofs_btn);
     lv_obj_set_style_text_font(s_ofs_lbl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(s_ofs_lbl, ARGUS_TEXT, LV_PART_MAIN);
@@ -1709,8 +1645,8 @@ void settings_screen_create()
     lv_obj_set_style_bg_color(det_btn, lv_color_make(0x1E, 0x1E, 0x1E), LV_PART_MAIN);
     lv_obj_set_style_border_color(det_btn, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_obj_set_style_border_width(det_btn, 1, LV_PART_MAIN);
-    lv_obj_align(det_btn, LV_ALIGN_TOP_MID, 0, 2190);
-    register_shiftable(det_btn, 2190);
+    lv_obj_align(det_btn, LV_ALIGN_TOP_MID, 0, 2060);
+    register_shiftable(det_btn, 2060);
     lv_obj_t *det_lbl = lv_label_create(det_btn);
     lv_obj_set_style_text_font(det_lbl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(det_lbl, ARGUS_TEXT, LV_PART_MAIN);
@@ -1764,8 +1700,8 @@ void settings_screen_create()
     // leave it to the default.
     lv_label_set_long_mode(s_sync_lbl, LV_LABEL_LONG_WRAP);
     lv_obj_set_style_text_align(s_sync_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_align(s_sync_lbl, LV_ALIGN_TOP_MID, 0, 2264);
-    register_shiftable(s_sync_lbl, 2264);
+    lv_obj_align(s_sync_lbl, LV_ALIGN_TOP_MID, 0, 2134);
+    register_shiftable(s_sync_lbl, 2134);
     settings_update_clock_sync();
 
     lv_obj_t *usbsd_btn = lv_button_create(settings_screen);
@@ -1773,8 +1709,8 @@ void settings_screen_create()
     lv_obj_set_style_bg_color(usbsd_btn, lv_color_make(0x1E, 0x1E, 0x1E), LV_PART_MAIN);
     lv_obj_set_style_border_color(usbsd_btn, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_obj_set_style_border_width(usbsd_btn, 1, LV_PART_MAIN);
-    lv_obj_align(usbsd_btn, LV_ALIGN_TOP_MID, 0, 2320);
-    register_shiftable(usbsd_btn, 2320);
+    lv_obj_align(usbsd_btn, LV_ALIGN_TOP_MID, 0, 2190);
+    register_shiftable(usbsd_btn, 2190);
     lv_obj_t *usbsd_lbl = lv_label_create(usbsd_btn);
     lv_obj_set_style_text_font(usbsd_lbl, theme_text_font(16), LV_PART_MAIN);
     lv_obj_set_style_text_color(usbsd_lbl, ARGUS_TEXT, LV_PART_MAIN);
@@ -1885,11 +1821,10 @@ static void settings_save_to_sd()
     f.printf("format_12h=%d\n",      lv_obj_has_state(hour_format_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_ampm=%d\n",       lv_obj_has_state(ampm_switch,        LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_secs=%d\n",       lv_obj_has_state(secs_switch,        LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("matrix=%d\n",          lv_obj_has_state(matrix_switch,      LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("wallpaper=%d\n",       lv_obj_has_state(wallpaper_switch,   LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_day=%d\n",        lv_obj_has_state(show_day_switch,    LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_date=%d\n",       lv_obj_has_state(show_date_switch,   LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("vibrate=%d\n",         lv_obj_has_state(vibrate_switch,     LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("notif_vibrate=%d\n",   lv_obj_has_state(vibrate_switch,     LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("vibrate=%d\n",         lv_obj_has_state(touch_switch,       LV_STATE_CHECKED) ? 1 : 0);
     f.printf("dim_timeout_sec=%lu\n",(unsigned long)dim_step_seconds((int)lv_slider_get_value(dim_timeout_slider)));
     f.printf("dim_brightness=%d\n",  (int)s_dim_brightness);
     f.printf("motion_wake=%d\n",     lv_obj_has_state(motion_wake_switch, LV_STATE_CHECKED) ? 1 : 0);
@@ -1898,6 +1833,8 @@ static void settings_save_to_sd()
     f.printf("batt_saver=%d\n",      s_auto_off_display ? 1 : 0);   // key kept for saved files
     f.printf("manual_time=%d\n",     lv_obj_has_state(manual_time_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("screenshot=%d\n",      lv_obj_has_state(screenshot_switch,  LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("step_goal=%lu\n",      (unsigned long)health_get_step_goal());
+    f.printf("vib_intensity=%d\n",   (int)haptic_get_intensity());
     f.close();
 }
 
@@ -1952,23 +1889,18 @@ void settings_screen_load()
         } else if (key == "show_secs") {
             apply_switch(secs_switch, b);
             clock_screen_set_show_secs(b);
-        } else if (key == "matrix") {
-            apply_switch(matrix_switch, b);
-            lv_label_set_text(matrix_val_label, b ? "On" : "Off");
-            clock_screen_set_matrix(b);
-        } else if (key == "wallpaper") {
-            apply_switch(wallpaper_switch, b);
-            lv_label_set_text(wallpaper_val_label, b ? "On" : "Off");
-            clock_screen_set_wallpaper(b);
         } else if (key == "show_day") {
             apply_switch(show_day_switch, b);
             clock_screen_set_show_day(b);
         } else if (key == "show_date") {
             apply_switch(show_date_switch, b);
             clock_screen_set_show_date(b);
-        } else if (key == "vibrate") {
-            apply_switch(vibrate_switch, b);
+        } else if (key == "vibrate") {           // legacy + new "Touch feedback"
+            apply_switch(touch_switch, b);
             clock_screen_set_vibrate(b);
+        } else if (key == "notif_vibrate") {     // "Vibration" (notifications)
+            apply_switch(vibrate_switch, b);
+            notify::set_notif_vibrate(b);
         } else if (key == "dim_timeout_sec") {
             if (v < 0)   v = 0;
             if (v > 300) v = 300;
@@ -2011,6 +1943,22 @@ void settings_screen_load()
         } else if (key == "screenshot") {
             apply_switch(screenshot_switch, b);
             lv_label_set_text(screenshot_val_label, b ? "On" : "Off");
+        } else if (key == "step_goal") {
+            if (v < 1000)  v = 1000;
+            if (v > 30000) v = 30000;
+            s_sd_step_goal = (int)v;   // applied late (after health_boot_restore)
+            if (step_goal_slider) {
+                lv_slider_set_value(step_goal_slider, (int)v, LV_ANIM_OFF);
+                lv_label_set_text_fmt(step_goal_val_label, "%ld", v);
+            }
+        } else if (key == "vib_intensity") {
+            if (v < 0)   v = 0;
+            if (v > 100) v = 100;
+            s_sd_vib = (int)v;         // applied late (after haptic_boot_restore)
+            if (vib_intensity_slider) {
+                lv_slider_set_value(vib_intensity_slider, (int)v, LV_ANIM_OFF);
+                lv_label_set_text_fmt(vib_intensity_val_label, "%ld%%", v);
+            }
         }
     }
     // Re-evaluate SD-aware state once loading is done — a persisted
@@ -2021,6 +1969,16 @@ void settings_screen_load()
 
     f.close();
     g_loading = false;
+}
+
+// Re-apply the SD-persisted step goal and vibration intensity. MUST be called
+// AFTER health_boot_restore() and haptic_boot_restore() so the SD value (which
+// survives a flash) overrides the NVS value (which a flash erases). No-op when
+// the SD file carried no such key.
+void settings_apply_persisted_late()
+{
+    if (s_sd_step_goal >= 0) health_set_step_goal((uint32_t)s_sd_step_goal);
+    if (s_sd_vib       >= 0) haptic_set_intensity((uint8_t)s_sd_vib);
 }
 
 // ---- Screenshot toggle: public API ----------------------------------------

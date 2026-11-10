@@ -4341,6 +4341,9 @@ void setup()
     health_boot_restore();
     boot_guard_stage("haptic-restore");
     haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
+    // SD-persisted step goal + vibration intensity win over NVS (which a flash
+    // erases), so re-apply them here, after the NVS restores above.
+    settings_apply_persisted_late();
     night_mode_boot_restore();   // saved Night time window (re-silences the motor if inside it)
     boot_guard_stage("face-restore");
     dot_tiles_boot_restore();   // restore the two Dot-face data slot choices

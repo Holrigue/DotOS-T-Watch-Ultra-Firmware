@@ -421,7 +421,15 @@ static void build_category_screen(Cat c)
 
 namespace {
 
-enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_MUSIC, HT_COUNT };
+enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_MUSIC, HT_HEALTH, HT_COUNT };
+
+// The order tiles appear in the MENU grid. Time & Clock first, Notifications
+// second (per the day-to-day use of the watch); Settings is not a tile here - it
+// is the pinned gear in the corner - so it is left out of this list.
+constexpr HomeTile kHomeOrder[] = {
+    HT_TIMECLOCK, HT_NOTIFY, HT_APPS, HT_MUSIC, HT_HEALTH, HT_TRACKING, HT_DEFENSE, HT_OFFENSE,
+};
+constexpr int kHomeOrderCount = (int)(sizeof(kHomeOrder) / sizeof(kHomeOrder[0]));
 
 constexpr int TILE_SIZE = 158;
 
@@ -523,12 +531,20 @@ void build_icon(lv_obj_t *box, HomeTile t)
         ring(box, 57, 33, 22, 3, acc);                   // right reel
         shape(box, 65, 41, 6, 6, LV_RADIUS_CIRCLE, acc);
         break; }
+    case HT_HEALTH: {      // heart: two lobes + a 45deg square point, all orange
+        shape(box, 14, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // left lobe
+        shape(box, 44, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // right lobe
+        lv_obj_t *pt = shape(box, 26, 22, 40, 40, 4, acc);   // bottom point
+        lv_obj_set_style_transform_pivot_x(pt, 20, LV_PART_MAIN);
+        lv_obj_set_style_transform_pivot_y(pt, 20, LV_PART_MAIN);
+        lv_obj_set_style_transform_rotation(pt, 450, LV_PART_MAIN);   // 45.0 deg
+        break; }
     default: break;
     }
 }
 
 const char *TILE_LABEL[HT_COUNT] = { "Notifications", "Tracking", "Defense", "Offense",
-                                      "Apps", "Time & Clock", "Settings", "Music" };
+                                      "Apps", "Time & Clock", "Settings", "Music", "Health" };
 
 void on_home_tile(lv_event_t *e)
 {
@@ -537,6 +553,7 @@ void on_home_tile(lv_event_t *e)
     case HT_NOTIFY:    clock_notifications_acknowledge(); notifications_screen_show(); break;
     case HT_SETTINGS:  settings_screen_show(); break;
     case HT_MUSIC:     music_screen_show(); break;
+    case HT_HEALTH:    health_screen_show(); break;
     case HT_TRACKING:  on_cat_row_for(CAT_TRACKING);  break;
     case HT_DEFENSE:   on_cat_row_for(CAT_DEFENSE);   break;
     case HT_OFFENSE:   on_cat_row_for(CAT_OFFENSE);   break;
@@ -603,8 +620,8 @@ static void fill_home_tiles()
 {
     s_home_sig = home_signature();
     lv_obj_clean(s_grid);
-    for (int t = 0; t < HT_COUNT; t++)
-        make_home_tile(s_grid, (HomeTile)t, (s_home_sig & 1u) != 0);
+    for (int i = 0; i < kHomeOrderCount; i++)
+        make_home_tile(s_grid, kHomeOrder[i], (s_home_sig & 1u) != 0);
 }
 
 // Called on the way IN (the clock's swipe), never from inside a tile's own event, so
@@ -646,6 +663,26 @@ static void build()
     lv_obj_add_flag(grid, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     fill_home_tiles();
+
+    // Settings is no longer a tile: it is a gear pinned to the bottom-right of the
+    // MENU, always reachable without scrolling. Sits above the grid, so a tap on it
+    // opens Settings while a swipe elsewhere still flows to the grid/home gestures.
+    lv_obj_t *gear = lv_button_create(s_home);
+    lv_obj_set_size(gear, 64, 64);
+    lv_obj_align(gear, LV_ALIGN_BOTTOM_RIGHT, -14, -14);
+    lv_obj_set_style_radius(gear, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(gear, ARGUS_RAISED, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(gear, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(gear, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(gear, 0, LV_PART_MAIN);
+    lv_obj_add_flag(gear, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(gear, [](lv_event_t *) { settings_screen_show(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *gl = lv_label_create(gear);
+    lv_obj_set_style_text_font(gl, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(gl, ARGUS_CREAM, LV_PART_MAIN);
+    lv_label_set_text(gl, LV_SYMBOL_SETTINGS);
+    lv_obj_center(gl);
+
     lv_obj_add_event_cb(s_home, on_home_gesture, LV_EVENT_GESTURE, NULL);
 
     // One pre-built screen per category (no rebuilding during a tap).
