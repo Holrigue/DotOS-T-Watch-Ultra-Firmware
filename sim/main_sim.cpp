@@ -28,6 +28,11 @@
 #include "threat_radar_screen.h"
 #include "theme.h"
 #include "argus_mode.h"
+#include "apps_screen.h"
+#include "settings_screen.h"
+#include "face_watch_screen.h"
+#include "notifications_screen.h"
+#include "notify/notify_center.h"
 
 // Must precede SDL.h: we supply our own main(), not SDL's WinMain shim.
 // Defined here rather than in the Makefile's DEFS because lv_sdl_window.c
@@ -122,18 +127,101 @@ static void show(ScreenId s)
     }
 }
 
+// ---------------------------------------------------------------------------
+// Gallery: one still per screenful of the layout-heavy screens
+// ---------------------------------------------------------------------------
+// The storyboard above is demo footage. This is a REVIEW tool: it walks the
+// screens whose rows are laid out by hand (Settings above all) from top to
+// bottom, one frame per screenful, so an overlap or a dead gap is visible on a
+// laptop - or in a CI artifact - before anything is flashed to the watch.
+// Every screen here is the real firmware source.
+static void settle(void)
+{
+    for (int i = 0; i < 12; i++) { lv_tick_inc(40); lv_timer_handler(); }
+}
+
+// Scroll `target` (the scrollable object) a screenful at a time and dump each.
+static int gallery_scroll(const char *outdir, const char *name, lv_obj_t *target)
+{
+    char path[512];
+    int  n = 0;
+    lv_obj_update_layout(target);
+    lv_obj_scroll_to_y(target, 0, LV_ANIM_OFF);
+    for (;;) {
+        settle();
+        snprintf(path, sizeof(path), "%s/%s_%02d.ppm", outdir, name, n);
+        if (!dump_ppm(path)) return -1;
+        n++;
+        if (lv_obj_get_scroll_bottom(target) <= 0 || n >= 12) break;
+        lv_obj_scroll_by(target, 0, -(PANEL_H - 80), LV_ANIM_OFF);   // 80 px overlap between stills
+    }
+    fprintf(stderr, "  %-14s %d still(s)\n", name, n);
+    return n;
+}
+
+// First scrollable descendant with something to scroll, else the screen itself.
+static lv_obj_t *find_scroller(lv_obj_t *root)
+{
+    lv_obj_update_layout(root);
+    if (lv_obj_get_scroll_bottom(root) > 0) return root;
+    uint32_t cnt = lv_obj_get_child_count(root);
+    for (uint32_t i = 0; i < cnt; i++) {
+        lv_obj_t *c = lv_obj_get_child(root, i);
+        if (lv_obj_has_flag(c, LV_OBJ_FLAG_SCROLLABLE) && lv_obj_get_scroll_bottom(c) > 0) return c;
+    }
+    return root;
+}
+
+static int run_gallery(const char *outdir)
+{
+    // A few notifications so the shade shows its list, not the empty state.
+    static const struct { notify::Category c; const char *app, *title, *body; } SEED[] = {
+        { notify::Category::Social,   "Messenger", "Alex",          "On se rejoint a 18h ?" },
+        { notify::Category::Email,    "Gmail",     "Facture",       "Votre facture de novembre est disponible" },
+        { notify::Category::Schedule, "Calendar",  "Dentiste",      "Demain 9:30" },
+    };
+    uint32_t uid = 1;
+    for (const auto &e : SEED) {
+        notify::Notification n;
+        n.uid = uid++; n.category = e.c;
+        snprintf(n.app, sizeof(n.app), "%s", e.app);
+        snprintf(n.title, sizeof(n.title), "%s", e.title);
+        snprintf(n.body, sizeof(n.body), "%s", e.body);
+        notify::center().add(n);
+    }
+
+    apps_screen_create();
+    settings_screen_create();
+    face_watch_screen_create();
+    notifications_screen_create();
+
+    int total = 0, r;
+    apps_screen_show();           settle();
+    if ((r = gallery_scroll(outdir, "menu",     find_scroller(lv_screen_active()))) < 0) return 1; total += r;
+    settings_screen_show();       settle();
+    if ((r = gallery_scroll(outdir, "settings", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
+    face_watch_screen_show();     settle();
+    if ((r = gallery_scroll(outdir, "facewatch", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
+    notifications_screen_show();  settle();
+    if ((r = gallery_scroll(outdir, "shade",    lv_screen_active())) < 0) return 1; total += r;
+    printf("%d stills -> %s\n", total, outdir);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     bool        live = false;
     const char *outdir = NULL;
+    const char *gallery = NULL;
     int         fps = 30;
 
     for (int i = 1; i < argc; i++) {
         if      (!strcmp(argv[i], "--live"))                    live = true;
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc)  outdir = argv[++i];
         else if (!strcmp(argv[i], "--fps")    && i + 1 < argc)  fps = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--gallery") && i + 1 < argc) gallery = argv[++i];
     }
-    if (!live && !outdir) { fprintf(stderr, "need --live or --frames <dir>\n"); return 2; }
+    if (!live && !outdir && !gallery) { fprintf(stderr, "need --live, --frames <dir> or --gallery <dir>\n"); return 2; }
     if (fps < 1 || fps > 240) { fprintf(stderr, "bad --fps\n"); return 2; }
 
     // MUST run before any screen code. world_clock_screen.cpp's zone_hm()
@@ -165,6 +253,7 @@ int main(int argc, char **argv)
     sim_set_utc_offset(-4);
 
     argus_mode_init();
+    if (gallery) return run_gallery(gallery);
     time_screen_create();
     world_clock_screen_create();
     calendar_screen_create();

@@ -93,6 +93,22 @@ jobs:
       - name: Build the simulator
         run: make -C sim
 
+      # Layout review stills: the REAL Settings / MENU / Facewatch / shade sources
+      # rendered headless (SDL offscreen driver), one PNG per screenful. Open the
+      # "ui-gallery" artifact on a PR to see an overlap or a dead gap BEFORE the
+      # firmware is flashed to a watch.
+      - name: Render the UI gallery
+        run: |
+          make -C sim gallery
+          python3 sim/ppm2png.py sim/build/gallery
+
+      - name: Upload the UI gallery
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-gallery-${{ github.event.pull_request.head.sha || github.sha }}
+          path: sim/build/gallery/*.png
+          if-no-files-found: error
+
   firmware:
     name: Firmware build (twatch_ultra)
     runs-on: ubuntu-latest
