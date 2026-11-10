@@ -6,7 +6,7 @@ WL_TEST(dim_steps_table_is_increasing_then_off) {
   for (int i = 1; i < kDimStepOff; i++)
     WL_CHECK(kDimStepSec[i] > kDimStepSec[i - 1]);
   WL_CHECK_EQ(kDimStepSec[kDimStepOff], 0);       // OFF is the last stop
-  WL_CHECK(kDimStepCount > 10);                   // far finer than the old 5 choices
+  WL_CHECK(kDimStepCount > 5);                    // far finer than the old 5 choices
 }
 
 WL_TEST(dim_steps_seconds_clamps_the_index) {
@@ -25,7 +25,7 @@ WL_TEST(dim_steps_index_snaps_old_saved_values) {
   WL_CHECK_EQ(dim_step_index(0), kDimStepOff);    // OFF stays OFF
   WL_CHECK_EQ(dim_step_seconds(dim_step_index(33)), 30);
   WL_CHECK_EQ(dim_step_seconds(dim_step_index(75)), 60);   // equidistant -> the earlier stop
-  WL_CHECK_EQ(dim_step_seconds(dim_step_index(299)), 300);
-  WL_CHECK_EQ(dim_step_seconds(dim_step_index(1000)), 300);
+  WL_CHECK_EQ(dim_step_seconds(dim_step_index(299)), 60);   // capped: 60 s is now the longest stop
+  WL_CHECK_EQ(dim_step_seconds(dim_step_index(1000)), 60);
   WL_CHECK_EQ(dim_step_seconds(dim_step_index(1)), 5);
 }

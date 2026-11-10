@@ -28,6 +28,11 @@ bool settings_get_screenshot_long_press();
 // about whether the feature can actually write a file right now.
 void settings_screen_apply_sd_state();
 
+// Persist the current settings to /Settings/settings.txt now. Exposed for the
+// Facewatch Customize screen, which owns the Show Day / Show Date toggles but
+// stores their state here. Safe only after settings_screen_create() (boot).
+void settings_persist_now();
+
 // Active (undimmed) display brightness, 1..DEVICE_MAX_BRIGHTNESS_LEVEL. The dim
 // timer restores this, not the hardware maximum, when the watch wakes.
 int settings_get_brightness();

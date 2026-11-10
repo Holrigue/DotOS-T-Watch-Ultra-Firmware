@@ -34,6 +34,8 @@ void clock_screen_set_dim_timeout(uint32_t ms);
 void clock_screen_set_dim_brightness(uint8_t level);
 void clock_screen_set_show_day(bool show);
 void clock_screen_set_show_date(bool show);
+bool clock_screen_get_show_day();
+bool clock_screen_get_show_date();
 void clock_screen_set_show_ampm(bool show);
 void clock_screen_set_show_secs(bool show);
 void clock_screen_set_vibrate(bool enabled);
@@ -154,8 +156,7 @@ static lv_obj_t *ampm_row;
 static lv_obj_t *ampm_switch;
 static lv_obj_t *secs_row;
 static lv_obj_t *secs_switch;
-static lv_obj_t *show_day_switch;
-static lv_obj_t *show_date_switch;
+// Show Day / Show Date now live on the Facewatch Customize screen (face_watch_screen.cpp).
 static lv_obj_t *vibrate_switch;   // "Vibration": ordinary notifications buzz
 static lv_obj_t *touch_switch;     // "Touch feedback": UI gestures / button buzz
 static lv_obj_t *motion_wake_switch;
@@ -222,11 +223,17 @@ static lv_obj_t *defpersist_val_label;
 //
 // Every absolutely-positioned object that sits BELOW the three face-specific
 // rows (12h format / AM-PM / Show seconds) gets registered here with its
-// base (digital-mode) Y. When the user flips the face toggle to analog, all
-// three rows disappear and apply_layout() shifts each registered row up
-// by 3 × 48 = 144 px so the rows below close the gap rather than leaving
-// blank space. Toggling back to digital re-applies the base Y.
-#define FACE_HIDDEN_SHIFT  (3 * 48)
+// base (digital-mode) Y. The Dot face (the only face now) hides those three
+// rows, so apply_layout() always shifts each registered row up to close the
+// gap rather than leaving blank space.
+//
+// The shift is 5 × 48, not 3 × 48: on top of the three hidden face rows, the
+// "Show Day" and "Show Date" rows (once at base 424/472) moved to the Facewatch
+// Customize screen and are no longer built here. Rather than renumber every row
+// below them, the two freed 48 px slots are absorbed into this uniform shift, so
+// the first surviving row (Vibration, base 520) renders exactly where Show Day
+// used to (520 − 240 = 280), with no gap and no per-row edits.
+#define FACE_HIDDEN_SHIFT  (5 * 48)
 // Manual-time-only content (hint + 5 rollers + SET TIME button) spans
 // y=900..y=1106 in design coords. When the Manual Time switch is off the
 // rows below — the screenshot section separator + toggle + hint — close
@@ -488,21 +495,23 @@ static void on_screenshot_changed(lv_event_t *)
     settings_save_to_sd();
 }
 
-static void on_show_day_changed(lv_event_t *e)
-{
-    clock_screen_set_show_day(lv_obj_has_state(show_day_switch, LV_STATE_CHECKED));
-    settings_save_to_sd();
-}
-
-static void on_show_date_changed(lv_event_t *e)
-{
-    clock_screen_set_show_date(lv_obj_has_state(show_date_switch, LV_STATE_CHECKED));
-    settings_save_to_sd();
-}
+// Show Day / Show Date controls moved to the Facewatch Customize screen; their
+// state is still persisted to settings.txt here (settings_save_to_sd reads it
+// straight from clock_screen_get_show_day/date), and the Facewatch handlers call
+// settings_persist_now() after toggling so the change is written.
 
 int settings_get_brightness()
 {
     return (int)s_brightness;
+}
+
+// Public persistence hook: the Facewatch Customize screen owns the Show Day /
+// Show Date toggles now, but their state is still saved in settings.txt, so it
+// calls this after toggling. Safe because settings_screen_create() runs at boot,
+// so every switch settings_save_to_sd() reads already exists.
+void settings_persist_now()
+{
+    settings_save_to_sd();
 }
 
 void settings_set_brightness(int level, bool save)
@@ -914,53 +923,9 @@ void settings_screen_create()
     lv_obj_add_event_cb(secs_switch, on_secs_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(secs_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
-    // Show Day row
-    lv_obj_t *show_day_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(show_day_row, 380, 40);
-    lv_obj_set_style_bg_opa(show_day_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(show_day_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(show_day_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(show_day_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(show_day_row, LV_ALIGN_TOP_MID, 0, 424);
-    register_shiftable(show_day_row, 424);
-
-    lv_obj_t *show_day_lbl = lv_label_create(show_day_row);
-    lv_obj_set_style_text_color(show_day_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(show_day_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(show_day_lbl, "Show Day");
-    lv_obj_align(show_day_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    show_day_switch = lv_switch_create(show_day_row);
-    lv_obj_set_size(show_day_switch, 70, 34);
-    lv_obj_set_style_bg_color(show_day_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(show_day_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
-    lv_obj_add_state(show_day_switch, LV_STATE_CHECKED);  // default on
-    lv_obj_add_event_cb(show_day_switch, on_show_day_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(show_day_switch, LV_ALIGN_RIGHT_MID, 0, 0);
-
-    // Show Date row
-    lv_obj_t *show_date_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(show_date_row, 380, 40);
-    lv_obj_set_style_bg_opa(show_date_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(show_date_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(show_date_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(show_date_row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_align(show_date_row, LV_ALIGN_TOP_MID, 0, 472);
-    register_shiftable(show_date_row, 472);
-
-    lv_obj_t *show_date_lbl = lv_label_create(show_date_row);
-    lv_obj_set_style_text_color(show_date_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(show_date_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(show_date_lbl, "Show Date");
-    lv_obj_align(show_date_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    show_date_switch = lv_switch_create(show_date_row);
-    lv_obj_set_size(show_date_switch, 70, 34);
-    lv_obj_set_style_bg_color(show_date_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(show_date_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
-    lv_obj_add_state(show_date_switch, LV_STATE_CHECKED);  // default on
-    lv_obj_add_event_cb(show_date_switch, on_show_date_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(show_date_switch, LV_ALIGN_RIGHT_MID, 0, 0);
+    // "Show Day" and "Show Date" moved to the Facewatch Customize screen. The two
+    // freed 48 px slots (base 424/472) are absorbed by FACE_HIDDEN_SHIFT (5 × 48),
+    // so every row below keeps its base Y and no reflow is needed.
 
     // Vibrate row
     lv_obj_t *vibrate_row = lv_obj_create(settings_screen);
@@ -1826,8 +1791,8 @@ static void settings_save_to_sd()
     f.printf("format_12h=%d\n",      lv_obj_has_state(hour_format_switch, LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_ampm=%d\n",       lv_obj_has_state(ampm_switch,        LV_STATE_CHECKED) ? 1 : 0);
     f.printf("show_secs=%d\n",       lv_obj_has_state(secs_switch,        LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("show_day=%d\n",        lv_obj_has_state(show_day_switch,    LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("show_date=%d\n",       lv_obj_has_state(show_date_switch,   LV_STATE_CHECKED) ? 1 : 0);
+    f.printf("show_day=%d\n",        clock_screen_get_show_day()  ? 1 : 0);
+    f.printf("show_date=%d\n",       clock_screen_get_show_date() ? 1 : 0);
     f.printf("notif_vibrate=%d\n",   lv_obj_has_state(vibrate_switch,     LV_STATE_CHECKED) ? 1 : 0);
     f.printf("vibrate=%d\n",         lv_obj_has_state(touch_switch,       LV_STATE_CHECKED) ? 1 : 0);
     f.printf("dim_timeout_sec=%lu\n",(unsigned long)dim_step_seconds((int)lv_slider_get_value(dim_timeout_slider)));
@@ -1895,10 +1860,8 @@ void settings_screen_load()
             apply_switch(secs_switch, b);
             clock_screen_set_show_secs(b);
         } else if (key == "show_day") {
-            apply_switch(show_day_switch, b);
-            clock_screen_set_show_day(b);
+            clock_screen_set_show_day(b);   // UI lives on the Facewatch screen now
         } else if (key == "show_date") {
-            apply_switch(show_date_switch, b);
             clock_screen_set_show_date(b);
         } else if (key == "vibrate") {           // legacy + new "Touch feedback"
             apply_switch(touch_switch, b);

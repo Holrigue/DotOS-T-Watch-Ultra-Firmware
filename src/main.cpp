@@ -2513,6 +2513,9 @@ void clock_screen_set_show_date(bool show)
     update_clock();
 }
 
+bool clock_screen_get_show_day()  { return clock_show_day; }
+bool clock_screen_get_show_date() { return clock_show_date; }
+
 void clock_screen_set_show_ampm(bool show)
 {
     clock_show_ampm = show;

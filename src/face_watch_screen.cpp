@@ -2,7 +2,7 @@
 //
 // Customization screen for the Dot watchface, opened from Tools > Face. All
 // controls drive live setters (face_watch.* for fonts/accent/order, the shared
-// clock_screen_* setters for 12/24h and wallpaper) and repaint the face at once
+// clock_screen_* setters for 12/24h and show day/date) and repaint the face at once
 // via clock_screen_apply_face_custom(). Styled in the Nothing palette to match
 // the face: white / grey on black, with the DotOS orange as the default accent.
 #include "face_watch_screen.h"
@@ -15,9 +15,13 @@
 void screen_return_to(lv_obj_t *scr);
 void clock_screen_set_12h(bool use_12h);
 bool clock_screen_get_12h();
-void clock_screen_set_wallpaper(bool enabled);
-bool clock_screen_get_wallpaper();
+void clock_screen_set_show_day(bool show);
+void clock_screen_set_show_date(bool show);
+bool clock_screen_get_show_day();
+bool clock_screen_get_show_date();
 void clock_screen_apply_face_custom();
+// Defined in settings_screen.cpp: Show Day / Show Date are saved in settings.txt.
+void settings_persist_now();
 
 static const lv_color_t NW = lv_color_hex(0xFFFFFF);   // primary text
 static const lv_color_t NG = lv_color_hex(0x9A9A9A);   // secondary text
@@ -29,7 +33,8 @@ static lv_obj_t *date_dd;
 static lv_obj_t *time_dd;
 static lv_obj_t *order_dd;
 static lv_obj_t *text_dd;
-static lv_obj_t *wall_sw;
+static lv_obj_t *show_day_sw;
+static lv_obj_t *show_date_sw;
 // The accents offered in the picker, in display order. (Not simply 0..COUNT: the
 // numeric values are pinned for saved settings and one of them is retired.)
 static const FaceAccent kAccentChoices[] = {
@@ -87,9 +92,18 @@ static void on_order_changed(lv_event_t *)
     clock_screen_apply_face_custom();
 }
 
-static void on_wall_changed(lv_event_t *)
+static void on_show_day_changed(lv_event_t *)
 {
-    clock_screen_set_wallpaper(lv_obj_has_state(wall_sw, LV_STATE_CHECKED));
+    clock_screen_set_show_day(lv_obj_has_state(show_day_sw, LV_STATE_CHECKED));
+    clock_screen_apply_face_custom();
+    settings_persist_now();
+}
+
+static void on_show_date_changed(lv_event_t *)
+{
+    clock_screen_set_show_date(lv_obj_has_state(show_date_sw, LV_STATE_CHECKED));
+    clock_screen_apply_face_custom();
+    settings_persist_now();
 }
 
 static void refresh_accent_button()
@@ -220,12 +234,29 @@ static lv_obj_t *make_dropdown(lv_obj_t *parent, const char *opts, int y, lv_eve
     return dd;
 }
 
+static lv_obj_t *make_toggle(lv_obj_t *parent, int y, bool on, lv_event_cb_t cb)
+{
+    lv_obj_t *sw = lv_switch_create(parent);
+    lv_obj_set_size(sw, 70, 34);
+    lv_obj_align(sw, LV_ALIGN_TOP_RIGHT, -24, y + 3);
+    lv_obj_set_style_bg_color(sw, lv_color_hex(0x333333), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(sw, NW, LV_PART_MAIN | LV_STATE_CHECKED);
+    if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_clear_flag(sw, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(sw, cb, LV_EVENT_VALUE_CHANGED, NULL);
+    return sw;
+}
+
 // ---- build -----------------------------------------------------------------
 void face_watch_screen_create()
 {
     screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(screen, lv_color_black(), LV_PART_MAIN);
-    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+    // Scrollable: the two Show day/date rows push the content toward the rounded
+    // bottom corners, so let it scroll clear rather than clip.
+    lv_obj_set_scroll_dir(screen, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_pad_bottom(screen, 40, LV_PART_MAIN);
 
     lv_obj_t *title = lv_label_create(screen);
     lv_obj_set_style_text_font(title, theme_text_font(20), LV_PART_MAIN);
@@ -269,24 +300,26 @@ void face_watch_screen_create()
     lv_obj_align(chev, LV_ALIGN_RIGHT_MID, -10, 0);
     refresh_accent_button();
 
-    make_label(screen, "Wallpaper", 252);
-    wall_sw = lv_switch_create(screen);
-    lv_obj_set_size(wall_sw, 70, 34);
-    lv_obj_align(wall_sw, LV_ALIGN_TOP_RIGHT, -24, 255);
-    lv_obj_set_style_bg_color(wall_sw, lv_color_hex(0x333333), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(wall_sw, NW, LV_PART_MAIN | LV_STATE_CHECKED);
-    lv_obj_add_event_cb(wall_sw, on_wall_changed, LV_EVENT_VALUE_CHANGED, NULL);
+    // (Wallpaper removed.) Time / Date order / Global text move up one slot to
+    // fill the gap, then Show day / Show date (moved here from Settings).
+    make_label(screen, "Time", 252);
+    time_dd = make_dropdown(screen, "24-hour\n12-hour", 252, on_time_changed);
 
-    make_label(screen, "Time", 304);
-    time_dd = make_dropdown(screen, "24-hour\n12-hour", 304, on_time_changed);
-
-    make_label(screen, "Date order", 356);
-    order_dd = make_dropdown(screen, "DD/MM\nMM/DD\nYYYY-MM-DD\nDD Mon", 356, on_order_changed);
+    make_label(screen, "Date order", 304);
+    order_dd = make_dropdown(screen, "DD/MM\nMM/DD\nYYYY-MM-DD\nDD Mon", 304, on_order_changed);
     lv_dropdown_set_selected(order_dd, (uint32_t)face_date_order());
 
-    make_label(screen, "Global text", 408);
-    text_dd = make_dropdown(screen, "Default\nRoboto\nInter", 408, on_text_changed);
+    make_label(screen, "Global text", 356);
+    text_dd = make_dropdown(screen, "Default\nRoboto\nInter", 356, on_text_changed);
     lv_dropdown_set_selected(text_dd, (uint32_t)face_text_font());
+
+    // Show day / Show date (moved here from Settings): toggle the weekday and the
+    // date line on the face. State is persisted in settings.txt via the handlers.
+    make_label(screen, "Show day", 408);
+    show_day_sw = make_toggle(screen, 408, clock_screen_get_show_day(), on_show_day_changed);
+
+    make_label(screen, "Show date", 460);
+    show_date_sw = make_toggle(screen, 460, clock_screen_get_show_date(), on_show_date_changed);
 
     lv_obj_add_event_cb(screen, on_gesture, LV_EVENT_GESTURE, NULL);
 }
@@ -300,8 +333,10 @@ void face_watch_screen_show()
 
     // Reflect the live state of the shared toggles on open.
     lv_dropdown_set_selected(time_dd, clock_screen_get_12h() ? 1 : 0);
-    if (clock_screen_get_wallpaper()) lv_obj_add_state(wall_sw, LV_STATE_CHECKED);
-    else                              lv_obj_clear_state(wall_sw, LV_STATE_CHECKED);
+    if (clock_screen_get_show_day())  lv_obj_add_state(show_day_sw,  LV_STATE_CHECKED);
+    else                              lv_obj_clear_state(show_day_sw, LV_STATE_CHECKED);
+    if (clock_screen_get_show_date()) lv_obj_add_state(show_date_sw,  LV_STATE_CHECKED);
+    else                              lv_obj_clear_state(show_date_sw, LV_STATE_CHECKED);
     refresh_accent_button();
     accent_list_close();     // never reopen with a stale list on top
 
