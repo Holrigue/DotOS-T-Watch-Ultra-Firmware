@@ -84,6 +84,7 @@ static void on_time_changed(lv_event_t *)
 {
     clock_screen_set_12h(lv_dropdown_get_selected(time_dd) == 1);   // 0 = 24h, 1 = 12h
     clock_screen_apply_face_custom();
+    settings_persist_now();   // saved in settings.txt with the other clock options
 }
 
 static void on_order_changed(lv_event_t *)

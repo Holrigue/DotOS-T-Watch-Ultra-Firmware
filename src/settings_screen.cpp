@@ -31,6 +31,7 @@ void clock_screen_show();                    // go home to the watch face
 void face_watch_screen_show();               // Dot watchface customization (Settings entry)
 void clock_screen_set_face(int mode);        // DotOS only; arg ignored (always Dot)
 void clock_screen_set_12h(bool use_12h);
+bool clock_screen_get_12h();
 void clock_screen_set_dim_timeout(uint32_t ms);
 void clock_screen_set_dim_brightness(uint8_t level);
 void clock_screen_set_show_day(bool show);
@@ -162,18 +163,16 @@ static void settings_update_sysinfo()
         det, detlog::kMaxAgeDays);
 }
 static int32_t   s_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL;
-static lv_obj_t *hour_format_row;
-static lv_obj_t *hour_format_switch;
-static lv_obj_t *hour_format_val_label;
 static lv_obj_t *dim_timeout_slider;
 static lv_obj_t *dim_timeout_val_label;
 static lv_obj_t *dim_brightness_slider;
 static lv_obj_t *dim_brightness_val_label;
 static int32_t   s_dim_brightness = DEVICE_MAX_BRIGHTNESS_LEVEL / 4;
-static lv_obj_t *ampm_row;
-static lv_obj_t *ampm_switch;
-static lv_obj_t *secs_row;
-static lv_obj_t *secs_switch;
+// The Digital face's "AM/PM" and "seconds" options have no control any more
+// (the Dot face is the only face), but a saved settings.txt may still carry
+// them, so the values are kept and written back unchanged.
+static bool s_show_ampm = true;
+static bool s_show_secs = true;
 // Show Day / Show Date now live on the Facewatch Customize screen (face_watch_screen.cpp).
 static lv_obj_t *vibrate_switch;   // "Vibration": ordinary notifications buzz
 static lv_obj_t *touch_switch;     // "Touch feedback": UI gestures / button buzz
@@ -268,8 +267,7 @@ static void register_manual_obj(lv_obj_t *obj)
 
 // DotOS is the only watch face now, so this is fixed at 2 (FACE_DOT). Kept as a
 // function because apply_layout() and the SD save still call it; the old
-// Digital/Analog/Dot dropdown it used to read is gone. digital==false here
-// always, so apply_layout keeps the 12h/AM-PM/seconds rows hidden.
+// Digital/Analog/Dot dropdown it used to read is gone.
 static inline int settings_face_mode()
 {
     return 2;   // FACE_DOT
@@ -375,14 +373,12 @@ static void apply_layout()
 {
     // The 12h / AM-PM / Show-seconds rows only apply to the Digital face; both
     // Analog and Dot render their own time, so those rows hide for either.
-    bool digital   = (settings_face_mode() == 0);
     bool manual_on = lv_obj_has_state(manual_time_switch, LV_STATE_CHECKED);
 
     for (int i = 0; i < s_row_count; i++) {
         lv_obj_t *o = s_rows[i].obj;
         uint8_t   sc = s_rows[i].sec;
         bool show = (sc == SEC_ALWAYS) || (sc < SEC_COUNT && s_sec_open[sc]);
-        if (o == hour_format_row || o == ampm_row || o == secs_row) show = show && digital;
         for (int m = 0; m < s_manual_count; m++)
             if (s_manual_objs[m] == o) show = show && manual_on;
         if (show) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN);
@@ -405,14 +401,6 @@ static const char *SETTINGS_PATH = "/Settings/settings.txt";
 
 // Forward declaration so the change callbacks can call it
 static void settings_save_to_sd();
-
-static void on_hour_format_changed(lv_event_t *e)
-{
-    bool use_12h = lv_obj_has_state(hour_format_switch, LV_STATE_CHECKED);
-    lv_label_set_text(hour_format_val_label, use_12h ? "12h" : "24h");
-    clock_screen_set_12h(use_12h);
-    settings_save_to_sd();
-}
 
 // Format the dim-timeout value label (0 = OFF, else s / m / m ss).
 static void dim_timeout_show(uint32_t sec)
@@ -449,18 +437,6 @@ static void on_dim_brightness_changed(lv_event_t *e)
 // still persist.
 static void on_slider_released(lv_event_t *e)
 {
-    settings_save_to_sd();
-}
-
-static void on_ampm_changed(lv_event_t *e)
-{
-    clock_screen_set_show_ampm(lv_obj_has_state(ampm_switch, LV_STATE_CHECKED));
-    settings_save_to_sd();
-}
-
-static void on_secs_changed(lv_event_t *e)
-{
-    clock_screen_set_show_secs(lv_obj_has_state(secs_switch, LV_STATE_CHECKED));
     settings_save_to_sd();
 }
 
@@ -905,78 +881,6 @@ void settings_screen_create()
     lv_obj_set_style_text_font(face_hint, theme_text_font(20), LV_PART_MAIN);
     lv_label_set_text(face_hint, "Customize");
     lv_obj_align(face_hint, LV_ALIGN_RIGHT_MID, 0, 0);
-
-    // Time format row — visible only when Digital face is active
-    hour_format_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(hour_format_row, 380, 40);
-    lv_obj_set_style_bg_opa(hour_format_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(hour_format_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(hour_format_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(hour_format_row, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *hf_lbl = lv_label_create(hour_format_row);
-    lv_obj_set_style_text_color(hf_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(hf_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(hf_lbl, "Time Format");
-    lv_obj_align(hf_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    hour_format_val_label = lv_label_create(hour_format_row);
-    lv_obj_set_style_text_color(hour_format_val_label, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(hour_format_val_label, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(hour_format_val_label, "12h");
-    lv_obj_align(hour_format_val_label, LV_ALIGN_RIGHT_MID, -80, 0);
-
-    hour_format_switch = lv_switch_create(hour_format_row);
-    lv_obj_set_size(hour_format_switch, 70, 34);
-    lv_obj_set_style_bg_color(hour_format_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(hour_format_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
-    lv_obj_add_state(hour_format_switch, LV_STATE_CHECKED);  // default 12h
-    lv_obj_add_event_cb(hour_format_switch, on_hour_format_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(hour_format_switch, LV_ALIGN_RIGHT_MID, 0, 0);
-
-    // Display AM/PM row — visible only when Digital face is active
-    ampm_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(ampm_row, 380, 40);
-    lv_obj_set_style_bg_opa(ampm_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(ampm_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(ampm_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(ampm_row, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *ampm_lbl = lv_label_create(ampm_row);
-    lv_obj_set_style_text_color(ampm_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(ampm_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(ampm_lbl, "Display AM/PM");
-    lv_obj_align(ampm_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    ampm_switch = lv_switch_create(ampm_row);
-    lv_obj_set_size(ampm_switch, 70, 34);
-    lv_obj_set_style_bg_color(ampm_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ampm_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
-    lv_obj_add_state(ampm_switch, LV_STATE_CHECKED);  // default on
-    lv_obj_add_event_cb(ampm_switch, on_ampm_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(ampm_switch, LV_ALIGN_RIGHT_MID, 0, 0);
-
-    // Display Seconds row — visible only when Digital face is active
-    secs_row = lv_obj_create(settings_screen);
-    lv_obj_set_size(secs_row, 380, 40);
-    lv_obj_set_style_bg_opa(secs_row, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(secs_row, 0, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(secs_row, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(secs_row, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *secs_lbl = lv_label_create(secs_row);
-    lv_obj_set_style_text_color(secs_lbl, ARGUS_TEXT, LV_PART_MAIN);
-    lv_obj_set_style_text_font(secs_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(secs_lbl, "Display Seconds");
-    lv_obj_align(secs_lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-    secs_switch = lv_switch_create(secs_row);
-    lv_obj_set_size(secs_switch, 70, 34);
-    lv_obj_set_style_bg_color(secs_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(secs_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
-    lv_obj_add_state(secs_switch, LV_STATE_CHECKED);  // default on
-    lv_obj_add_event_cb(secs_switch, on_secs_changed, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_align(secs_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // "Show Day" and "Show Date" live on the Facewatch Customize screen.
 
@@ -1800,9 +1704,11 @@ static void settings_save_to_sd()
 
     f.printf("brightness=%d\n",      (int)s_brightness);
     f.printf("clock_face=%d\n",      settings_face_mode());
-    f.printf("format_12h=%d\n",      lv_obj_has_state(hour_format_switch, LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("show_ampm=%d\n",       lv_obj_has_state(ampm_switch,        LV_STATE_CHECKED) ? 1 : 0);
-    f.printf("show_secs=%d\n",       lv_obj_has_state(secs_switch,        LV_STATE_CHECKED) ? 1 : 0);
+    // 12h/24h is chosen on the Facewatch screen; save what the clock really uses
+    // (this used to save a hidden switch, so the Facewatch choice was lost on reboot).
+    f.printf("format_12h=%d\n",      clock_screen_get_12h() ? 1 : 0);
+    f.printf("show_ampm=%d\n",       s_show_ampm ? 1 : 0);
+    f.printf("show_secs=%d\n",       s_show_secs ? 1 : 0);
     f.printf("show_day=%d\n",        clock_screen_get_show_day()  ? 1 : 0);
     f.printf("show_date=%d\n",       clock_screen_get_show_date() ? 1 : 0);
     f.printf("notif_vibrate=%d\n",   lv_obj_has_state(vibrate_switch,     LV_STATE_CHECKED) ? 1 : 0);
@@ -1862,14 +1768,12 @@ void settings_screen_load()
             apply_layout();
             clock_screen_set_face(2 /* FACE_DOT */);
         } else if (key == "format_12h") {
-            apply_switch(hour_format_switch, b);
-            lv_label_set_text(hour_format_val_label, b ? "12h" : "24h");
             clock_screen_set_12h(b);
         } else if (key == "show_ampm") {
-            apply_switch(ampm_switch, b);
+            s_show_ampm = b;
             clock_screen_set_show_ampm(b);
         } else if (key == "show_secs") {
-            apply_switch(secs_switch, b);
+            s_show_secs = b;
             clock_screen_set_show_secs(b);
         } else if (key == "show_day") {
             clock_screen_set_show_day(b);   // UI lives on the Facewatch screen now

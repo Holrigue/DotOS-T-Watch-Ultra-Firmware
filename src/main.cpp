@@ -106,8 +106,6 @@
 #include "threat_radar_screen.h"
 #include "tracker_rep.h"
 #include "counter_tail.h"
-#include "matrix_bg.h"
-#include "background.h"
 #include "nfc_icon.h"
 #include "detect_pipeline.h"
 #include "ble_detect_pipeline.h"
@@ -1848,9 +1846,8 @@ void clock_screen_apply_face_custom()
     }
 }
 
-// Getters for the Face screen (which also drives the shared 12h / wallpaper setters).
+// Getter for the Face screen and the settings file.
 bool clock_screen_get_12h()       { return clock_12h; }
-bool clock_screen_get_wallpaper() { return background_is_enabled(); }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
 // bright steel-blue ARGUS_ACCENT_ACTIVE; the instant Threat Radar flags a tail
@@ -2532,19 +2529,6 @@ void clock_screen_set_show_secs(bool show)
 void clock_screen_set_vibrate(bool enabled)
 {
     clock_vibrate = enabled;
-}
-
-// Called by settings screen to enable/disable the Matrix rain background
-void clock_screen_set_matrix(bool enabled)
-{
-    matrix_bg_set_enabled(enabled);
-}
-
-// Called by settings screen to enable/disable the SD-card wallpaper. Coexists
-// with the matrix rain: when both are on the faint image sits behind the rain.
-void clock_screen_set_wallpaper(bool enabled)
-{
-    background_set_enabled(enabled);
 }
 
 // Dim timer state — updated by settings screen callbacks
@@ -3435,13 +3419,6 @@ void main_loop_request_lvgl_priority(int cycles) {
 
 void clock_screen_show()
 {
-    // Pause matrix-rain so the synchronous refresh below doesn't have to
-    // re-render 22 recolored labels every refresh tick. The main loop
-    // also pauses during the priority window, but pausing here covers
-    // the window in between (load + refresh + return).
-    bool paused_matrix = matrix_bg_is_enabled();
-    if (paused_matrix) matrix_bg_set_paused(true);
-
     lv_scr_load(clock_screen);
     lv_obj_invalidate(clock_screen);
     // Synchronous full refresh. lv_scr_load defers rendering to the next
@@ -3453,7 +3430,6 @@ void clock_screen_show()
     // before we return to the busy main loop.
     lv_refr_now(NULL);
 
-    if (paused_matrix) matrix_bg_set_paused(false);
     main_loop_request_lvgl_priority(12);
 }
 
@@ -3743,14 +3719,6 @@ void setup()
     clock_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(clock_screen, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_border_width(clock_screen, 0, LV_PART_MAIN);
-
-    // Lowest z-order: the SD-card wallpaper renders behind everything,
-    // including the matrix rain. Created before matrix_bg_create so it is
-    // the first child. Hidden until the "Wallpaper" setting turns it on.
-    background_create(clock_screen);
-
-    // First child → renders behind every other widget on the clock screen
-    matrix_bg_create(clock_screen);
 
     // GPS indicator — anchored to top-right; others chain off it via realign_status_icons()
     gps_indicator = lv_label_create(clock_screen);
@@ -4878,19 +4846,6 @@ void loop()
     // feels laggy / hard to press, especially on a radio screen that never
     // requested priority itself.
     bool lvgl_priority = s_lvgl_priority_cycles > 0 || s_low_mem_dialog != nullptr;
-    {
-        // Pause the matrix-rain animation while LVGL is trying to complete
-        // a screen transition. Without this, the 120 ms rain timer keeps
-        // invalidating 22 recolored labels, forcing a full clock-screen
-        // re-render every refresh tick.
-        static bool s_matrix_paused_by_us = false;
-        if (lvgl_priority && !s_matrix_paused_by_us) {
-            matrix_bg_set_paused(true);
-            s_matrix_paused_by_us = true;
-        } else if (!lvgl_priority && s_matrix_paused_by_us) {
-            matrix_bg_set_paused(false);
-            s_matrix_paused_by_us = false;
-        }
     }
     if (lvgl_priority) s_lvgl_priority_cycles--;
 
