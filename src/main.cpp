@@ -4846,7 +4846,6 @@ void loop()
     // feels laggy / hard to press, especially on a radio screen that never
     // requested priority itself.
     bool lvgl_priority = s_lvgl_priority_cycles > 0 || s_low_mem_dialog != nullptr;
-    }
     if (lvgl_priority) s_lvgl_priority_cycles--;
 
 
