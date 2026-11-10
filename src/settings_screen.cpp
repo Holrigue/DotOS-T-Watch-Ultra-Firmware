@@ -275,7 +275,102 @@ static inline int settings_face_mode()
     return 2;   // FACE_DOT
 }
 
-// Show/hide the conditional rows. Positions are the flex column's business.
+// ---- Sections ---------------------------------------------------------------
+//
+// The list is grouped into collapsible sections so Settings opens as six short
+// headings instead of five screenfuls of rows. One section is open at a time.
+//
+// Rows are still built in one pass by settings_screen_create(). While building,
+// sec(X) says "the rows created from here on belong to section X"; once every
+// row exists, finish_sections() reads those marks, adds the six headers and
+// moves the rows into section order (the flex column lays them out by index).
+enum : uint8_t { SEC_DISPLAY, SEC_SOUND, SEC_TIME, SEC_CONN, SEC_SYSTEM, SEC_SECURITY,
+                 SEC_COUNT, SEC_ALWAYS = 0xFE, SEC_NEVER = 0xFF };
+static const char *const SEC_NAME[SEC_COUNT] = {
+    "Display", "Sound & vibration", "Time", "Connections", "System", "Security" };
+
+struct SecMark { uint32_t first_child; uint8_t sec; };
+struct SecRow  { lv_obj_t *obj; uint8_t sec; };
+static SecMark   s_marks[40];
+static int       s_mark_count = 0;
+static SecRow    s_rows[80];
+static int       s_row_count = 0;
+static bool      s_sec_open[SEC_COUNT] = { true, false, false, false, false, false };
+static lv_obj_t *s_sec_chev[SEC_COUNT] = { nullptr };
+
+static void sec(uint8_t section)
+{
+    if (s_mark_count < (int)(sizeof(s_marks) / sizeof(s_marks[0])))
+        s_marks[s_mark_count++] = { lv_obj_get_child_count(settings_screen), section };
+}
+
+static void apply_layout();
+
+static void on_section_header(lv_event_t *e)
+{
+    int which = (int)(intptr_t)lv_event_get_user_data(e);
+    bool open = !s_sec_open[which];
+    for (int i = 0; i < SEC_COUNT; i++) s_sec_open[i] = false;   // one at a time
+    s_sec_open[which] = open;
+    apply_layout();
+    lv_obj_update_layout(settings_screen);
+    lv_obj_scroll_to_view((lv_obj_t *)lv_event_get_current_target(e), LV_ANIM_ON);
+}
+
+static void finish_sections()
+{
+    // 1. Which section does each existing row belong to?
+    uint32_t n = lv_obj_get_child_count(settings_screen);
+    s_row_count = 0;
+    int mark = -1;
+    for (uint32_t i = 0; i < n && s_row_count < (int)(sizeof(s_rows) / sizeof(s_rows[0])); i++) {
+        while (mark + 1 < s_mark_count && s_marks[mark + 1].first_child <= i) mark++;
+        s_rows[s_row_count++] = { lv_obj_get_child(settings_screen, i),
+                                  mark >= 0 ? s_marks[mark].sec : (uint8_t)SEC_ALWAYS };
+    }
+
+    // 2. One tappable header per section.
+    lv_obj_t *hdr[SEC_COUNT];
+    for (int k = 0; k < SEC_COUNT; k++) {
+        lv_obj_t *h = lv_obj_create(settings_screen);
+        lv_obj_remove_style_all(h);
+        lv_obj_set_size(h, 380, 46);
+        lv_obj_set_style_bg_color(h, ARGUS_TILE, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(h, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(h, ARGUS_RAISED, LV_PART_MAIN | LV_STATE_PRESSED);
+        lv_obj_set_style_radius(h, 12, LV_PART_MAIN);
+        lv_obj_clear_flag(h, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(h, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(h, on_section_header, LV_EVENT_CLICKED, (void *)(intptr_t)k);
+
+        lv_obj_t *l = lv_label_create(h);
+        lv_obj_set_style_text_font(l, theme_text_font(20), LV_PART_MAIN);
+        lv_obj_set_style_text_color(l, ARGUS_TEXT, LV_PART_MAIN);
+        lv_label_set_text(l, SEC_NAME[k]);
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, 14, 0);
+
+        s_sec_chev[k] = lv_label_create(h);
+        lv_obj_set_style_text_font(s_sec_chev[k], &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_set_style_text_color(s_sec_chev[k], ARGUS_ACCENT, LV_PART_MAIN);
+        lv_obj_align(s_sec_chev[k], LV_ALIGN_RIGHT_MID, -14, 0);
+        hdr[k] = h;
+    }
+
+    // 3. Section order: [always rows] then, per section, its header and its rows
+    //    in the order they were built. Rows marked SEC_NEVER (the old separators
+    //    and sub-headings the section headers replace) stay hidden at the end.
+    int32_t idx = 0;
+    for (int i = 0; i < s_row_count; i++)
+        if (s_rows[i].sec == SEC_ALWAYS) lv_obj_move_to_index(s_rows[i].obj, idx++);
+    for (int k = 0; k < SEC_COUNT; k++) {
+        lv_obj_move_to_index(hdr[k], idx++);
+        for (int i = 0; i < s_row_count; i++)
+            if (s_rows[i].sec == k) lv_obj_move_to_index(s_rows[i].obj, idx++);
+    }
+}
+
+// Show/hide rows: a row shows when its section is open AND its own condition
+// (face rows, Manual Time editor) allows it. Positions are the flex column's job.
 static void apply_layout()
 {
     // The 12h / AM-PM / Show-seconds rows only apply to the Digital face; both
@@ -283,16 +378,27 @@ static void apply_layout()
     bool digital   = (settings_face_mode() == 0);
     bool manual_on = lv_obj_has_state(manual_time_switch, LV_STATE_CHECKED);
 
-    lv_obj_t *face_rows[] = { hour_format_row, ampm_row, secs_row };
-    for (lv_obj_t *r : face_rows) {
-        if (digital) lv_obj_clear_flag(r, LV_OBJ_FLAG_HIDDEN);
-        else         lv_obj_add_flag  (r, LV_OBJ_FLAG_HIDDEN);
+    for (int i = 0; i < s_row_count; i++) {
+        lv_obj_t *o = s_rows[i].obj;
+        uint8_t   sc = s_rows[i].sec;
+        bool show = (sc == SEC_ALWAYS) || (sc < SEC_COUNT && s_sec_open[sc]);
+        if (o == hour_format_row || o == ampm_row || o == secs_row) show = show && digital;
+        for (int m = 0; m < s_manual_count; m++)
+            if (s_manual_objs[m] == o) show = show && manual_on;
+        if (show) lv_obj_clear_flag(o, LV_OBJ_FLAG_HIDDEN);
+        else      lv_obj_add_flag  (o, LV_OBJ_FLAG_HIDDEN);
     }
+    for (int k = 0; k < SEC_COUNT; k++)
+        if (s_sec_chev[k])
+            lv_label_set_text(s_sec_chev[k], s_sec_open[k] ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
+}
 
-    for (int i = 0; i < s_manual_count; i++) {
-        if (manual_on) lv_obj_clear_flag(s_manual_objs[i], LV_OBJ_FLAG_HIDDEN);
-        else           lv_obj_add_flag  (s_manual_objs[i], LV_OBJ_FLAG_HIDDEN);
-    }
+// Open or close every section at once (the simulator gallery uses this to
+// capture the whole list; also handy for a future "expand all").
+void settings_screen_expand_all(bool open)
+{
+    for (int k = 0; k < SEC_COUNT; k++) s_sec_open[k] = open;
+    if (settings_screen) apply_layout();
 }
 
 static const char *SETTINGS_PATH = "/Settings/settings.txt";
@@ -665,7 +771,7 @@ static lv_obj_t *make_boot_row(const char *label, bool checked,
     lv_obj_t *sw = lv_switch_create(row);
     lv_obj_set_size(sw, 70, 34);
     lv_obj_set_style_bg_color(sw, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(sw, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(sw, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     // Seed state before wiring the callback so the seed doesn't re-save the
     // value we just read out of boot_prefs.
     if (checked) lv_obj_add_state(sw, LV_STATE_CHECKED);
@@ -709,6 +815,7 @@ void settings_screen_create()
     lv_obj_set_style_pad_row(settings_screen, ROW_GAP, LV_PART_MAIN);
 
     // Title
+    sec(SEC_ALWAYS);
     lv_obj_t *title = lv_label_create(settings_screen);
     s_settings_title = title;   // repainted per mode in settings_screen_show()
     lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
@@ -716,6 +823,7 @@ void settings_screen_create()
     lv_label_set_text(title, "SETTINGS");
 
     // Row: "Brightness" label on the left, percentage on the right
+    sec(SEC_DISPLAY);
     lv_obj_t *row = lv_obj_create(settings_screen);
     lv_obj_set_size(row, 380, 30);
     lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -737,7 +845,8 @@ void settings_screen_create()
 
     // Horizontal brightness slider
     brightness_slider = lv_slider_create(settings_screen);
-    lv_obj_set_size(brightness_slider, 320, 50);
+    lv_obj_set_size(brightness_slider, 330, 28);
+    lv_obj_set_ext_click_area(brightness_slider, 14);   // finger-sized without the oversized knob
     lv_slider_set_range(brightness_slider, 1, DEVICE_MAX_BRIGHTNESS_LEVEL);
     lv_slider_set_value(brightness_slider, s_brightness, LV_ANIM_OFF);
 
@@ -747,13 +856,13 @@ void settings_screen_create()
     lv_obj_set_style_border_width(brightness_slider, 0, LV_PART_MAIN);
 
     // Filled (indicator) portion
-    lv_obj_set_style_bg_color(brightness_slider, lv_color_make(0xFF, 0xFF, 0xFF), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(brightness_slider, ARGUS_ACCENT, LV_PART_INDICATOR);
     lv_obj_set_style_radius(brightness_slider, 8, LV_PART_INDICATOR);
 
     // Knob: large enough for comfortable touch
     lv_obj_set_style_bg_color(brightness_slider, lv_color_white(), LV_PART_KNOB);
     lv_obj_set_style_radius(brightness_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_style_pad_all(brightness_slider, 10, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(brightness_slider, 4, LV_PART_KNOB);
     lv_obj_set_style_border_width(brightness_slider, 0, LV_PART_KNOB);
 
     // A horizontal drag on the slider must not also count as a swipe that leaves the page.
@@ -762,6 +871,7 @@ void settings_screen_create()
     lv_obj_add_event_cb(brightness_slider, on_slider_released,    LV_EVENT_RELEASED,      NULL);
 
     // Separator
+    sec(SEC_NEVER);
     lv_obj_t *sep = lv_obj_create(settings_screen);
     lv_obj_set_size(sep, 380, 1);
     lv_obj_set_style_bg_color(sep, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
@@ -772,6 +882,7 @@ void settings_screen_create()
     // Facewatch row (top of Settings): opens the Dot-face customization screen.
     // DotOS is the only watch face, so this replaced the old Digital/Analog/Dot
     // selector entirely — the whole row is the tap target.
+    sec(SEC_DISPLAY);
     lv_obj_t *face_row = lv_obj_create(settings_screen);
     lv_obj_set_size(face_row, 380, 40);
     lv_obj_set_style_bg_opa(face_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -818,7 +929,7 @@ void settings_screen_create()
     hour_format_switch = lv_switch_create(hour_format_row);
     lv_obj_set_size(hour_format_switch, 70, 34);
     lv_obj_set_style_bg_color(hour_format_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(hour_format_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(hour_format_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(hour_format_switch, LV_STATE_CHECKED);  // default 12h
     lv_obj_add_event_cb(hour_format_switch, on_hour_format_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(hour_format_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -840,7 +951,7 @@ void settings_screen_create()
     ampm_switch = lv_switch_create(ampm_row);
     lv_obj_set_size(ampm_switch, 70, 34);
     lv_obj_set_style_bg_color(ampm_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(ampm_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(ampm_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(ampm_switch, LV_STATE_CHECKED);  // default on
     lv_obj_add_event_cb(ampm_switch, on_ampm_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(ampm_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -862,7 +973,7 @@ void settings_screen_create()
     secs_switch = lv_switch_create(secs_row);
     lv_obj_set_size(secs_switch, 70, 34);
     lv_obj_set_style_bg_color(secs_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(secs_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(secs_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(secs_switch, LV_STATE_CHECKED);  // default on
     lv_obj_add_event_cb(secs_switch, on_secs_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(secs_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -870,6 +981,7 @@ void settings_screen_create()
     // "Show Day" and "Show Date" live on the Facewatch Customize screen.
 
     // Vibrate row
+    sec(SEC_SOUND);
     lv_obj_t *vibrate_row = lv_obj_create(settings_screen);
     lv_obj_set_size(vibrate_row, 380, 40);
     lv_obj_set_style_bg_opa(vibrate_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -886,7 +998,7 @@ void settings_screen_create()
     vibrate_switch = lv_switch_create(vibrate_row);
     lv_obj_set_size(vibrate_switch, 70, 34);
     lv_obj_set_style_bg_color(vibrate_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(vibrate_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(vibrate_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(vibrate_switch, LV_STATE_CHECKED);   // notifications vibrate by default
     lv_obj_add_event_cb(vibrate_switch, on_vibrate_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(vibrate_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -908,12 +1020,13 @@ void settings_screen_create()
     touch_switch = lv_switch_create(touch_row);
     lv_obj_set_size(touch_switch, 70, 34);
     lv_obj_set_style_bg_color(touch_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(touch_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(touch_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     // default off - UI taps stay silent unless the user turns this on
     lv_obj_add_event_cb(touch_switch, on_touch_feedback_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(touch_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Separator before dim timer section
+    sec(SEC_NEVER);
     lv_obj_t *sep2 = lv_obj_create(settings_screen);
     lv_obj_set_size(sep2, 380, 1);
     lv_obj_set_style_bg_color(sep2, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
@@ -922,6 +1035,7 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(sep2, 0, LV_PART_MAIN);
 
     // Dim Timer row: label on left, dropdown on right
+    sec(SEC_DISPLAY);
     lv_obj_t *dim_row = lv_obj_create(settings_screen);
     lv_obj_set_size(dim_row, 380, 40);
     lv_obj_set_style_bg_opa(dim_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -969,7 +1083,7 @@ void settings_screen_create()
     lv_obj_t *dbr_lbl = lv_label_create(dbr_row);
     lv_obj_set_style_text_color(dbr_lbl, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(dbr_lbl, theme_text_font(20), LV_PART_MAIN);
-    lv_label_set_text(dbr_lbl, "Dimmed");
+    lv_label_set_text(dbr_lbl, "Dimmed brightness");
     lv_obj_align(dbr_lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     dim_brightness_val_label = lv_label_create(dbr_row);
@@ -981,18 +1095,19 @@ void settings_screen_create()
 
     // Dimmed Brightness slider
     dim_brightness_slider = lv_slider_create(settings_screen);
-    lv_obj_set_size(dim_brightness_slider, 320, 50);
+    lv_obj_set_size(dim_brightness_slider, 330, 28);
+    lv_obj_set_ext_click_area(dim_brightness_slider, 14);
     lv_slider_set_range(dim_brightness_slider, 1, DEVICE_MAX_BRIGHTNESS_LEVEL);
     lv_slider_set_value(dim_brightness_slider, s_dim_brightness, LV_ANIM_OFF);
 
     lv_obj_set_style_bg_color(dim_brightness_slider, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN);
     lv_obj_set_style_radius(dim_brightness_slider, 8, LV_PART_MAIN);
     lv_obj_set_style_border_width(dim_brightness_slider, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(dim_brightness_slider, lv_color_make(0x66, 0x66, 0xFF), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(dim_brightness_slider, ARGUS_ACCENT, LV_PART_INDICATOR);
     lv_obj_set_style_radius(dim_brightness_slider, 8, LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(dim_brightness_slider, lv_color_white(), LV_PART_KNOB);
     lv_obj_set_style_radius(dim_brightness_slider, LV_RADIUS_CIRCLE, LV_PART_KNOB);
-    lv_obj_set_style_pad_all(dim_brightness_slider, 10, LV_PART_KNOB);
+    lv_obj_set_style_pad_all(dim_brightness_slider, 4, LV_PART_KNOB);
     lv_obj_set_style_border_width(dim_brightness_slider, 0, LV_PART_KNOB);
 
     lv_obj_clear_flag(dim_brightness_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);   // a drag is not a swipe
@@ -1024,7 +1139,7 @@ void settings_screen_create()
     motion_wake_switch = lv_switch_create(motion_row);
     lv_obj_set_size(motion_wake_switch, 70, 34);
     lv_obj_set_style_bg_color(motion_wake_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(motion_wake_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(motion_wake_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     // Default ON so wrist-raise brightens out of the box — matches the
     // smartwatch behaviour most users expect.
     lv_obj_add_state(motion_wake_switch, LV_STATE_CHECKED);
@@ -1097,13 +1212,14 @@ void settings_screen_create()
         *r.sw = lv_switch_create(row);
         lv_obj_set_size(*r.sw, 70, 34);
         lv_obj_set_style_bg_color(*r.sw, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_bg_color(*r.sw, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_color(*r.sw, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
         lv_obj_add_event_cb(*r.sw, r.cb, LV_EVENT_VALUE_CHANGED, NULL);
         lv_obj_align(*r.sw, LV_ALIGN_RIGHT_MID, 0, 0);
     }
     // Daily step goal (fixed value; feeds the Dot progress bar + Health screen).
     // Slider 1000..30000, snapped to 500 in the handler. Initialised from the
     // health NVS goal restored at boot (default 10000 when unset).
+    sec(SEC_SYSTEM);
     lv_obj_t *goal_row = lv_obj_create(settings_screen);
     lv_obj_set_size(goal_row, 380, 40);
     lv_obj_set_style_bg_opa(goal_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1141,6 +1257,7 @@ void settings_screen_create()
 
     // Vibration intensity (0..100%): scales all haptics; persisted by the haptic
     // module. Same row style as the sliders above.
+    sec(SEC_SOUND);
     lv_obj_t *vib_row = lv_obj_create(settings_screen);
     lv_obj_set_size(vib_row, 380, 40);
     lv_obj_set_style_bg_opa(vib_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1179,6 +1296,7 @@ void settings_screen_create()
     // battery option (auto turn off display, battery longevity, the automatic
     // low-battery saver) and explains each in plain words. The whole row is the
     // tap target, like the Facewatch row at the top.
+    sec(SEC_SYSTEM);
     lv_obj_t *batt_row = lv_obj_create(settings_screen);
     lv_obj_set_size(batt_row, 380, 40);
     lv_obj_set_style_bg_opa(batt_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1205,6 +1323,7 @@ void settings_screen_create()
     // Night time: opens the quiet-hours screen (no vibration, no notification wake
     // between the chosen times; alarms still ring). The right-hand readout says
     // whether it is on, and is refreshed every time Settings opens.
+    sec(SEC_DISPLAY);
     lv_obj_t *night_row = lv_obj_create(settings_screen);
     lv_obj_set_size(night_row, 380, 40);
     lv_obj_set_style_bg_opa(night_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1233,6 +1352,7 @@ void settings_screen_create()
     // GPS time sync until the override switch is turned back off.
 
     // Separator
+    sec(SEC_NEVER);
     lv_obj_t *sep3 = lv_obj_create(settings_screen);
     lv_obj_set_size(sep3, 380, 1);
     lv_obj_set_style_bg_color(sep3, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
@@ -1241,6 +1361,7 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(sep3, 0, LV_PART_MAIN);
 
     // Manual Time row: label left, state label + override toggle right
+    sec(SEC_TIME);
     lv_obj_t *manual_row = lv_obj_create(settings_screen);
     lv_obj_set_size(manual_row, 380, 40);
     lv_obj_set_style_bg_opa(manual_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1263,7 +1384,7 @@ void settings_screen_create()
     manual_time_switch = lv_switch_create(manual_row);
     lv_obj_set_size(manual_time_switch, 70, 34);
     lv_obj_set_style_bg_color(manual_time_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(manual_time_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(manual_time_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     // default off — automatic GPS time sync stays in control until a manual set
     lv_obj_add_event_cb(manual_time_switch, on_manual_time_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(manual_time_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -1325,6 +1446,7 @@ void settings_screen_create()
     // here at boot and from main.cpp whenever the SD state changes.
 
     // Separator
+    sec(SEC_NEVER);
     lv_obj_t *sep_ss = lv_obj_create(settings_screen);
     lv_obj_set_size(sep_ss, 380, 1);
     lv_obj_set_style_bg_color(sep_ss, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
@@ -1332,6 +1454,7 @@ void settings_screen_create()
     lv_obj_set_style_border_width(sep_ss, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sep_ss, 0, LV_PART_MAIN);
 
+    sec(SEC_SYSTEM);
     screenshot_row = lv_obj_create(settings_screen);
     lv_obj_set_size(screenshot_row, 380, 40);
     lv_obj_set_style_bg_opa(screenshot_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1354,7 +1477,7 @@ void settings_screen_create()
     screenshot_switch = lv_switch_create(screenshot_row);
     lv_obj_set_size(screenshot_switch, 70, 34);
     lv_obj_set_style_bg_color(screenshot_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(screenshot_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(screenshot_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_event_cb(screenshot_switch, on_screenshot_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(screenshot_switch, LV_ALIGN_RIGHT_MID, 0, 0);
 
@@ -1376,6 +1499,7 @@ void settings_screen_create()
     // /Settings/boot_radios.txt via boot_prefs (see boot_prefs.h), not in
     // settings.txt. WiFi and Bluetooth are mutually exclusive here (they cannot
     // run together), so enabling one at boot blocks the other with a warning.
+    sec(SEC_NEVER);
     lv_obj_t *sep_boot = lv_obj_create(settings_screen);
     lv_obj_set_size(sep_boot, 380, 1);
     lv_obj_set_style_bg_color(sep_boot, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
@@ -1384,6 +1508,7 @@ void settings_screen_create()
     lv_obj_set_style_pad_all(sep_boot, 0, LV_PART_MAIN);
 
     // Section header
+    sec(SEC_CONN);   // keep the "Enable at boot" sub-heading: these toggles are about boot, not now
     lv_obj_t *boot_hdr_row = lv_obj_create(settings_screen);
     lv_obj_set_size(boot_hdr_row, 380, 30);
     lv_obj_set_style_bg_opa(boot_hdr_row, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1403,6 +1528,7 @@ void settings_screen_create()
     // Y values follow the −130 reflow after the Wallpaper section was removed, so
     // these rows sit right under the "Enable at boot" header (1264) instead of
     // leaving a dead gap with the hint overlapping them.
+    sec(SEC_CONN);
     boot_wifi_switch = make_boot_row("WiFi", boot_prefs_get(BOOT_RADIO_WIFI),
                                      on_boot_wifi_changed, &boot_wifi_val_label);
     boot_ble_switch  = make_boot_row("Bluetooth", boot_prefs_get(BOOT_RADIO_BLE),
@@ -1424,6 +1550,7 @@ void settings_screen_create()
         "off by default. WiFi and Bluetooth cannot both auto-enable.");
 
     // --- System Info (read-only diagnostics; refreshed on screen show) --------
+    sec(SEC_NEVER);
     lv_obj_t *sep_sys = lv_obj_create(settings_screen);
     lv_obj_set_size(sep_sys, 380, 1);
     lv_obj_set_style_bg_color(sep_sys, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
@@ -1431,6 +1558,7 @@ void settings_screen_create()
     lv_obj_set_style_border_width(sep_sys, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(sep_sys, 0, LV_PART_MAIN);
 
+    sec(SEC_SYSTEM);
     lv_obj_t *sys_hdr = lv_label_create(settings_screen);
     lv_obj_set_style_text_color(sys_hdr, ARGUS_TEXT, LV_PART_MAIN);
     lv_obj_set_style_text_font(sys_hdr, theme_text_font(20), LV_PART_MAIN);
@@ -1445,6 +1573,7 @@ void settings_screen_create()
     // --- Mode (ARGUS Daily / Defense) ----------------------------------------
     // Appended at the bottom (safe insertion into the fixed-Y layout). Offense is
     // NOT here - it is reached only via the hidden BOOT-button knock + PIN (P4/P5).
+    sec(SEC_NEVER);
     lv_obj_t *sep_mode = lv_obj_create(settings_screen);
     lv_obj_set_size(sep_mode, 380, 1);
     lv_obj_set_style_bg_color(sep_mode, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
@@ -1459,10 +1588,11 @@ void settings_screen_create()
 
     // −130 reflow (see boot rows above): sit under the "Mode" header (1784) with
     // the hint (1920) below, not overlapping it.
+    sec(SEC_SECURITY);
     defense_switch = make_boot_row("Defense", argus_mode_defense_selected(),
         on_defense_mode_changed, &defense_val_label);
 
-    defpersist_switch = make_boot_row("Keep on boot", argus_mode_defense_persist(),
+    defpersist_switch = make_boot_row("Keep Defense on boot", argus_mode_defense_persist(),
         on_defpersist_changed, &defpersist_val_label);
 
     lv_obj_t *mode_hint = lv_label_create(settings_screen);
@@ -1501,7 +1631,19 @@ void settings_screen_create()
     lv_obj_set_style_text_color(det_lbl, ARGUS_TEXT, LV_PART_MAIN);
     lv_label_set_text(det_lbl, "Clear detection logs");
     lv_obj_center(det_lbl);
-    lv_obj_add_event_cb(det_btn, [](lv_event_t *) {
+    // Destructive, so it takes two taps: the first arms the button (label asks
+    // for confirmation), a second within 4 s erases. Anything else disarms it.
+    lv_obj_add_event_cb(det_btn, [](lv_event_t *e) {
+        static uint32_t armed_at = 0;
+        lv_obj_t *lbl = lv_obj_get_child((lv_obj_t *)lv_event_get_target(e), 0);
+        uint32_t now = millis();
+        if (armed_at == 0 || now - armed_at > 4000) {
+            armed_at = now ? now : 1;
+            if (lbl) { lv_label_set_text(lbl, "Tap again to erase logs"); lv_obj_center(lbl); }
+            return;
+        }
+        armed_at = 0;
+        if (lbl) { lv_label_set_text(lbl, "Clear detection logs"); lv_obj_center(lbl); }
         int n = detect_log_clear_all();
         char msg[96];
         snprintf(msg, sizeof(msg),
@@ -1541,6 +1683,7 @@ void settings_screen_create()
     // lower edge, read as part of the chrome, and was reported as missing
     // entirely. So: leave clearance for two lines, and keep the button below far
     // enough down. 2264 + 36 = 2300, and usbsd_btn starts at 2320.
+    sec(SEC_TIME);
     s_sync_lbl = lv_label_create(settings_screen);
     lv_obj_set_style_text_font(s_sync_lbl, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_width(s_sync_lbl, 360);
@@ -1551,6 +1694,7 @@ void settings_screen_create()
     lv_obj_set_style_text_align(s_sync_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     settings_update_clock_sync();
 
+    sec(SEC_CONN);
     lv_obj_t *usbsd_btn = lv_button_create(settings_screen);
     lv_obj_set_size(usbsd_btn, 380, 64);
     lv_obj_set_style_bg_color(usbsd_btn, lv_color_make(0x1E, 0x1E, 0x1E), LV_PART_MAIN);
@@ -1573,8 +1717,9 @@ void settings_screen_create()
         else                                            { pin_pad_screen_show(); }
     }, LV_EVENT_CLICKED, NULL);
 
-    // Hide the conditional rows (face rows, Manual Time editor) now that they
-    // all exist. The flex column closes the gaps.
+    // Every row exists: group them into sections, then show only what the open
+    // section and each row's own condition allow. The flex column does the rest.
+    finish_sections();
     apply_layout();
 
     // Reflect the current SD state in the row's interactability + checked

@@ -200,6 +200,9 @@ static int run_gallery(const char *outdir)
     if ((r = gallery_scroll(outdir, "menu",     find_scroller(lv_screen_active()))) < 0) return 1; total += r;
     settings_screen_show();       settle();
     if ((r = gallery_scroll(outdir, "settings", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
+    settings_screen_expand_all(true); settle();   // every section open: the whole list
+    if ((r = gallery_scroll(outdir, "settings_all", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
+    settings_screen_expand_all(false); settle();
     face_watch_screen_show();     settle();
     if ((r = gallery_scroll(outdir, "facewatch", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
     notifications_screen_show();  settle();

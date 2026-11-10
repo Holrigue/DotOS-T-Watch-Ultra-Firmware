@@ -28,6 +28,9 @@ bool settings_get_screenshot_long_press();
 // about whether the feature can actually write a file right now.
 void settings_screen_apply_sd_state();
 
+// Open (true) or close (false) every Settings section at once.
+void settings_screen_expand_all(bool open);
+
 // Persist the current settings to /Settings/settings.txt now. Exposed for the
 // Facewatch Customize screen, which owns the Show Day / Show Date toggles but
 // stores their state here. Safe only after settings_screen_create() (boot).

@@ -605,7 +605,7 @@ void pager_screen_create()
     lv_obj_set_size(scan_switch, 60, 32);
     lv_obj_align(scan_switch, LV_ALIGN_TOP_MID, -90, 120);
     lv_obj_set_style_bg_color(scan_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(scan_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(scan_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_event_cb(scan_switch, on_scan_toggled, LV_EVENT_VALUE_CHANGED, NULL);
 
     status_label = lv_label_create(pager_screen);

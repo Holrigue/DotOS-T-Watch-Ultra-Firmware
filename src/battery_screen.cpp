@@ -83,7 +83,7 @@ static lv_obj_t *make_option(lv_obj_t *parent, const char *title, const char *de
         lv_obj_t *sw = lv_switch_create(head);
         lv_obj_set_size(sw, 70, 34);
         lv_obj_set_style_bg_color(sw, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_bg_color(sw, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+        lv_obj_set_style_bg_color(sw, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
         lv_obj_add_event_cb(sw, cb, LV_EVENT_VALUE_CHANGED, NULL);
         lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
         *sw_out = sw;

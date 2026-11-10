@@ -859,7 +859,7 @@ void gps_screen_create()
     lv_obj_set_ext_click_area(toggle_sw, 22);  // easier to hit
     lv_obj_set_size(toggle_sw, 100, 50);
     lv_obj_set_style_bg_color(toggle_sw, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(toggle_sw, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(toggle_sw, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_event_cb(toggle_sw, on_toggle, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(toggle_sw, LV_ALIGN_TOP_MID, -90, 72);
 

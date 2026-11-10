@@ -240,7 +240,7 @@ static lv_obj_t *make_toggle(lv_obj_t *parent, int y, bool on, lv_event_cb_t cb)
     lv_obj_set_size(sw, 70, 34);
     lv_obj_align(sw, LV_ALIGN_TOP_RIGHT, -24, y + 3);
     lv_obj_set_style_bg_color(sw, lv_color_hex(0x333333), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(sw, NW, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(sw, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     if (on) lv_obj_add_state(sw, LV_STATE_CHECKED);
     lv_obj_clear_flag(sw, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_event_cb(sw, cb, LV_EVENT_VALUE_CHANGED, NULL);
