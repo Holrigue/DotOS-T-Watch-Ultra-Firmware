@@ -99,6 +99,7 @@
 #include "ble_scan_manager.h"
 #include "radio_coexist.h"
 #include "boot_prefs.h"
+#include "drain_stats.h"     // battery drain slope, shown in System Info
 #include "charge_state.h"   // debounced Discharging/Charging/Topped readout
 #include "detect_log_sd.h"   // detection-log retention sweep
 #include <esp_wifi.h>   // esp_wifi_get_mode() for live WiFi-mode reads
@@ -2714,6 +2715,7 @@ static void display_off()
     // Nothing renders now: stretch a background BLE scan to ~15% duty and drop
     // the core clock to 80 MHz. Both are restored the moment the screen wakes.
     ble_scan_set_low_duty(true);
+    ans::set_link_low_power(true);   // slower phone link while nothing is shown
     cpu_set_low(true);
 }
 
@@ -2725,6 +2727,7 @@ static void display_on()
     // frame renders at 240 MHz.
     cpu_set_low(false);
     ble_scan_set_low_duty(false);
+    ans::set_link_low_power(false);
     instance.wakeupDisplay();
     lv_timer_resume(lv_display_get_refr_timer(lv_display_get_default()));
     // A touch that is still down keeps the blocker until it lifts; any other
@@ -5047,6 +5050,17 @@ void loop()
         if (configuration_screen_is_active())
             configuration_screen_update();
         low_mem_check();   // warn (once/min) if internal RAM is running low
+        // Battery drain slope (Settings > System Info). Every 30 s is plenty: the
+        // gauge resolves 1%, and each read is an I2C round trip to the PMU.
+        {
+            static uint32_t s_last_drain_s = 0;
+            uint32_t now_s = millis() / 1000;
+            if (now_s - s_last_drain_s >= 30 || s_last_drain_s == 0) {
+                s_last_drain_s = now_s ? now_s : 1;
+                drain::tracker().sample(now_s, instance.pmu.getBatteryPercent(),
+                                        !instance.pmu.isVbusIn(), s_display_off);
+            }
+        }
         mem_stats_tick();  // [mem] serial line every 30 s and on every radio change
         // Fold the live WiFi beacon stream through the pure evil-twin +
         // beacon-flood detectors -> ThreatState -> forensic log + HADES accent /

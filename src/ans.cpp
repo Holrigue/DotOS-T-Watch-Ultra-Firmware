@@ -12,6 +12,7 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <BLESecurity.h>
+#include <esp_gap_ble_api.h>   // esp_ble_gap_update_conn_params (link power saving)
 #include <LilyGoLib.h>       // instance.isCardReady() for the GPX receiver
 #include <SD.h>
 #include <esp_heap_caps.h>   // PSRAM buffer for the streamed GPX
@@ -214,10 +215,41 @@ class GpxInCb : public BLECharacteristicCallbacks {
 };
 GpxInCb s_gpx_cb;
 
+// Peer address of the connected phone, for connection-parameter requests.
+esp_bd_addr_t s_peer_bda   = {0};
+volatile bool s_have_peer  = false;
+volatile bool s_link_relaxed = false;   // what the UI last asked for
+
+// Ask the phone for a slower or a faster link. It is a REQUEST: the phone (the
+// central) decides, and a refusal simply leaves the link as it was.
+//
+// Relaxed (panel off): 100-150 ms interval with slave latency 4, so the radio
+// may sleep through up to 4 empty events - a notification still lands within
+// ~0.75 s. Fast (panel on): 30-50 ms, no latency, for a responsive UI. Both sets
+// stay inside the stricter of the Android/Apple accessory limits (interval *
+// (latency + 1) <= 2 s, supervision timeout > 3x that).
+void request_link_params(bool relaxed)
+{
+    if (!s_have_peer) return;
+    esp_ble_conn_update_params_t p = {};
+    memcpy(p.bda, s_peer_bda, sizeof(esp_bd_addr_t));
+    if (relaxed) { p.min_int = 0x50; p.max_int = 0x78; p.latency = 4; p.timeout = 600; }
+    else         { p.min_int = 0x18; p.max_int = 0x28; p.latency = 0; p.timeout = 400; }
+    esp_ble_gap_update_conn_params(&p);
+}
+
 class ServerCb : public BLEServerCallbacks {
     void onConnect(BLEServer *) override { s_connected = true; }
+    void onConnect(BLEServer *, esp_ble_gatts_cb_param_t *param) override {
+        memcpy(s_peer_bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
+        s_have_peer = true;
+        // A phone that connects while the panel is already off gets the relaxed
+        // link straight away.
+        if (s_link_relaxed) request_link_params(true);
+    }
     void onDisconnect(BLEServer *) override {
         s_connected = false;
+        s_have_peer = false;
         if (s_running) BLEDevice::startAdvertising();   // reconnectable
     }
 };
@@ -318,6 +350,13 @@ void stop()
 
 bool is_running()   { return s_running;   }
 bool is_connected() { return s_connected; }
+
+void set_link_low_power(bool low)
+{
+    if (low == s_link_relaxed) return;
+    s_link_relaxed = low;
+    if (s_running && s_connected) request_link_params(low);
+}
 
 void set_find_handler(void (*fn)(uint8_t)) { s_find_handler = fn; }
 

@@ -16,6 +16,7 @@
 #include "night_screen.h"            // Settings > Night time sub-menu
 #include "night_mode.h"              // On/Off readout on the Night time row
 #include "dim_steps.h"                // evenly spaced stops of the Dim Timer slider
+#include "drain_stats.h"              // measured battery drain (%/h)
 #include "mem_stats.h"                // lowest-ever free RAM + largest free block
 #include <LilyGoLib.h>
 #include <SD.h>
@@ -130,15 +131,32 @@ static void settings_update_sysinfo()
     int det = detect_log_total_records();
     char low[40];
     mem_stats_format_low(low, sizeof low);
+    // Measured drain over the current run on battery. The PMU has no current
+    // sensor, so this slope is the only real consumption figure there is.
+    char drn[48];
+    {
+        const drain::Tracker &t = drain::tracker();
+        int r = t.rate_x10();
+        if (!t.active())      snprintf(drn, sizeof drn, "on charger");
+        else if (r < 0)       snprintf(drn, sizeof drn, "measuring (%lum)",
+                                       (unsigned long)(t.elapsed_s() / 60));
+        else                  snprintf(drn, sizeof drn, "%d.%d%%/h ~%dh left",
+                                       r / 10, r % 10, t.hours_left());
+    }
+    int off_pct = drain::tracker().screen_off_pct();
+    if (off_pct < 0) off_pct = 0;
     lv_label_set_text_fmt(sysinfo_label,
         "Heap : %u KB free\n"
         "Low  : %s\n"
         "PSRAM: %u / %u KB\n"
         "Batt : %d%%%s\n"
+        "Drain: %s\n"
+        "Off  : %d%% of run\n"
         "Up   : %luh %02lum %02lus\n"
         "Det  : %d record(s), %dd max",
         heap_kb, low, ps_free, ps_total,
         batt, chg,
+        drn, off_pct,
         (unsigned long)(up / 3600), (unsigned long)((up % 3600) / 60),
         (unsigned long)(up % 60),
         det, detlog::kMaxAgeDays);
