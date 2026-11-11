@@ -4718,16 +4718,28 @@ static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
     }
 }
 
-// Global navigation convention for app screens: swipe UP -> the Apps menu,
-// swipe LEFT -> the home clock. Attached once to each screen the first time it
-// becomes active (below), so every app obeys it without editing each screen's
-// own gesture handler. The clock and the Apps menu are skipped - they run their
-// own gesture scheme.
+// Global navigation convention for app screens, as a FALLBACK behind each
+// screen's own gesture handler:
+//   swipe RIGHT -> back one screen (the menu the app was opened from)
+//   swipe LEFT  -> the home clock
+//   swipe UP    -> the Apps menu
+// Attached once to each screen the first time it becomes active (below), so
+// every app obeys it without editing each screen's own handler. The clock and
+// the Apps menu are skipped - they run their own gesture scheme.
+//
+// This callback is added after the screen's own handler, so it runs second. If
+// that handler already navigated (the active screen is no longer this one), the
+// swipe has been dealt with and nothing more happens here. That is what lets a
+// screen give LEFT or RIGHT its own meaning - the chain face -> Wardriver ->
+// Meshtastic -> Nodes -> Send -> Map moves on with LEFT - without this fallback
+// then overriding it and jumping home. Before, both ran and the last one won.
 static void nav_gesture_cb(lv_event_t *e)
 {
+    if (lv_screen_active() != (lv_obj_t *)lv_event_get_current_target(e)) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(e));
-    if (dir == LV_DIR_TOP)       apps_screen_show();
-    else if (dir == LV_DIR_LEFT) clock_screen_show();
+    if (dir == LV_DIR_TOP)        apps_screen_show();
+    else if (dir == LV_DIR_LEFT)  clock_screen_show();
+    else if (dir == LV_DIR_RIGHT) apps_screen_show();   // screens with no "back" of their own
 }
 
 static lv_obj_t *s_nav_attached[80];

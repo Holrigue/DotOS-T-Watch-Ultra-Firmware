@@ -13,7 +13,8 @@ static void rebuild_list();
 static void on_back_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
-    if (lv_indev_get_gesture_dir(indev) == LV_DIR_LEFT) {
+    // Swipe RIGHT steps back to Configuration, like "back" on every other screen.
+    if (lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT) {
         configuration_screen_show();
     }
 }

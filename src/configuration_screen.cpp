@@ -315,7 +315,9 @@ static void on_announce_interval_changed(lv_event_t *)
 static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
-    if (lv_indev_get_gesture_dir(indev) == LV_DIR_LEFT) {
+    // Last stop of the chain: swipe RIGHT steps back one screen, like everywhere
+    // else. (Swipe LEFT is the global "home" gesture; it is not handled here.)
+    if (lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT) {
         configuration_screen_commit();
         save_config_to_sd();
         // Reverse chain: Configuration -> Map (when /map tiles exist on
