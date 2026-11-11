@@ -11,7 +11,7 @@
 // and by the settings switch itself, so polling is cheap and safe to call
 // from the main loop unconditionally.
 
-#define SCREENSHOT_LONG_PRESS_MS  3000
+#define SCREENSHOT_LONG_PRESS_MS  5000
 
 // Capture the active screen and write the BMP. Synchronous, blocks for
 // ~100–300 ms (snapshot + SD write). Returns true on success; false if SD

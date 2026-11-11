@@ -1393,7 +1393,7 @@ void settings_screen_create()
     lv_obj_set_width(screenshot_hint, 360);
     lv_label_set_long_mode(screenshot_hint, LV_LABEL_LONG_WRAP);
     lv_label_set_text(screenshot_hint,
-        "Hold any point for 3 seconds to save a screenshot to "
+        "Hold any point for 5 seconds to save a screenshot to "
         "/Screenshots on the SD card. Requires a mounted SD.");
 
     // ---- Enable at boot section ---------------------------------------------

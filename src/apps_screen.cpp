@@ -529,16 +529,19 @@ void build_icon(lv_obj_t *box, HomeTile t)
         ring(box, 57, 33, 22, 3, acc);                   // right reel
         shape(box, 65, 41, 6, 6, LV_RADIUS_CIRCLE, acc);
         break; }
-    case HT_HEALTH: {      // heart: two lobes + a 45deg square point, all orange
-        shape(box, 14, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // left lobe
-        shape(box, 44, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // right lobe
-        // Bottom point: a square rotated 45deg. Sized/placed so its TOP corner
-        // tucks exactly under where the two lobes meet (~y19) instead of poking
-        // up through the gap between them, which showed as a stray diamond/cross.
-        lv_obj_t *pt = shape(box, 29, 26, 34, 34, 4, acc);
+    case HT_HEALTH: {      // heart: a 45deg square body + two round lobes, all orange
+        // The body is a square rotated 45deg (its bottom corner is the heart tip).
+        // It is drawn FIRST, then the two lobes ON TOP cap the two upper edges and
+        // hide them completely - so the rotated square's anti-aliased edges never
+        // show as a seam through the middle, which was the earlier defect. Each
+        // lobe is centred on the midpoint of an upper edge (circle radius = half
+        // the square side), so lobes and body meet flush.
+        lv_obj_t *pt = shape(box, 29, 22, 34, 34, 4, acc);   // body, centre (46,39)
         lv_obj_set_style_transform_pivot_x(pt, 17, LV_PART_MAIN);
         lv_obj_set_style_transform_pivot_y(pt, 17, LV_PART_MAIN);
         lv_obj_set_style_transform_rotation(pt, 450, LV_PART_MAIN);   // 45.0 deg
+        shape(box, 17, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // left lobe,  centre (34,27)
+        shape(box, 41, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // right lobe, centre (58,27)
         break; }
     default: break;
     }
