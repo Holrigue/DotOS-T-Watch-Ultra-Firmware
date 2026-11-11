@@ -16,6 +16,7 @@
 
 #include <LilyGoLib.h>
 #include <stdint.h>
+#include <cstring>
 
 // Detector toggle APIs (uniform start/stop/is_running).
 #include "airtag.h"
@@ -154,7 +155,42 @@ const Entry ENTRIES[] = {
 #undef T
 constexpr int ENTRY_COUNT = (int)(sizeof(ENTRIES) / sizeof(ENTRIES[0]));
 
+// Home-tile shortcuts that are not launcher table entries but should still be
+// favoritable from the Favorites page.
+struct FavExtra { const char *name; void (*launch)(); };
+const FavExtra FAV_EXTRA[] = {
+    { "Music",  music_screen_show },
+    { "Health", health_screen_show },
+};
+constexpr int FAV_EXTRA_COUNT = (int)(sizeof(FAV_EXTRA) / sizeof(FAV_EXTRA[0]));
+
 }  // namespace
+
+// ---- Favoritable targets (Favorites / shortcuts page) ----------------------
+// Every launcher entry (the ON/OFF detector toggles are excluded) plus the two
+// home-tile shortcuts above. Addressed by NAME so the Favorites file survives a
+// table reordering across firmware updates.
+int apps_fav_count()
+{
+    int n = 0;
+    for (const Entry &e : ENTRIES) if (!e.toggle) n++;
+    return n + FAV_EXTRA_COUNT;
+}
+
+const char *apps_fav_name(int i)
+{
+    if (i < 0) return nullptr;
+    for (const Entry &e : ENTRIES) { if (e.toggle) continue; if (i == 0) return e.title; i--; }
+    if (i < FAV_EXTRA_COUNT) return FAV_EXTRA[i].name;
+    return nullptr;
+}
+
+void apps_fav_launch_by_name(const char *name)
+{
+    if (!name) return;
+    for (const Entry &e : ENTRIES) if (!e.toggle && e.launch && strcmp(e.title, name) == 0) { e.launch(); return; }
+    for (const FavExtra &x : FAV_EXTRA) if (strcmp(x.name, name) == 0) { x.launch(); return; }
+}
 
 static lv_obj_t *s_home = nullptr;              // Notifications + category rows
 static lv_obj_t *s_cat_screen[CAT_COUNT] = {};  // one PRE-BUILT screen per category

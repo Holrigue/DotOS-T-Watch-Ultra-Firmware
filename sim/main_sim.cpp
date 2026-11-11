@@ -32,6 +32,7 @@
 #include "settings_screen.h"
 #include "face_watch_screen.h"
 #include "notifications_screen.h"
+#include "favorites_screen.h"
 #include "notify/notify_center.h"
 
 // Must precede SDL.h: we supply our own main(), not SDL's WinMain shim.
@@ -207,6 +208,18 @@ static int run_gallery(const char *outdir)
     if ((r = gallery_scroll(outdir, "facewatch", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
     notifications_screen_show();  settle();
     if ((r = gallery_scroll(outdir, "shade",    lv_screen_active())) < 0) return 1; total += r;
+
+    // Favorites: the empty grid (hint + Edit tile), then its Edit list.
+    favorites_init();
+    favorites_screen_show();      settle();
+    if ((r = gallery_scroll(outdir, "favorites", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
+    {
+        lv_obj_t *grid = lv_obj_get_child(lv_screen_active(), 1);
+        lv_obj_t *edit = lv_obj_get_child(grid, (int)lv_obj_get_child_count(grid) - 1);
+        lv_obj_send_event(edit, LV_EVENT_CLICKED, NULL);
+        settle();
+        if ((r = gallery_scroll(outdir, "favorites_edit", find_scroller(lv_screen_active()))) < 0) return 1; total += r;
+    }
     printf("%d stills -> %s\n", total, outdir);
     return 0;
 }

@@ -114,6 +114,7 @@ LDFLAGS  := $(SDL_LDFLAGS)
 # so their layout can be reviewed as stills before a flash. Real sources again;
 # what they call into is stubbed in stubs_gallery.cpp.
 GALLERY_CXX := $(SRC)/apps_screen.cpp $(SRC)/settings_screen.cpp \
+               $(SRC)/favorites_screen.cpp \
                $(SRC)/face_watch_screen.cpp $(SRC)/face_watch.cpp \
                $(SRC)/notifications_screen.cpp $(SRC)/clock_sync.cpp \
                $(SRC)/notify/notification_store.cpp

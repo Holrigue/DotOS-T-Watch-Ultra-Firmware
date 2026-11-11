@@ -64,6 +64,7 @@
 #include "portscan.h"
 #include "portscan_screen.h"
 #include "wardriver_screen.h"
+#include "favorites_screen.h"
 #include "nfc_screen.h"
 #include "nfc_write_screen.h"
 #include "stopwatch_screen.h"
@@ -2315,19 +2316,13 @@ static void on_clock_gesture(lv_event_t *e)
     //
     // Home navigation:
     //   swipe right-to-left  -> the "Menu" (unified launcher: category list)
-    //   swipe left-to-right  -> Wardriver (recon, gated in Daily -> Meshtastic)
+    //   swipe left-to-right  -> the Favorites page (user-chosen shortcuts)
     //   swipe down           -> notification shade (every mode)
     //   swipe up             -> straight into the "Apps" sub-menu (shortcut)
-    bool daily = (argus_mode_current() == ArgusMode::Daily);
     if (dir == LV_DIR_LEFT) {
         apps_screen_show();                    // the Menu (category list), every mode
     } else if (dir == LV_DIR_RIGHT) {
-        if (!daily) {
-            wardriver_screen_show();           // recon, gated in Daily
-        } else {
-            meshtastic_mark_read();            // comms, available in every mode
-            meshtastic_screen_show();
-        }
+        favorites_screen_show();               // user-chosen shortcuts (was: recon/comms chain)
     } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
         notifications_screen_show();     // shade: notifications + brightness, every mode
     } else if (dir == LV_DIR_TOP) {      // swipe up from clock face
@@ -4219,6 +4214,7 @@ void setup()
     // Restore persisted settings from the SD card (if mounted and file exists).
     // Called after the default setBrightness so a saved brightness wins.
     settings_screen_load();
+    favorites_init();   // load the user's shortcut list from SD
 
     // Timezone: restore the saved UTC offset so the face shows correct local time
     // immediately. MUST run after settings_screen_load(): the Manual Time flag is
