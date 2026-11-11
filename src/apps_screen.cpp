@@ -511,6 +511,23 @@ lv_obj_t *ring(lv_obj_t *parent, int x, int y, int d, int width, lv_color_t col)
     return o;
 }
 
+// A static arc segment (no knob, no indicator): a `d`x`d` arc centred in its own
+// box, drawn only between start_deg and end_deg (LVGL angles: 0 = 3 o'clock,
+// clockwise). Used for the broadcast "signal" marks.
+lv_obj_t *arc_seg(lv_obj_t *parent, int x, int y, int d, int width,
+                  int start_deg, int end_deg, lv_color_t col)
+{
+    lv_obj_t *a = lv_arc_create(parent);
+    lv_obj_remove_style_all(a);
+    lv_obj_set_size(a, d, d);
+    lv_obj_set_pos(a, x, y);
+    lv_arc_set_bg_angles(a, start_deg, end_deg);
+    lv_obj_set_style_arc_color(a, col, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(a, width, LV_PART_MAIN);
+    lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
+    return a;
+}
+
 // The icon sits in a 96 x 80 box at the top-left of the tile.
 void build_icon(lv_obj_t *box, HomeTile t)
 {
@@ -525,12 +542,18 @@ void build_icon(lv_obj_t *box, HomeTile t)
         ring(box, 20, 20, 34, 3, ink);
         shape(box, 52, 14, 14, 14, LV_RADIUS_CIRCLE, acc);
         break;
-    case HT_DEFENSE:       // shield: hatched body, orange core
+    case HT_DEFENSE:       // padlock: body + shackle, accent keyhole
     {
-        lv_obj_t *body = hatch_shape(box, 6, 0, 62, 72, 28, ARGUS_TILE, ink);
-        lv_obj_set_style_border_color(body, ink, LV_PART_MAIN);
-        lv_obj_set_style_border_width(body, 3, LV_PART_MAIN);
-        shape(box, 25, 24, 24, 24, LV_RADIUS_CIRCLE, acc);
+        // Shackle: the top half of a ring (a clean "n"), with two short legs down
+        // into the body. Drawn with the arc primitive so there is no seam.
+        arc_seg(box, 26, 10, 44, 7, 180, 360, ink);   // centre (48,32), r 22
+        shape(box, 26, 30, 7, 12, 2, ink);            // left leg
+        shape(box, 63, 30, 7, 12, 2, ink);            // right leg
+        // Body: a rounded rect. The keyhole (accent) is a small circle with a
+        // short stem, punched in the accent colour.
+        shape(box, 20, 38, 56, 40, 10, ink);          // lock body
+        shape(box, 43, 50, 12, 12, LV_RADIUS_CIRCLE, acc);  // keyhole hole
+        shape(box, 45, 58, 8, 12, 3, acc);            // keyhole stem
         break;
     }
     case HT_OFFENSE:       // crosshair
@@ -581,15 +604,14 @@ void build_icon(lv_obj_t *box, HomeTile t)
         shape(box, 17, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // left lobe,  centre (34,27)
         shape(box, 41, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // right lobe, centre (58,27)
         break; }
-    case HT_COMMS: {       // speech bubble outline + three dots (one accent)
-        shape(box, 6, 2, 84, 52, 18, ink);               // bubble
-        shape(box, 11, 7, 74, 42, 14, ARGUS_TILE);       // punch the inside -> outline
-        shape(box, 18, 48, 20, 18, 5, ink);              // tail nub, bottom-left
-        shape(box, 23, 54, 12, 12, 4, ARGUS_TILE);       // hollow the tail to match the outline
-        shape(box, 24, 22, 12, 12, LV_RADIUS_CIRCLE, ink);
-        shape(box, 42, 22, 12, 12, LV_RADIUS_CIRCLE, acc);
-        shape(box, 60, 22, 12, 12, LV_RADIUS_CIRCLE, ink);
-        break; }
+    case HT_COMMS:         // broadcast signal: an accent source + two radiating arcs
+        // Transmitter look (Meshtastic / LoRa / APRS), not a chat app. Both arcs
+        // are centred on (18,58); the accent source dot sits there, well clear of
+        // the inner arc so it reads as a clean source, not a blob.
+        arc_seg(box, -22, 18, 80, 7, 272, 358, ink);     // outer wave (r 40)
+        arc_seg(box, -6,  34, 48, 7, 272, 358, ink);     // inner wave (r 24)
+        shape(box, 9, 49, 18, 18, LV_RADIUS_CIRCLE, acc);   // source, centre (18,58)
+        break;
     default: break;
     }
 }
