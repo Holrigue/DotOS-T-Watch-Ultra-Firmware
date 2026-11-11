@@ -125,6 +125,7 @@ void loot_screen_show(void)             {}
 void mouse_screen_show(void)            {}
 void nfc_field_screen_show(void)        {}
 void pager_screen_show(void)            {}
+void wardriver_screen_show(void)        {}
 void pet_screen_show(void)              {}
 void probe_sniffer_screen_show(void)    {}
 void rogue_ap_screen_show(void)         {}

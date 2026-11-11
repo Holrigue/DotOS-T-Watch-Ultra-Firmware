@@ -60,6 +60,7 @@ void tpms_screen_show();
 void pager_screen_show();
 void aprs_screen_show();
 void meshtastic_screen_show();
+void wardriver_screen_show();   // recon, now a Defense launcher entry
 void usb_sd_screen_show();
 void face_watch_screen_show();
 void alarm_screen_show();
@@ -80,8 +81,8 @@ static const lv_color_t AOFF = ARGUS_RAISED;                     // toggle OFF p
 
 namespace {
 
-enum Cat { CAT_TRACKING = 0, CAT_DEFENSE, CAT_OFFENSE, CAT_APPS, CAT_TIMECLOCK, CAT_COUNT };
-const char *CAT_NAME[CAT_COUNT] = { "TRACKING", "DEFENSE", "OFFENSE", "APPS", "TIME & CLOCK" };
+enum Cat { CAT_TRACKING = 0, CAT_DEFENSE, CAT_OFFENSE, CAT_COMMS, CAT_APPS, CAT_TIMECLOCK, CAT_COUNT };
+const char *CAT_NAME[CAT_COUNT] = { "TRACKING", "DEFENSE", "OFFENSE", "COMMS", "APPS", "TIME & CLOCK" };
 
 struct Entry {
     const char *title;
@@ -114,6 +115,7 @@ const Entry ENTRIES[] = {
     L("WiFi Survey",      CAT_DEFENSE, wifi_screen_show),
     L("WiFi Analyze",     CAT_DEFENSE, analyze_screen_show),
     L("Deauth Detector",  CAT_DEFENSE, deauth_screen_show),
+    L("Wardriver",        CAT_DEFENSE, wardriver_screen_show),
 
     // --- Offense: active/attack tools ------------------------------------
     T("Evil Twin",        CAT_OFFENSE, evil_twin_start, evil_twin_stop, evil_twin_is_running),
@@ -134,9 +136,9 @@ const Entry ENTRIES[] = {
     L("Find",             CAT_APPS, find_screen_show),
     L("HexHound",         CAT_APPS, pet_screen_show),
     L("Flashlight",       CAT_APPS, flashlight_screen_show),
-    L("Meshtastic",       CAT_APPS, meshtastic_screen_show),
-    L("Pager 13:37",      CAT_APPS, pager_screen_show),
-    L("LoRa APRS",        CAT_APPS, aprs_screen_show),
+    L("Meshtastic",       CAT_COMMS, meshtastic_screen_show),
+    L("Pager 13:37",      CAT_COMMS, pager_screen_show),
+    L("LoRa APRS",        CAT_COMMS, aprs_screen_show),
     L("TPMS",             CAT_APPS, tpms_screen_show),
 
     // --- Time & Clock ----------------------------------------------------
@@ -419,13 +421,13 @@ static void build_category_screen(Cat c)
 
 namespace {
 
-enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_MUSIC, HT_HEALTH, HT_COUNT };
+enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_MUSIC, HT_HEALTH, HT_COMMS, HT_COUNT };
 
 // The order tiles appear in the MENU grid. Time & Clock first, Notifications
 // second (per the day-to-day use of the watch); Settings is not a tile here - it
 // is the pinned gear in the corner - so it is left out of this list.
 constexpr HomeTile kHomeOrder[] = {
-    HT_TIMECLOCK, HT_NOTIFY, HT_APPS, HT_MUSIC, HT_HEALTH, HT_TRACKING, HT_DEFENSE, HT_OFFENSE,
+    HT_TIMECLOCK, HT_NOTIFY, HT_APPS, HT_MUSIC, HT_HEALTH, HT_COMMS, HT_TRACKING, HT_DEFENSE, HT_OFFENSE,
 };
 constexpr int kHomeOrderCount = (int)(sizeof(kHomeOrder) / sizeof(kHomeOrder[0]));
 
@@ -543,12 +545,21 @@ void build_icon(lv_obj_t *box, HomeTile t)
         shape(box, 17, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // left lobe,  centre (34,27)
         shape(box, 41, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // right lobe, centre (58,27)
         break; }
+    case HT_COMMS: {       // speech bubble outline + three dots (one accent)
+        shape(box, 6, 2, 84, 52, 18, ink);               // bubble
+        shape(box, 11, 7, 74, 42, 14, ARGUS_TILE);       // punch the inside -> outline
+        shape(box, 18, 48, 20, 18, 5, ink);              // tail nub, bottom-left
+        shape(box, 23, 54, 12, 12, 4, ARGUS_TILE);       // hollow the tail to match the outline
+        shape(box, 24, 22, 12, 12, LV_RADIUS_CIRCLE, ink);
+        shape(box, 42, 22, 12, 12, LV_RADIUS_CIRCLE, acc);
+        shape(box, 60, 22, 12, 12, LV_RADIUS_CIRCLE, ink);
+        break; }
     default: break;
     }
 }
 
 const char *TILE_LABEL[HT_COUNT] = { "Notifications", "Tracking", "Defense", "Offense",
-                                      "Apps", "Time & Clock", "Settings", "Music", "Health" };
+                                      "Apps", "Time & Clock", "Settings", "Music", "Health", "Comms" };
 
 void on_home_tile(lv_event_t *e)
 {
@@ -563,6 +574,7 @@ void on_home_tile(lv_event_t *e)
     case HT_OFFENSE:   on_cat_row_for(CAT_OFFENSE);   break;
     case HT_APPS:      on_cat_row_for(CAT_APPS);      break;
     case HT_TIMECLOCK: on_cat_row_for(CAT_TIMECLOCK); break;
+    case HT_COMMS:     on_cat_row_for(CAT_COMMS);     break;
     default: break;
     }
 }
