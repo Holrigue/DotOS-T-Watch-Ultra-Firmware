@@ -451,8 +451,8 @@ static void on_gesture(lv_event_t *e)
         // leaving it permanently nudged.
         s_manual_pan = false;
     }
-    if      (dir == LV_DIR_LEFT)  send_message_screen_show();   // back
-    else if (dir == LV_DIR_RIGHT) configuration_screen_show();  // forward
+    if      (dir == LV_DIR_RIGHT) send_message_screen_show();   // back one screen
+    else if (dir == LV_DIR_LEFT)  configuration_screen_show();  // next in the chain
 }
 
 // Press-and-drag panning. Fires for every LVGL frame while the finger

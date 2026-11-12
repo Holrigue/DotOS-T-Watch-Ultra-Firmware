@@ -14,6 +14,10 @@
 #include "Arduino.h"
 #include <time.h>
 
+#ifndef DEVICE_MAX_BRIGHTNESS_LEVEL
+#define DEVICE_MAX_BRIGHTNESS_LEVEL 255   // same value as LilyGoWatchUltra.h
+#endif
+
 struct SimRtc {
     void getDateTime(struct tm *out);
     void setDateTime(struct tm t);

@@ -9,7 +9,7 @@
 
 // Seconds per stop; 0 = never dim (OFF). OFF is last so "all the way right" = never.
 constexpr uint16_t kDimStepSec[] = {
-    5, 10, 15, 20, 25, 30, 40, 50, 60, 90, 120, 180, 240, 300, 0,
+    5, 10, 15, 20, 25, 30, 40, 50, 60, 0,
 };
 constexpr int kDimStepCount = (int)(sizeof(kDimStepSec) / sizeof(kDimStepSec[0]));
 constexpr int kDimStepOff   = kDimStepCount - 1;

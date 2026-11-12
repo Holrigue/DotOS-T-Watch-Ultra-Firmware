@@ -11,6 +11,8 @@
 #include "ans.h"
 #include "notify/notify_center.h"
 #include "settings_screen.h"
+#include "music_player.h"   // quick volume slider
+#include "usb_sd.h"         // quick USB-mount toggle
 
 #include <LilyGoLib.h>
 
@@ -34,9 +36,15 @@ static lv_obj_t *list_box;
 static lv_timer_t *refresh_timer;
 static lv_obj_t *bright_slider;
 static lv_obj_t *bright_pct;
+static lv_obj_t *vol_slider;           // quick media (music) volume
+static lv_obj_t *vol_pct;
+static lv_obj_t *usb_pill;             // USB-mount quick toggle
+static lv_obj_t *usb_lbl;
 static lv_obj_t *s_return = nullptr;   // screen to go back to when the shade closes
 
 static int s_shown_count = -1;   // last rendered store count, so we rebuild lazily
+
+static void update_status();   // forward decl (on_usb refreshes the pills)
 
 // ---- back gesture ----------------------------------------------------------
 // This screen doubles as the pull-down shade, so it closes like one: swipe up
@@ -67,6 +75,28 @@ static void on_brightness(lv_event_t *e)
     show_brightness(level);
 }
 
+// ---- volume (music player) -------------------------------------------------
+static void show_volume(int pct)
+{
+    if (vol_slider) lv_slider_set_value(vol_slider, pct, LV_ANIM_OFF);
+    if (vol_pct)    lv_label_set_text_fmt(vol_pct, "%d%%", pct);
+}
+
+static void on_volume(lv_event_t *)
+{
+    int v = lv_slider_get_value(vol_slider);
+    music_player_set_volume(v);   // persists to /Settings/music.txt
+    show_volume(v);
+}
+
+// ---- USB mount quick toggle ------------------------------------------------
+static void on_usb(lv_event_t *)
+{
+    if (usb_sd_is_running()) usb_sd_stop();
+    else                     usb_sd_start();   // false if no card; state reflects reality
+    update_status();
+}
+
 // ---- status + toggle label -------------------------------------------------
 static void update_status()
 {
@@ -85,20 +115,28 @@ static void update_status()
     lv_label_set_text(status_label, txt);
     lv_obj_set_style_text_color(status_label, col, LV_PART_MAIN);
 
-    lv_label_set_text(toggle_label,
-                      device_mode_is_daily_wear() ? "DISABLE" : "ENABLE NOTIFICATIONS");
+    // ---- Bluetooth / notifications pill (active = white, like Nothing-OS) ----
+    bool bt_on = device_mode_is_daily_wear();
+    lv_label_set_text(toggle_label, LV_SYMBOL_BLUETOOTH "  BT");
+    lv_obj_set_style_bg_color(toggle_btn, bt_on ? NOTHING_WHITE : lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
+    lv_obj_set_style_text_color(toggle_label, bt_on ? lv_color_black() : NOTHING_GREY, LV_PART_MAIN);
 
-    // Platform picker: shows the current choice; dimmed while notifications are
-    // live (the choice only takes effect on the next enable).
+    // ---- USB-mount pill ----
+    bool usb_on = usb_sd_is_running();
+    lv_label_set_text(usb_lbl, LV_SYMBOL_USB "  USB");
+    lv_obj_set_style_bg_color(usb_pill, usb_on ? NOTHING_WHITE : lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
+    lv_obj_set_style_text_color(usb_lbl, usb_on ? lv_color_black() : NOTHING_GREY, LV_PART_MAIN);
+
+    // ---- Platform pill (iOS / Android); dimmed while notifications are live ----
     lv_label_set_text(platform_label,
-        device_mode_platform() == NotifyPlatform::iOS ? "Apple (ANCS)"
-                                                      : "Android (Gadgetbridge)");
+        device_mode_platform() == NotifyPlatform::iOS ? LV_SYMBOL_HOME "  iOS"
+                                                      : LV_SYMBOL_HOME "  Android");
     bool locked = device_mode_is_daily_wear();
     lv_obj_set_style_bg_color(platform_btn,
-        locked ? lv_color_make(0x22, 0x22, 0x22) : lv_color_make(0x33, 0x33, 0x33),
+        locked ? lv_color_make(0x18, 0x18, 0x18) : lv_color_make(0x22, 0x22, 0x22),
         LV_PART_MAIN);
     lv_obj_set_style_text_color(platform_label,
-        locked ? NOTHING_GREY : NOTHING_WHITE, LV_PART_MAIN);
+        locked ? lv_color_make(0x55,0x55,0x55) : NOTHING_WHITE, LV_PART_MAIN);
 }
 
 // ---- notification list -----------------------------------------------------
@@ -262,63 +300,96 @@ void notifications_screen_create()
     lv_obj_set_style_bg_color(screen, lv_color_black(), LV_PART_MAIN);
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Brightness bar across the top of the shade (replaces the old "Notify"
-    // title: the status line below already says what this screen is).
-    // Placed well below the top edge: the panel's rounded corners eat the top
-    // ~40 px at the sides, which clipped the first version of this bar.
+    // ---- Quick settings: brightness + volume sliders (top of the shade) ----
+    lv_obj_t *bsym = lv_label_create(screen);
+    lv_obj_set_style_text_font(bsym, theme_text_font(16), LV_PART_MAIN);
+    lv_obj_set_style_text_color(bsym, NOTHING_GREY, LV_PART_MAIN);
+    lv_label_set_text(bsym, LV_SYMBOL_EYE_OPEN);
+    lv_obj_align(bsym, LV_ALIGN_TOP_LEFT, 32, 52);
+
     bright_slider = lv_slider_create(screen);
-    lv_obj_set_size(bright_slider, 220, 22);
-    lv_obj_align(bright_slider, LV_ALIGN_TOP_MID, -30, 60);
+    lv_obj_set_size(bright_slider, 230, 20);
+    lv_obj_align(bright_slider, LV_ALIGN_TOP_MID, -6, 52);
     lv_slider_set_range(bright_slider, 1, DEVICE_MAX_BRIGHTNESS_LEVEL);
     lv_obj_set_style_bg_color(bright_slider, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
     lv_obj_set_style_bg_color(bright_slider, lv_color_white(), LV_PART_INDICATOR);
     lv_obj_set_style_bg_color(bright_slider, lv_color_white(), LV_PART_KNOB);
-    lv_obj_set_style_pad_all(bright_slider, 6, LV_PART_KNOB);
-    // A horizontal drag on the slider must not also count as a back swipe.
-    lv_obj_clear_flag(bright_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_set_style_pad_all(bright_slider, 5, LV_PART_KNOB);
+    lv_obj_clear_flag(bright_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);   // drag != back swipe
     lv_obj_add_event_cb(bright_slider, on_brightness, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(bright_slider, on_brightness, LV_EVENT_RELEASED, NULL);
 
     bright_pct = lv_label_create(screen);
-    lv_obj_set_style_text_font(bright_pct, theme_text_font(16), LV_PART_MAIN);
+    lv_obj_set_style_text_font(bright_pct, theme_text_font(14), LV_PART_MAIN);
     lv_obj_set_style_text_color(bright_pct, NOTHING_WHITE, LV_PART_MAIN);
-    lv_obj_align(bright_pct, LV_ALIGN_TOP_MID, 118, 58);
+    lv_obj_align(bright_pct, LV_ALIGN_TOP_RIGHT, -20, 54);
 
-    status_label = lv_label_create(screen);
-    lv_obj_set_style_text_font(status_label, theme_text_font(16), LV_PART_MAIN);
-    lv_obj_set_style_text_color(status_label, NOTHING_GREY, LV_PART_MAIN);
-    lv_label_set_text(status_label, "Notifications off - tap Enable");
-    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 100);
+    lv_obj_t *vsym = lv_label_create(screen);
+    lv_obj_set_style_text_font(vsym, theme_text_font(16), LV_PART_MAIN);
+    lv_obj_set_style_text_color(vsym, NOTHING_GREY, LV_PART_MAIN);
+    lv_label_set_text(vsym, LV_SYMBOL_VOLUME_MAX);
+    lv_obj_align(vsym, LV_ALIGN_TOP_LEFT, 32, 92);
 
-    // Platform picker (iPhone / Android). Tap to switch when notifications are off.
-    platform_btn = lv_obj_create(screen);
-    lv_obj_set_size(platform_btn, 320, 38);
-    lv_obj_align(platform_btn, LV_ALIGN_TOP_MID, 0, 126);
-    lv_obj_set_style_bg_color(platform_btn, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
-    lv_obj_set_style_border_width(platform_btn, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(platform_btn, 8, LV_PART_MAIN);
-    lv_obj_clear_flag(platform_btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(platform_btn, on_platform, LV_EVENT_CLICKED, NULL);
-    platform_label = lv_label_create(platform_btn);
-    lv_obj_set_style_text_font(platform_label, theme_text_font(16), LV_PART_MAIN);
-    lv_obj_set_style_text_color(platform_label, NOTHING_WHITE, LV_PART_MAIN);
-    lv_label_set_text(platform_label, "Apple (ANCS)");
-    lv_obj_center(platform_label);
+    vol_slider = lv_slider_create(screen);
+    lv_obj_set_size(vol_slider, 230, 20);
+    lv_obj_align(vol_slider, LV_ALIGN_TOP_MID, -6, 92);
+    lv_slider_set_range(vol_slider, 0, 100);
+    lv_obj_set_style_bg_color(vol_slider, lv_color_make(0x33, 0x33, 0x33), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(vol_slider, lv_color_white(), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(vol_slider, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(vol_slider, 5, LV_PART_KNOB);
+    lv_obj_clear_flag(vol_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(vol_slider, on_volume, LV_EVENT_VALUE_CHANGED, NULL);
 
-    toggle_btn = lv_obj_create(screen);
-    lv_obj_set_size(toggle_btn, 320, 48);
-    lv_obj_align(toggle_btn, LV_ALIGN_TOP_MID, 0, 170);
-    // Primary action: solid white with black text (Nothing-OS style).
-    lv_obj_set_style_bg_color(toggle_btn, NOTHING_WHITE, LV_PART_MAIN);
+    vol_pct = lv_label_create(screen);
+    lv_obj_set_style_text_font(vol_pct, theme_text_font(14), LV_PART_MAIN);
+    lv_obj_set_style_text_color(vol_pct, NOTHING_WHITE, LV_PART_MAIN);
+    lv_obj_align(vol_pct, LV_ALIGN_TOP_RIGHT, -20, 94);
+
+    // ---- Quick toggle pills: Bluetooth, USB mount, Platform ----
+    const int PW = 118, PH = 46, PY = 130;
+    toggle_btn = lv_obj_create(screen);          // Bluetooth / notifications
+    lv_obj_set_size(toggle_btn, PW, PH);
+    lv_obj_align(toggle_btn, LV_ALIGN_TOP_MID, -(PW + 8), PY);
+    lv_obj_set_style_radius(toggle_btn, 12, LV_PART_MAIN);
     lv_obj_set_style_border_width(toggle_btn, 0, LV_PART_MAIN);
-    lv_obj_set_style_radius(toggle_btn, 8, LV_PART_MAIN);
     lv_obj_clear_flag(toggle_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(toggle_btn, on_toggle, LV_EVENT_CLICKED, NULL);
     toggle_label = lv_label_create(toggle_btn);
     lv_obj_set_style_text_font(toggle_label, theme_text_font(16), LV_PART_MAIN);
-    lv_obj_set_style_text_color(toggle_label, lv_color_black(), LV_PART_MAIN);
-    lv_label_set_text(toggle_label, "ENABLE NOTIFICATIONS");
+    lv_label_set_text(toggle_label, LV_SYMBOL_BLUETOOTH "  BT");
     lv_obj_center(toggle_label);
+
+    usb_pill = lv_obj_create(screen);            // USB mount
+    lv_obj_set_size(usb_pill, PW, PH);
+    lv_obj_align(usb_pill, LV_ALIGN_TOP_MID, 0, PY);
+    lv_obj_set_style_radius(usb_pill, 12, LV_PART_MAIN);
+    lv_obj_set_style_border_width(usb_pill, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(usb_pill, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(usb_pill, on_usb, LV_EVENT_CLICKED, NULL);
+    usb_lbl = lv_label_create(usb_pill);
+    lv_obj_set_style_text_font(usb_lbl, theme_text_font(16), LV_PART_MAIN);
+    lv_label_set_text(usb_lbl, LV_SYMBOL_USB "  USB");
+    lv_obj_center(usb_lbl);
+
+    platform_btn = lv_obj_create(screen);        // iOS / Android
+    lv_obj_set_size(platform_btn, PW, PH);
+    lv_obj_align(platform_btn, LV_ALIGN_TOP_MID, (PW + 8), PY);
+    lv_obj_set_style_radius(platform_btn, 12, LV_PART_MAIN);
+    lv_obj_set_style_border_width(platform_btn, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(platform_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(platform_btn, on_platform, LV_EVENT_CLICKED, NULL);
+    platform_label = lv_label_create(platform_btn);
+    lv_obj_set_style_text_font(platform_label, theme_text_font(16), LV_PART_MAIN);
+    lv_label_set_text(platform_label, LV_SYMBOL_HOME "  iOS");
+    lv_obj_center(platform_label);
+
+    status_label = lv_label_create(screen);
+    lv_obj_set_style_text_font(status_label, theme_text_font(14), LV_PART_MAIN);
+    lv_obj_set_style_text_color(status_label, NOTHING_GREY, LV_PART_MAIN);
+    lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_label_set_text(status_label, "Notifications off");
+    lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 186);
 
     list_box = lv_obj_create(screen);
     // Narrower than the screen and ending above the CLEAR button so the list's
@@ -363,6 +434,7 @@ void notifications_screen_show()
     lv_obj_t *from = lv_screen_active();
     if (from != screen) s_return = from;   // where swipe-up / back returns to
     show_brightness(settings_get_brightness());
+    show_volume(music_player_get_volume());
     update_status();
     rebuild_list();
     lv_scr_load(screen);

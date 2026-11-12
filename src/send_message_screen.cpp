@@ -315,10 +315,10 @@ static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_LEFT) {
-        nodes_screen_show();
-    } else if (dir == LV_DIR_RIGHT) {
-        if (map_screen_available()) map_screen_show();
+    if (dir == LV_DIR_RIGHT) {
+        nodes_screen_show();                                   // back one screen
+    } else if (dir == LV_DIR_LEFT) {
+        if (map_screen_available()) map_screen_show();         // next in the chain
         else                        configuration_screen_show();
     }
 }

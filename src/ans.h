@@ -32,6 +32,11 @@ bool is_running();
 // True once a phone (Gadgetbridge) has connected.
 bool is_connected();
 
+// Battery: ask the phone for a slower BLE link (longer connection interval +
+// slave latency) while the watch panel is off, and for a fast one again when it
+// wakes. A request only - the phone decides - and a no-op when not connected.
+void set_link_low_power(bool low);
+
 // --- Find My Watch / Find My Phone (companion app only) -----------------------
 // A small bidirectional "find" channel on a dedicated characteristic. The phone
 // WRITES an op to ring the watch; the watch NOTIFIES an op to ring the phone.

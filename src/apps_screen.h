@@ -17,3 +17,11 @@ void apps_screen_create();
 void apps_screen_show();                 // the "Menu" home (category list)
 void apps_screen_show_apps_category();   // shortcut straight into the "Apps" sub-menu
 bool apps_screen_is_active();
+
+// ---- Favorites page support ------------------------------------------------
+// The set of apps/screens a user can pin to the Favorites page: every launcher
+// entry plus Music and Health. Addressed by name so the saved list survives a
+// firmware update that reorders the table.
+int         apps_fav_count();
+const char *apps_fav_name(int i);            // nullptr past the end
+void        apps_fav_launch_by_name(const char *name);   // no-op if the name is gone

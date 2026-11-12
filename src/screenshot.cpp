@@ -180,6 +180,54 @@ static uint32_t s_press_started_ms = 0;
 static bool     s_pressing         = false;
 static bool     s_already_fired    = false;
 
+// Delete the feedback object this timer carries, then itself. (Both the white
+// flash and the toast auto-dismiss this way.)
+static void feedback_del_cb(lv_timer_t *t)
+{
+    lv_obj_t *o = (lv_obj_t *)lv_timer_get_user_data(t);
+    if (o && lv_obj_is_valid(o)) lv_obj_del(o);
+    lv_timer_del(t);
+}
+
+// Confirm a capture on-screen: a brief white flash (like a camera) plus a toast
+// that says whether the shot was saved. Both live on the top layer and remove
+// themselves, so they never land in the next screenshot. The snapshot is already
+// taken before this runs, so the flash is not captured.
+void screenshot_show_feedback(bool ok)
+{
+    lv_obj_t *top = lv_layer_top();
+
+    lv_obj_t *flash = lv_obj_create(top);
+    lv_obj_remove_style_all(flash);
+    lv_obj_set_size(flash, LV_PCT(100), LV_PCT(100));
+    lv_obj_center(flash);
+    lv_obj_set_style_bg_color(flash, lv_color_white(), 0);
+    lv_obj_set_style_bg_opa(flash, LV_OPA_80, 0);
+    lv_obj_remove_flag(flash, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(flash, LV_OBJ_FLAG_SCROLLABLE);
+    lv_timer_t *ft = lv_timer_create(feedback_del_cb, 140, flash);
+    lv_timer_set_repeat_count(ft, 1);
+
+    lv_obj_t *toast = lv_obj_create(top);
+    lv_obj_remove_style_all(toast);
+    lv_obj_set_size(toast, 300, 56);
+    lv_obj_align(toast, LV_ALIGN_BOTTOM_MID, 0, -40);
+    lv_obj_set_style_radius(toast, 14, 0);
+    lv_obj_set_style_bg_color(toast, lv_color_hex(ok ? 0x101010 : 0x3A0E0E), 0);
+    lv_obj_set_style_bg_opa(toast, LV_OPA_90, 0);
+    lv_obj_set_style_border_width(toast, 1, 0);
+    lv_obj_set_style_border_color(toast, lv_color_hex(ok ? 0x444444 : 0xE02020), 0);
+    lv_obj_remove_flag(toast, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(toast, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *tl = lv_label_create(toast);
+    lv_obj_set_style_text_color(tl, lv_color_white(), 0);
+    lv_label_set_text(tl, ok ? LV_SYMBOL_OK "  Screenshot saved"
+                             : LV_SYMBOL_WARNING "  Save failed - no SD?");
+    lv_obj_center(tl);
+    lv_timer_t *tt = lv_timer_create(feedback_del_cb, 1600, toast);
+    lv_timer_set_repeat_count(tt, 1);
+}
+
 void screenshot_poll()
 {
     // Cheap early-out — the setting is the gating intent, so don't even
@@ -220,12 +268,11 @@ void screenshot_poll()
                    (now - s_press_started_ms) >= SCREENSHOT_LONG_PRESS_MS) {
             // Held past the threshold for the first time this press.
             s_already_fired = true;
-            if (screenshot_capture()) {
-                // Short haptic blip so the user knows the capture happened
-                // — otherwise long-press is silent and they might wonder
-                // if anything occurred.
-                instance.vibrator();
-            }
+            bool ok = screenshot_capture();
+            // Haptic blip + an on-screen flash and a toast, so the capture is
+            // obviously confirmed even with vibration off.
+            if (ok) instance.vibrator();
+            screenshot_show_feedback(ok);
         }
     } else {
         // Released (or never pressed since last poll) — clear so the next

@@ -10,6 +10,8 @@
 #   make            build build/argus_sim.exe
 #   make run        build and open a live SDL window
 #   make frames     build and dump PNG frames to build/frames/
+#   make gallery    build and dump one still per screenful of the hand-laid-out
+#                   screens (Settings, MENU, Facewatch, shade) to build/gallery/
 #   make clean      drop objects (keeps the LVGL lib)
 #   make distclean  drop everything
 #
@@ -108,11 +110,20 @@ LDFLAGS  := $(SDL_LDFLAGS)
 # Deliberately a SUBSET. Pulling all 116 src files would drag in WiFi/BLE/LoRa/
 # mesh/detector code that has no host equivalent; these are the files the demo
 # actually renders, and every one of them is the real firmware source.
+# The gallery (make gallery) adds the screens whose rows are laid out by hand,
+# so their layout can be reviewed as stills before a flash. Real sources again;
+# what they call into is stubbed in stubs_gallery.cpp.
+GALLERY_CXX := $(SRC)/apps_screen.cpp $(SRC)/settings_screen.cpp \
+               $(SRC)/favorites_screen.cpp \
+               $(SRC)/face_watch_screen.cpp $(SRC)/face_watch.cpp \
+               $(SRC)/notifications_screen.cpp $(SRC)/clock_sync.cpp \
+               $(SRC)/notify/notification_store.cpp
 ARGUS_CXX := $(SRC)/theme.cpp $(SRC)/argus_mode.cpp $(SRC)/time_screen.cpp \
              $(SRC)/world_clock_screen.cpp $(SRC)/dst_rules.cpp \
              $(SRC)/clock_time.cpp $(SRC)/calendar_screen.cpp \
              $(SRC)/stopwatch_screen.cpp $(SRC)/timer_screen.cpp \
-             $(SRC)/tools_screen.cpp $(SRC)/threat_radar_screen.cpp
+             $(SRC)/tools_screen.cpp $(SRC)/threat_radar_screen.cpp \
+             $(GALLERY_CXX)
 # alarm_screen.cpp is NOT here on purpose: it needs 18 alarm_* entry points
 # from alarm.cpp, and alarm.cpp pulls in ESP-IDF driver/i2s.h plus
 # SD.open/mkdir - and its screen would render nothing but defaults anyway.
@@ -121,7 +132,7 @@ ARGUS_CXX := $(SRC)/theme.cpp $(SRC)/argus_mode.cpp $(SRC)/time_screen.cpp \
 # stubs in stubs_tools.cpp and pulls in no detector code.
 ARGUS_C   := $(wildcard $(SRC)/font_argus_*.c) \
              $(wildcard $(SRC)/font_roboto_*.c) $(wildcard $(SRC)/font_inter_*.c)
-SIM_CXX   := shim/shim.cpp stubs.cpp stubs_tools.cpp main_sim.cpp
+SIM_CXX   := shim/shim.cpp stubs.cpp stubs_tools.cpp stubs_gallery.cpp main_sim.cpp
 
 A_OBJS := $(patsubst %,$(OBJ)/%.o,$(notdir $(basename $(ARGUS_CXX)))) \
           $(patsubst %,$(OBJ)/%.o,$(notdir $(basename $(ARGUS_C)))) \
@@ -129,7 +140,7 @@ A_OBJS := $(patsubst %,$(OBJ)/%.o,$(notdir $(basename $(ARGUS_CXX)))) \
 
 BIN := $(BUILD)/argus_sim.exe
 
-.PHONY: all run frames clean distclean lvgl
+.PHONY: all run frames gallery clean distclean lvgl
 all: $(BIN)
 
 $(BIN): $(LVOBJ)/.stamp $(A_OBJS)
@@ -181,6 +192,10 @@ $(OBJ)/%.o: $(SRC)/%.cpp | $(OBJ)
 	@echo "  CXX   $<"
 	@$(CXX) $(CXXFLAGS) -c $< -o $@
 
+$(OBJ)/%.o: $(SRC)/notify/%.cpp | $(OBJ)
+	@echo "  CXX   $<"
+	@$(CXX) $(CXXFLAGS) -c $< -o $@
+
 $(OBJ)/%.o: $(SRC)/%.c | $(OBJ)
 	@echo "  CC    $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
@@ -202,6 +217,12 @@ run: $(BIN)
 frames: $(BIN)
 	@rm -rf $(BUILD)/frames && mkdir -p $(BUILD)/frames
 	@$(BIN) --frames $(BUILD)/frames
+
+# Layout review stills (PPM), one per screenful. SDL's offscreen driver means
+# this needs no display, so it runs the same on a laptop and in CI.
+gallery: $(BIN)
+	@rm -rf $(BUILD)/gallery && mkdir -p $(BUILD)/gallery
+	@SDL_VIDEODRIVER=offscreen $(BIN) --gallery $(BUILD)/gallery
 
 clean:
 	@rm -rf $(OBJ) $(BIN)

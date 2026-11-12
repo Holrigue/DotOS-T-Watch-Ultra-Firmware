@@ -43,6 +43,13 @@ bool call_muted();
 void end_call();
 bool take_call_ended();   // true once per end_call(); consumes it
 
+// The "Vibration" setting: whether an ordinary notification buzzes the watch.
+// Incoming calls ignore this (a call always rings). Default on; the Settings
+// screen restores it from the SD file at boot. Touch feedback is separate
+// (clock_screen_set_vibrate).
+void set_notif_vibrate(bool on);
+bool notif_vibrate();
+
 // Hand-off for the on-screen banner. publish() runs on the BLE task, but LVGL
 // must be driven from the UI thread, so publish() stashes the newest arrival and
 // the UI-thread popup timer drains it here. Returns true and fills `out` if a new

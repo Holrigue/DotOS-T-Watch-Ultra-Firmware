@@ -16,6 +16,7 @@
 
 #include <LilyGoLib.h>
 #include <stdint.h>
+#include <cstring>
 
 // Detector toggle APIs (uniform start/stop/is_running).
 #include "airtag.h"
@@ -60,6 +61,7 @@ void tpms_screen_show();
 void pager_screen_show();
 void aprs_screen_show();
 void meshtastic_screen_show();
+void wardriver_screen_show();   // recon, now a Defense launcher entry
 void usb_sd_screen_show();
 void face_watch_screen_show();
 void alarm_screen_show();
@@ -80,8 +82,8 @@ static const lv_color_t AOFF = ARGUS_RAISED;                     // toggle OFF p
 
 namespace {
 
-enum Cat { CAT_TRACKING = 0, CAT_DEFENSE, CAT_OFFENSE, CAT_APPS, CAT_TIMECLOCK, CAT_COUNT };
-const char *CAT_NAME[CAT_COUNT] = { "TRACKING", "DEFENSE", "OFFENSE", "APPS", "TIME & CLOCK" };
+enum Cat { CAT_TRACKING = 0, CAT_DEFENSE, CAT_OFFENSE, CAT_COMMS, CAT_APPS, CAT_TIMECLOCK, CAT_COUNT };
+const char *CAT_NAME[CAT_COUNT] = { "TRACKING", "DEFENSE", "OFFENSE", "COMMS", "APPS", "TIME & CLOCK" };
 
 struct Entry {
     const char *title;
@@ -114,6 +116,7 @@ const Entry ENTRIES[] = {
     L("WiFi Survey",      CAT_DEFENSE, wifi_screen_show),
     L("WiFi Analyze",     CAT_DEFENSE, analyze_screen_show),
     L("Deauth Detector",  CAT_DEFENSE, deauth_screen_show),
+    L("Wardriver",        CAT_DEFENSE, wardriver_screen_show),
 
     // --- Offense: active/attack tools ------------------------------------
     T("Evil Twin",        CAT_OFFENSE, evil_twin_start, evil_twin_stop, evil_twin_is_running),
@@ -131,14 +134,12 @@ const Entry ENTRIES[] = {
     L("GPX Track",        CAT_APPS, map_gpx_picker_show),
     L("Compass",          CAT_APPS, compass_screen_show),
     L("Level",            CAT_APPS, level_screen_show),
-    L("Music",            CAT_APPS, music_screen_show),
     L("Find",             CAT_APPS, find_screen_show),
     L("HexHound",         CAT_APPS, pet_screen_show),
-    L("Health",           CAT_APPS, health_screen_show),
     L("Flashlight",       CAT_APPS, flashlight_screen_show),
-    L("Meshtastic",       CAT_APPS, meshtastic_screen_show),
-    L("Pager 13:37",      CAT_APPS, pager_screen_show),
-    L("LoRa APRS",        CAT_APPS, aprs_screen_show),
+    L("Meshtastic",       CAT_COMMS, meshtastic_screen_show),
+    L("Pager 13:37",      CAT_COMMS, pager_screen_show),
+    L("LoRa APRS",        CAT_COMMS, aprs_screen_show),
     L("TPMS",             CAT_APPS, tpms_screen_show),
 
     // --- Time & Clock ----------------------------------------------------
@@ -154,7 +155,42 @@ const Entry ENTRIES[] = {
 #undef T
 constexpr int ENTRY_COUNT = (int)(sizeof(ENTRIES) / sizeof(ENTRIES[0]));
 
+// Home-tile shortcuts that are not launcher table entries but should still be
+// favoritable from the Favorites page.
+struct FavExtra { const char *name; void (*launch)(); };
+const FavExtra FAV_EXTRA[] = {
+    { "Music",  music_screen_show },
+    { "Health", health_screen_show },
+};
+constexpr int FAV_EXTRA_COUNT = (int)(sizeof(FAV_EXTRA) / sizeof(FAV_EXTRA[0]));
+
 }  // namespace
+
+// ---- Favoritable targets (Favorites / shortcuts page) ----------------------
+// Every launcher entry (the ON/OFF detector toggles are excluded) plus the two
+// home-tile shortcuts above. Addressed by NAME so the Favorites file survives a
+// table reordering across firmware updates.
+int apps_fav_count()
+{
+    int n = 0;
+    for (const Entry &e : ENTRIES) if (!e.toggle) n++;
+    return n + FAV_EXTRA_COUNT;
+}
+
+const char *apps_fav_name(int i)
+{
+    if (i < 0) return nullptr;
+    for (const Entry &e : ENTRIES) { if (e.toggle) continue; if (i == 0) return e.title; i--; }
+    if (i < FAV_EXTRA_COUNT) return FAV_EXTRA[i].name;
+    return nullptr;
+}
+
+void apps_fav_launch_by_name(const char *name)
+{
+    if (!name) return;
+    for (const Entry &e : ENTRIES) if (!e.toggle && e.launch && strcmp(e.title, name) == 0) { e.launch(); return; }
+    for (const FavExtra &x : FAV_EXTRA) if (strcmp(x.name, name) == 0) { x.launch(); return; }
+}
 
 static lv_obj_t *s_home = nullptr;              // Notifications + category rows
 static lv_obj_t *s_cat_screen[CAT_COUNT] = {};  // one PRE-BUILT screen per category
@@ -421,7 +457,15 @@ static void build_category_screen(Cat c)
 
 namespace {
 
-enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_MUSIC, HT_COUNT };
+enum HomeTile { HT_NOTIFY = 0, HT_TRACKING, HT_DEFENSE, HT_OFFENSE, HT_APPS, HT_TIMECLOCK, HT_SETTINGS, HT_MUSIC, HT_HEALTH, HT_COMMS, HT_COUNT };
+
+// The order tiles appear in the MENU grid. Time & Clock first, Notifications
+// second (per the day-to-day use of the watch); Settings is not a tile here - it
+// is the pinned gear in the corner - so it is left out of this list.
+constexpr HomeTile kHomeOrder[] = {
+    HT_TIMECLOCK, HT_NOTIFY, HT_APPS, HT_MUSIC, HT_HEALTH, HT_COMMS, HT_TRACKING, HT_DEFENSE, HT_OFFENSE,
+};
+constexpr int kHomeOrderCount = (int)(sizeof(kHomeOrder) / sizeof(kHomeOrder[0]));
 
 constexpr int TILE_SIZE = 158;
 
@@ -467,6 +511,23 @@ lv_obj_t *ring(lv_obj_t *parent, int x, int y, int d, int width, lv_color_t col)
     return o;
 }
 
+// A static arc segment (no knob, no indicator): a `d`x`d` arc centred in its own
+// box, drawn only between start_deg and end_deg (LVGL angles: 0 = 3 o'clock,
+// clockwise). Used for the broadcast "signal" marks.
+lv_obj_t *arc_seg(lv_obj_t *parent, int x, int y, int d, int width,
+                  int start_deg, int end_deg, lv_color_t col)
+{
+    lv_obj_t *a = lv_arc_create(parent);
+    lv_obj_remove_style_all(a);
+    lv_obj_set_size(a, d, d);
+    lv_obj_set_pos(a, x, y);
+    lv_arc_set_bg_angles(a, start_deg, end_deg);
+    lv_obj_set_style_arc_color(a, col, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(a, width, LV_PART_MAIN);
+    lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
+    return a;
+}
+
 // The icon sits in a 96 x 80 box at the top-left of the tile.
 void build_icon(lv_obj_t *box, HomeTile t)
 {
@@ -481,12 +542,18 @@ void build_icon(lv_obj_t *box, HomeTile t)
         ring(box, 20, 20, 34, 3, ink);
         shape(box, 52, 14, 14, 14, LV_RADIUS_CIRCLE, acc);
         break;
-    case HT_DEFENSE:       // shield: hatched body, orange core
+    case HT_DEFENSE:       // padlock: body + shackle, accent keyhole
     {
-        lv_obj_t *body = hatch_shape(box, 6, 0, 62, 72, 28, ARGUS_TILE, ink);
-        lv_obj_set_style_border_color(body, ink, LV_PART_MAIN);
-        lv_obj_set_style_border_width(body, 3, LV_PART_MAIN);
-        shape(box, 25, 24, 24, 24, LV_RADIUS_CIRCLE, acc);
+        // Shackle: the top half of a ring (a clean "n"), with two short legs down
+        // into the body. Drawn with the arc primitive so there is no seam.
+        arc_seg(box, 26, 10, 44, 7, 180, 360, ink);   // centre (48,32), r 22
+        shape(box, 26, 30, 7, 12, 2, ink);            // left leg
+        shape(box, 63, 30, 7, 12, 2, ink);            // right leg
+        // Body: a rounded rect. The keyhole (accent) is a small circle with a
+        // short stem, punched in the accent colour.
+        shape(box, 20, 38, 56, 40, 10, ink);          // lock body
+        shape(box, 43, 50, 12, 12, LV_RADIUS_CIRCLE, acc);  // keyhole hole
+        shape(box, 45, 58, 8, 12, 3, acc);            // keyhole stem
         break;
     }
     case HT_OFFENSE:       // crosshair
@@ -523,12 +590,34 @@ void build_icon(lv_obj_t *box, HomeTile t)
         ring(box, 57, 33, 22, 3, acc);                   // right reel
         shape(box, 65, 41, 6, 6, LV_RADIUS_CIRCLE, acc);
         break; }
+    case HT_HEALTH: {      // heart: a 45deg square body + two round lobes, all orange
+        // The body is a square rotated 45deg (its bottom corner is the heart tip).
+        // It is drawn FIRST, then the two lobes ON TOP cap the two upper edges and
+        // hide them completely - so the rotated square's anti-aliased edges never
+        // show as a seam through the middle, which was the earlier defect. Each
+        // lobe is centred on the midpoint of an upper edge (circle radius = half
+        // the square side), so lobes and body meet flush.
+        lv_obj_t *pt = shape(box, 29, 22, 34, 34, 4, acc);   // body, centre (46,39)
+        lv_obj_set_style_transform_pivot_x(pt, 17, LV_PART_MAIN);
+        lv_obj_set_style_transform_pivot_y(pt, 17, LV_PART_MAIN);
+        lv_obj_set_style_transform_rotation(pt, 450, LV_PART_MAIN);   // 45.0 deg
+        shape(box, 17, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // left lobe,  centre (34,27)
+        shape(box, 41, 10, 34, 34, LV_RADIUS_CIRCLE, acc);   // right lobe, centre (58,27)
+        break; }
+    case HT_COMMS:         // broadcast signal: an accent source + two radiating arcs
+        // Transmitter look (Meshtastic / LoRa / APRS), not a chat app. Both arcs
+        // are centred on (18,58); the accent source dot sits there, well clear of
+        // the inner arc so it reads as a clean source, not a blob.
+        arc_seg(box, -22, 18, 80, 7, 272, 358, ink);     // outer wave (r 40)
+        arc_seg(box, -6,  34, 48, 7, 272, 358, ink);     // inner wave (r 24)
+        shape(box, 9, 49, 18, 18, LV_RADIUS_CIRCLE, acc);   // source, centre (18,58)
+        break;
     default: break;
     }
 }
 
 const char *TILE_LABEL[HT_COUNT] = { "Notifications", "Tracking", "Defense", "Offense",
-                                      "Apps", "Time & Clock", "Settings", "Music" };
+                                      "Apps", "Time & Clock", "Settings", "Music", "Health", "Comms" };
 
 void on_home_tile(lv_event_t *e)
 {
@@ -537,11 +626,13 @@ void on_home_tile(lv_event_t *e)
     case HT_NOTIFY:    clock_notifications_acknowledge(); notifications_screen_show(); break;
     case HT_SETTINGS:  settings_screen_show(); break;
     case HT_MUSIC:     music_screen_show(); break;
+    case HT_HEALTH:    health_screen_show(); break;
     case HT_TRACKING:  on_cat_row_for(CAT_TRACKING);  break;
     case HT_DEFENSE:   on_cat_row_for(CAT_DEFENSE);   break;
     case HT_OFFENSE:   on_cat_row_for(CAT_OFFENSE);   break;
     case HT_APPS:      on_cat_row_for(CAT_APPS);      break;
     case HT_TIMECLOCK: on_cat_row_for(CAT_TIMECLOCK); break;
+    case HT_COMMS:     on_cat_row_for(CAT_COMMS);     break;
     default: break;
     }
 }
@@ -603,8 +694,8 @@ static void fill_home_tiles()
 {
     s_home_sig = home_signature();
     lv_obj_clean(s_grid);
-    for (int t = 0; t < HT_COUNT; t++)
-        make_home_tile(s_grid, (HomeTile)t, (s_home_sig & 1u) != 0);
+    for (int i = 0; i < kHomeOrderCount; i++)
+        make_home_tile(s_grid, kHomeOrder[i], (s_home_sig & 1u) != 0);
 }
 
 // Called on the way IN (the clock's swipe), never from inside a tile's own event, so
@@ -646,6 +737,29 @@ static void build()
     lv_obj_add_flag(grid, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
     fill_home_tiles();
+
+    // Settings is no longer a tile: it is a gear pinned to the bottom-right of the
+    // MENU, always reachable without scrolling. Sits above the grid, so a tap on it
+    // opens Settings while a swipe elsewhere still flows to the grid/home gestures.
+    lv_obj_t *gear = lv_button_create(s_home);
+    lv_obj_set_size(gear, 64, 64);
+    // The display's rounded bottom-right corner clips a circle pinned tight to it
+    // (the grid already keeps a 40px bottom pad for the same reason), so inset the
+    // gear well clear of the corner arc.
+    lv_obj_align(gear, LV_ALIGN_BOTTOM_RIGHT, -18, -40);
+    lv_obj_set_style_radius(gear, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(gear, ARGUS_RAISED, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(gear, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(gear, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(gear, 0, LV_PART_MAIN);
+    lv_obj_add_flag(gear, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(gear, [](lv_event_t *) { settings_screen_show(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *gl = lv_label_create(gear);
+    lv_obj_set_style_text_font(gl, &lv_font_montserrat_24, LV_PART_MAIN);
+    lv_obj_set_style_text_color(gl, ARGUS_CREAM, LV_PART_MAIN);
+    lv_label_set_text(gl, LV_SYMBOL_SETTINGS);
+    lv_obj_center(gl);
+
     lv_obj_add_event_cb(s_home, on_home_gesture, LV_EVENT_GESTURE, NULL);
 
     // One pre-built screen per category (no rebuilding during a tap).

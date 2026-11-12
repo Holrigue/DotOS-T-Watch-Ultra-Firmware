@@ -10,6 +10,11 @@ bool settings_screen_is_active();
 // or no file exists — it just does nothing.
 void settings_screen_load();
 
+// Re-apply SD-persisted step goal + vibration intensity. Call once at boot AFTER
+// health_boot_restore() and haptic_boot_restore() so the SD value (which survives
+// a re-flash) wins over the NVS value (which a flash erases).
+void settings_apply_persisted_late();
+
 // Read by the screenshot module's poll loop to decide whether a 3 s touch
 // should fire a capture. Returns the AND of the user's "Screenshot long
 // press" switch state and SD availability — so when the card unmounts the
@@ -22,6 +27,14 @@ bool settings_get_screenshot_long_press();
 // SD-state-change branch and once at boot, so the toggle never lies
 // about whether the feature can actually write a file right now.
 void settings_screen_apply_sd_state();
+
+// Open (true) or close (false) every Settings section at once.
+void settings_screen_expand_all(bool open);
+
+// Persist the current settings to /Settings/settings.txt now. Exposed for the
+// Facewatch Customize screen, which owns the Show Day / Show Date toggles but
+// stores their state here. Safe only after settings_screen_create() (boot).
+void settings_persist_now();
 
 // Active (undimmed) display brightness, 1..DEVICE_MAX_BRIGHTNESS_LEVEL. The dim
 // timer restores this, not the hardware maximum, when the watch wakes.

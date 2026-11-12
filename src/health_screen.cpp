@@ -106,8 +106,12 @@ void on_gesture(lv_event_t *e)
     }
     // Swipe up: ask for the latest. The watch can only wait for the companion
     // app to push; show a spinner and resolve to the fresh values or an error.
-    else if (dir == LV_DIR_TOP)
+    else if (dir == LV_DIR_TOP) {
         start_refresh();
+        // This swipe is the refresh; stop here so the global "swipe up opens the
+        // Apps menu" fallback does not also fire and leave the screen.
+        lv_event_stop_processing(e);
+    }
 }
 
 // One metric row: a small gray name on the left, a big value on the right.

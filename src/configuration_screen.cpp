@@ -315,7 +315,9 @@ static void on_announce_interval_changed(lv_event_t *)
 static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
-    if (lv_indev_get_gesture_dir(indev) == LV_DIR_LEFT) {
+    // Last stop of the chain: swipe RIGHT steps back one screen, like everywhere
+    // else. (Swipe LEFT is the global "home" gesture; it is not handled here.)
+    if (lv_indev_get_gesture_dir(indev) == LV_DIR_RIGHT) {
         configuration_screen_commit();
         save_config_to_sd();
         // Reverse chain: Configuration -> Map (when /map tiles exist on
@@ -414,7 +416,7 @@ void configuration_screen_create()
     broadcast_switch = lv_switch_create(broadcast_row);
     lv_obj_set_size(broadcast_switch, 80, 40);
     lv_obj_set_style_bg_color(broadcast_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(broadcast_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(broadcast_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(broadcast_switch, LV_STATE_DISABLED);  // locked until GPS fix
     lv_obj_add_event_cb(broadcast_switch, on_broadcast_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(broadcast_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -478,7 +480,7 @@ void configuration_screen_create()
     rebroadcast_switch = lv_switch_create(rebroadcast_row);
     lv_obj_set_size(rebroadcast_switch, 80, 40);
     lv_obj_set_style_bg_color(rebroadcast_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(rebroadcast_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(rebroadcast_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     // default off
     lv_obj_add_event_cb(rebroadcast_switch, on_rebroadcast_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(rebroadcast_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -503,7 +505,7 @@ void configuration_screen_create()
     vib_dm_switch = lv_switch_create(vib_dm_row);
     lv_obj_set_size(vib_dm_switch, 80, 40);
     lv_obj_set_style_bg_color(vib_dm_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(vib_dm_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(vib_dm_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(vib_dm_switch, LV_STATE_CHECKED);     // default ON
     lv_obj_add_event_cb(vib_dm_switch, on_vibrate_dm_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(vib_dm_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -526,7 +528,7 @@ void configuration_screen_create()
     vib_bc_switch = lv_switch_create(vib_bc_row);
     lv_obj_set_size(vib_bc_switch, 80, 40);
     lv_obj_set_style_bg_color(vib_bc_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(vib_bc_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(vib_bc_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(vib_bc_switch, LV_STATE_CHECKED);     // default ON
     lv_obj_add_event_cb(vib_bc_switch, on_vibrate_broadcast_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(vib_bc_switch, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -552,7 +554,7 @@ void configuration_screen_create()
     announce_switch = lv_switch_create(announce_row);
     lv_obj_set_size(announce_switch, 80, 40);
     lv_obj_set_style_bg_color(announce_switch, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(announce_switch, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(announce_switch, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(announce_switch, LV_STATE_CHECKED);     // default ON
     lv_obj_add_event_cb(announce_switch, on_announce_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(announce_switch, LV_ALIGN_RIGHT_MID, 0, 0);

@@ -19,12 +19,10 @@
 // theme.cpp (built here) now reads the Facewatch accent via face_accent_rgb(),
 // but face_watch.cpp is not in the sim's sources. Return the default orange accent
 // so the simulator renders the resting look; the real value lives on-device.
-uint32_t face_accent_rgb() { return 0xFF5A1A; }
 
 // theme.cpp's theme_text_font()/theme_title_font() read the Facewatch "Global
 // text" choice through face_text_font(); face_watch.cpp is not in the sim, so
 // return the default (brand fonts). The sim renders the resting look.
-FaceTextFont face_text_font() { return FACE_TEXT_DEFAULT; }
 
 // ---- detector persistence ----------------------------------------------------
 // The Tools tiles persist each detector's on/off to NVS via detector_remember().
@@ -127,12 +125,12 @@ void loot_screen_show(void)             {}
 void mouse_screen_show(void)            {}
 void nfc_field_screen_show(void)        {}
 void pager_screen_show(void)            {}
+void wardriver_screen_show(void)        {}
 void pet_screen_show(void)              {}
 void probe_sniffer_screen_show(void)    {}
 void rogue_ap_screen_show(void)         {}
 void spycam_screen_show(void)           {}
 void tesla_cp_screen_show(void)         {}
-void face_watch_screen_show(void)       {}
 void find_screen_show(void)             {}
 void music_screen_show(void)            {}
 void compass_screen_show(void)          {}
@@ -140,9 +138,6 @@ void presence_screen_show(void)         {}
 // Unified Apps launcher lives in apps_screen.cpp, which is not in the sim's
 // source subset; tools_screen_show()/time_screen_show() forward to it, so the
 // sim only needs these link-time stubs (the CI sim job builds, never runs).
-void apps_screen_create(void)           {}
-void apps_screen_show(void)             {}
-bool apps_screen_is_active(void)        { return false; }
 void tpms_screen_show(void)             {}
 void tracker_timeline_screen_show(void) {}
 void usb_sd_screen_show(void)           {}

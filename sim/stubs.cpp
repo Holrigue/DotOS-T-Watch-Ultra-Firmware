@@ -46,8 +46,6 @@ void alarm_screen_show(void)         {}
 void sun_moon_screen_show(void)      {}
 void flashlight_screen_show(void)    {}
 void meshtastic_screen_show(void)    {}
-void settings_screen_show(void)      {}
-void notifications_screen_show(void) {}
 
 // ---- alarm audio -----------------------------------------------------------
 // timer_screen.cpp rings the chime through these. alarm.cpp is not compiled

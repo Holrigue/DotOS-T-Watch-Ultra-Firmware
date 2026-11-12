@@ -170,7 +170,7 @@ static void build()
     s_on_sw = lv_switch_create(head);
     lv_obj_set_size(s_on_sw, 70, 34);
     lv_obj_set_style_bg_color(s_on_sw, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(s_on_sw, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(s_on_sw, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_event_cb(s_on_sw, on_switch, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_align(s_on_sw, LV_ALIGN_RIGHT_MID, 0, 0);
 

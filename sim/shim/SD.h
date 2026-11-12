@@ -26,6 +26,13 @@ public:
     size_t length() const { return v.size(); }
     bool   equals(const char *o) const { return o && v == o; }
     const char *c_str() const { return v.c_str(); }
+    // The settings.txt parser (settings_screen.cpp) also needs these. They are
+    // only reached with a card mounted, which the sim never has; here to compile.
+    int    indexOf(char c) const { size_t i = v.find(c); return i == std::string::npos ? -1 : (int)i; }
+    String substring(int from) const { return String(v.substr((size_t)from).c_str()); }
+    String substring(int from, int to) const { return String(v.substr((size_t)from, (size_t)(to - from)).c_str()); }
+    long   toInt() const { return atol(v.c_str()); }
+    bool   operator==(const char *o) const { return o && v == o; }
 private:
     std::string v;
 };

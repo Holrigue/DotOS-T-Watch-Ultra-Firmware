@@ -603,17 +603,18 @@ static void on_start_stop(lv_event_t *) {
 }
 
 // ─── Gesture ───────────────────────────────────────────────────
-// The Wardriver is the first stop of the left-to-right chain from the watch
-// face (face -> Wardriver -> Meshtastic -> Nodes): the same swipe continues to
-// Meshtastic, the reverse swipe goes back home.
+// The Wardriver is the first stop of the chain that starts at the watch face
+// (face -> Wardriver -> Meshtastic -> Nodes -> Send -> Map -> Configuration).
+// Same rule as every other screen: swipe RIGHT steps back one screen (here, to
+// the face); swipe LEFT moves on to the next stop.
 static void on_gesture(lv_event_t *e) {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_LEFT) {
-        clock_screen_show();
-    } else if (dir == LV_DIR_RIGHT) {
+    if (dir == LV_DIR_RIGHT) {
+        clock_screen_show();                 // back
+    } else if (dir == LV_DIR_LEFT) {
         meshtastic_mark_read();
-        meshtastic_screen_show();
+        meshtastic_screen_show();            // next
     }
 }
 
@@ -664,7 +665,7 @@ static void make_toggle_row(lv_obj_t *screen, const char *field,
     lv_obj_t *sw = lv_switch_create(row);
     lv_obj_set_size(sw, 80, 40);
     lv_obj_set_style_bg_color(sw, lv_color_make(0x44, 0x44, 0x44), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(sw, ARGUS_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(sw, ARGUS_ACCENT, LV_PART_INDICATOR | LV_STATE_CHECKED);
     lv_obj_add_state(sw, LV_STATE_CHECKED);  // default ON
     lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
 

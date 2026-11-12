@@ -192,10 +192,10 @@ static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    if (dir == LV_DIR_LEFT)
-        meshtastic_screen_show();
-    else if (dir == LV_DIR_RIGHT)
-        send_message_screen_show();
+    if (dir == LV_DIR_RIGHT)
+        meshtastic_screen_show();        // back one screen
+    else if (dir == LV_DIR_LEFT)
+        send_message_screen_show();      // next in the chain
 }
 
 static void make_node_entry(lv_obj_t *parent, const MeshNode *n)

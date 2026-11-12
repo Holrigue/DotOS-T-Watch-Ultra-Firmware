@@ -40,13 +40,13 @@ static void on_gesture(lv_event_t *e)
 {
     lv_indev_t *indev = lv_event_get_indev(e);
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-    // Left-to-right chain from the watch face: face -> Wardriver -> Meshtastic
-    // -> Nodes. Swiping back steps to the Wardriver, or straight home in Daily,
-    // where the Wardriver is gated.
-    if (dir == LV_DIR_LEFT) {
+    // Chain from the watch face: face -> Wardriver -> Meshtastic -> Nodes.
+    // Swipe RIGHT steps back (to the Wardriver, or straight home in Daily where
+    // the Wardriver is gated); swipe LEFT moves on to Nodes.
+    if (dir == LV_DIR_RIGHT) {
         if (argus_mode_current() == ArgusMode::Daily) clock_screen_show();
         else                                          wardriver_screen_show();
-    } else if (dir == LV_DIR_RIGHT) {
+    } else if (dir == LV_DIR_LEFT) {
         nodes_screen_show();
     }
 }

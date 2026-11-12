@@ -33,6 +33,11 @@ static volatile bool      s_call_ended = false;
 static constexpr uint32_t BUZZ_MIN_GAP_MS = 2500;
 static uint32_t           s_last_buzz_ms  = 0;
 
+// The user's "Vibration" setting now governs ordinary notification buzzes (touch
+// feedback is a separate setting). Default on; restored from the SD settings at
+// boot. Incoming calls ignore this - a call always rings.
+static bool s_notif_vibrate = true;
+
 bool take_pending(Notification& out)
 {
     if (!s_pending) return false;   // cheap early-out, no lock on the common path
@@ -114,11 +119,14 @@ void publish(Notification n)
         bool muted_call = is_call && (int32_t)(s_call_mute_until - millis()) > 0;
         if (!muted_call) {
             // Incoming calls get the soft "wake" tap (restored right after) so a
-            // ring feels calm; everything else keeps the user's buzz setting but is
-            // rate-limited so a chatty app can't buzz the watch non-stop.
+            // ring feels calm; everything else buzzes only when the user's
+            // "Vibration" (notification) setting is on, and is rate-limited so a
+            // chatty app can't buzz the watch non-stop. A call always rings - it is
+            // not an ordinary notification - so it ignores the notification toggle.
             if (is_call) {
                 haptic_alert_soft();
-            } else if (notify_buzz_gate_allow(s_last_buzz_ms, (uint32_t)millis(), BUZZ_MIN_GAP_MS)) {
+            } else if (s_notif_vibrate &&
+                       notify_buzz_gate_allow(s_last_buzz_ms, (uint32_t)millis(), BUZZ_MIN_GAP_MS)) {
                 instance.vibrator();
             }
         }
@@ -184,5 +192,8 @@ void mute_call()
     if (until == 0) until = 1;   // 0 is the "not muted" sentinel
     s_call_mute_until = until;
 }
+
+void set_notif_vibrate(bool on) { s_notif_vibrate = on; }
+bool notif_vibrate()            { return s_notif_vibrate; }
 
 }  // namespace notify

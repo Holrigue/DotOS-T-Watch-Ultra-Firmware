@@ -64,6 +64,7 @@
 #include "portscan.h"
 #include "portscan_screen.h"
 #include "wardriver_screen.h"
+#include "favorites_screen.h"
 #include "nfc_screen.h"
 #include "nfc_write_screen.h"
 #include "stopwatch_screen.h"
@@ -99,14 +100,13 @@
 #include "ble_scan_manager.h"
 #include "radio_coexist.h"
 #include "boot_prefs.h"
+#include "drain_stats.h"     // battery drain slope, shown in System Info
 #include "charge_state.h"   // debounced Discharging/Charging/Topped readout
 #include "detect_log_sd.h"   // detection-log retention sweep
 #include <esp_wifi.h>   // esp_wifi_get_mode() for live WiFi-mode reads
 #include "threat_radar_screen.h"
 #include "tracker_rep.h"
 #include "counter_tail.h"
-#include "matrix_bg.h"
-#include "background.h"
 #include "nfc_icon.h"
 #include "detect_pipeline.h"
 #include "ble_detect_pipeline.h"
@@ -1847,9 +1847,8 @@ void clock_screen_apply_face_custom()
     }
 }
 
-// Getters for the Face screen (which also drives the shared 12h / wallpaper setters).
+// Getter for the Face screen and the settings file.
 bool clock_screen_get_12h()       { return clock_12h; }
-bool clock_screen_get_wallpaper() { return background_is_enabled(); }
 
 // Status-bar "active" accent, threat-aware (ARGUS -> HADES). Normally the
 // bright steel-blue ARGUS_ACCENT_ACTIVE; the instant Threat Radar flags a tail
@@ -2317,19 +2316,13 @@ static void on_clock_gesture(lv_event_t *e)
     //
     // Home navigation:
     //   swipe right-to-left  -> the "Menu" (unified launcher: category list)
-    //   swipe left-to-right  -> Wardriver (recon, gated in Daily -> Meshtastic)
+    //   swipe left-to-right  -> the Favorites page (user-chosen shortcuts)
     //   swipe down           -> notification shade (every mode)
     //   swipe up             -> straight into the "Apps" sub-menu (shortcut)
-    bool daily = (argus_mode_current() == ArgusMode::Daily);
     if (dir == LV_DIR_LEFT) {
         apps_screen_show();                    // the Menu (category list), every mode
     } else if (dir == LV_DIR_RIGHT) {
-        if (!daily) {
-            wardriver_screen_show();           // recon, gated in Daily
-        } else {
-            meshtastic_mark_read();            // comms, available in every mode
-            meshtastic_screen_show();
-        }
+        favorites_screen_show();               // user-chosen shortcuts (was: recon/comms chain)
     } else if (dir == LV_DIR_BOTTOM) {   // swipe down from clock face
         notifications_screen_show();     // shade: notifications + brightness, every mode
     } else if (dir == LV_DIR_TOP) {      // swipe up from clock face
@@ -2513,6 +2506,9 @@ void clock_screen_set_show_date(bool show)
     update_clock();
 }
 
+bool clock_screen_get_show_day()  { return clock_show_day; }
+bool clock_screen_get_show_date() { return clock_show_date; }
+
 void clock_screen_set_show_ampm(bool show)
 {
     clock_show_ampm = show;
@@ -2528,19 +2524,6 @@ void clock_screen_set_show_secs(bool show)
 void clock_screen_set_vibrate(bool enabled)
 {
     clock_vibrate = enabled;
-}
-
-// Called by settings screen to enable/disable the Matrix rain background
-void clock_screen_set_matrix(bool enabled)
-{
-    matrix_bg_set_enabled(enabled);
-}
-
-// Called by settings screen to enable/disable the SD-card wallpaper. Coexists
-// with the matrix rain: when both are on the faint image sits behind the rain.
-void clock_screen_set_wallpaper(bool enabled)
-{
-    background_set_enabled(enabled);
 }
 
 // Dim timer state — updated by settings screen callbacks
@@ -2711,6 +2694,7 @@ static void display_off()
     // Nothing renders now: stretch a background BLE scan to ~15% duty and drop
     // the core clock to 80 MHz. Both are restored the moment the screen wakes.
     ble_scan_set_low_duty(true);
+    ans::set_link_low_power(true);   // slower phone link while nothing is shown
     cpu_set_low(true);
 }
 
@@ -2722,6 +2706,7 @@ static void display_on()
     // frame renders at 240 MHz.
     cpu_set_low(false);
     ble_scan_set_low_duty(false);
+    ans::set_link_low_power(false);
     instance.wakeupDisplay();
     lv_timer_resume(lv_display_get_refr_timer(lv_display_get_default()));
     // A touch that is still down keeps the blocker until it lifts; any other
@@ -3429,13 +3414,6 @@ void main_loop_request_lvgl_priority(int cycles) {
 
 void clock_screen_show()
 {
-    // Pause matrix-rain so the synchronous refresh below doesn't have to
-    // re-render 22 recolored labels every refresh tick. The main loop
-    // also pauses during the priority window, but pausing here covers
-    // the window in between (load + refresh + return).
-    bool paused_matrix = matrix_bg_is_enabled();
-    if (paused_matrix) matrix_bg_set_paused(true);
-
     lv_scr_load(clock_screen);
     lv_obj_invalidate(clock_screen);
     // Synchronous full refresh. lv_scr_load defers rendering to the next
@@ -3447,7 +3425,6 @@ void clock_screen_show()
     // before we return to the busy main loop.
     lv_refr_now(NULL);
 
-    if (paused_matrix) matrix_bg_set_paused(false);
     main_loop_request_lvgl_priority(12);
 }
 
@@ -3614,7 +3591,7 @@ static void update_clock()
 // Firmware name + version surfaced in the boot banner so support tickets carry
 // a fixed anchor. Bump FW_VERSION on each cut.
 #define FW_NAME    "ARGUS"
-#define FW_VERSION "2.0.0"   // ARGUS fork of r3dfish/13-37 (base 1.0.0)
+#define FW_VERSION "3.0.0"   // ARGUS fork of r3dfish/13-37 (base 1.0.0)
 
 // Saira Condensed boot-splash fonts generated via lv_font_conv; see
 // src/font_argus_argus.c.
@@ -3737,14 +3714,6 @@ void setup()
     clock_screen = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(clock_screen, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_border_width(clock_screen, 0, LV_PART_MAIN);
-
-    // Lowest z-order: the SD-card wallpaper renders behind everything,
-    // including the matrix rain. Created before matrix_bg_create so it is
-    // the first child. Hidden until the "Wallpaper" setting turns it on.
-    background_create(clock_screen);
-
-    // First child → renders behind every other widget on the clock screen
-    matrix_bg_create(clock_screen);
 
     // GPS indicator — anchored to top-right; others chain off it via realign_status_icons()
     gps_indicator = lv_label_create(clock_screen);
@@ -4245,6 +4214,7 @@ void setup()
     // Restore persisted settings from the SD card (if mounted and file exists).
     // Called after the default setBrightness so a saved brightness wins.
     settings_screen_load();
+    favorites_init();   // load the user's shortcut list from SD
 
     // Timezone: restore the saved UTC offset so the face shows correct local time
     // immediately. MUST run after settings_screen_load(): the Manual Time flag is
@@ -4341,6 +4311,9 @@ void setup()
     health_boot_restore();
     boot_guard_stage("haptic-restore");
     haptic_boot_restore();   // apply saved (or default ~50%) vibration intensity
+    // SD-persisted step goal + vibration intensity win over NVS (which a flash
+    // erases), so re-apply them here, after the NVS restores above.
+    settings_apply_persisted_late();
     night_mode_boot_restore();   // saved Night time window (re-silences the motor if inside it)
     boot_guard_stage("face-restore");
     dot_tiles_boot_restore();   // restore the two Dot-face data slot choices
@@ -4741,16 +4714,28 @@ static void boot_dispatch(BootPress p, uint32_t down_ms, uint32_t up_ms)
     }
 }
 
-// Global navigation convention for app screens: swipe UP -> the Apps menu,
-// swipe LEFT -> the home clock. Attached once to each screen the first time it
-// becomes active (below), so every app obeys it without editing each screen's
-// own gesture handler. The clock and the Apps menu are skipped - they run their
-// own gesture scheme.
+// Global navigation convention for app screens, as a FALLBACK behind each
+// screen's own gesture handler:
+//   swipe RIGHT -> back one screen (the menu the app was opened from)
+//   swipe LEFT  -> the home clock
+//   swipe UP    -> the Apps menu
+// Attached once to each screen the first time it becomes active (below), so
+// every app obeys it without editing each screen's own handler. The clock and
+// the Apps menu are skipped - they run their own gesture scheme.
+//
+// This callback is added after the screen's own handler, so it runs second. If
+// that handler already navigated (the active screen is no longer this one), the
+// swipe has been dealt with and nothing more happens here. That is what lets a
+// screen give LEFT or RIGHT its own meaning - the chain face -> Wardriver ->
+// Meshtastic -> Nodes -> Send -> Map moves on with LEFT - without this fallback
+// then overriding it and jumping home. Before, both ran and the last one won.
 static void nav_gesture_cb(lv_event_t *e)
 {
+    if (lv_screen_active() != (lv_obj_t *)lv_event_get_current_target(e)) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(e));
-    if (dir == LV_DIR_TOP)       apps_screen_show();
-    else if (dir == LV_DIR_LEFT) clock_screen_show();
+    if (dir == LV_DIR_TOP)        apps_screen_show();
+    else if (dir == LV_DIR_LEFT)  clock_screen_show();
+    else if (dir == LV_DIR_RIGHT) apps_screen_show();   // screens with no "back" of their own
 }
 
 static lv_obj_t *s_nav_attached[80];
@@ -4869,20 +4854,6 @@ void loop()
     // feels laggy / hard to press, especially on a radio screen that never
     // requested priority itself.
     bool lvgl_priority = s_lvgl_priority_cycles > 0 || s_low_mem_dialog != nullptr;
-    {
-        // Pause the matrix-rain animation while LVGL is trying to complete
-        // a screen transition. Without this, the 120 ms rain timer keeps
-        // invalidating 22 recolored labels, forcing a full clock-screen
-        // re-render every refresh tick.
-        static bool s_matrix_paused_by_us = false;
-        if (lvgl_priority && !s_matrix_paused_by_us) {
-            matrix_bg_set_paused(true);
-            s_matrix_paused_by_us = true;
-        } else if (!lvgl_priority && s_matrix_paused_by_us) {
-            matrix_bg_set_paused(false);
-            s_matrix_paused_by_us = false;
-        }
-    }
     if (lvgl_priority) s_lvgl_priority_cycles--;
 
 
@@ -5041,6 +5012,17 @@ void loop()
         if (configuration_screen_is_active())
             configuration_screen_update();
         low_mem_check();   // warn (once/min) if internal RAM is running low
+        // Battery drain slope (Settings > System Info). Every 30 s is plenty: the
+        // gauge resolves 1%, and each read is an I2C round trip to the PMU.
+        {
+            static uint32_t s_last_drain_s = 0;
+            uint32_t now_s = millis() / 1000;
+            if (now_s - s_last_drain_s >= 30 || s_last_drain_s == 0) {
+                s_last_drain_s = now_s ? now_s : 1;
+                drain::tracker().sample(now_s, instance.pmu.getBatteryPercent(),
+                                        !instance.pmu.isVbusIn(), s_display_off);
+            }
+        }
         mem_stats_tick();  // [mem] serial line every 30 s and on every radio change
         // Fold the live WiFi beacon stream through the pure evil-twin +
         // beacon-flood detectors -> ThreatState -> forensic log + HADES accent /
