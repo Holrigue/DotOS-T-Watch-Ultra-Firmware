@@ -2,22 +2,60 @@
 
 **DotOS** is a [Nothing OS](https://nothing.tech/)–inspired firmware for the LILYGO T-Watch Ultra — an ESP32-S3 smartwatch (AMOLED, LoRa, GNSS, NFC, full sensor suite) reskinned around a monochrome-with-red **dot-matrix watchface**, a glanceable dashboard, and a phone **health bridge**, with the full ARGUS anti-surveillance / RF toolkit and a Meshtastic client one swipe away.
 
+<p align="center">
+  <a href="https://holrigue.github.io/DotOS-T-Watch-Ultra-Firmware/"><b>⚡ Flash from your browser</b></a> ·
+  <a href="https://github.com/Holrigue/DotOS-Phone-Link-APK/releases/latest"><b>📱 Get the phone app</b></a> ·
+  <a href="https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/releases/latest"><b>⬇️ Releases</b></a> ·
+  <a href="https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/tree/develop"><b>📖 Source &amp; reference</b></a>
+</p>
+
 > **DotOS is a fork of [ARGUS](https://github.com/h4d35x0/argus), itself a fork of the phenomenal [`13:37` firmware by r3dfish](https://github.com/r3dfish/13-37).** The smartwatch core, the Meshtastic client, and the RF toolkit are their work; DotOS adds the Dot watchface, the companion health app, and a batch of daily-wear / notification / power refinements. Please star the originals — see [Credits](#credits).
 
-> 🚀 **Install it in 2 minutes.** This branch (`main`) holds only what you need to put DotOS on your watch:
->
-> | File | What it is |
-> |---|---|
-> | **[`argus-dot-flasher.html`](argus-dot-flasher.html)** | One-file web flasher: open it in Chrome or Edge. **The only file most people need.** |
-> | [`INSTALL.md`](INSTALL.md) | The step-by-step guide. |
-> | `bootloader.bin`, `partitions.bin`, `boot_app0.bin`, `firmware.bin`, `FLASH.txt` | The raw binaries and their offsets, for advanced users who flash with `esptool`. |
->
-> The source code, tests, SD-card assets and the [Technical Reference](https://github.com/Holrigue/ARGUS-DotOS/blob/develop/docs/REFERENCE.md) live on the [`develop` branch](https://github.com/Holrigue/ARGUS-DotOS/tree/develop).
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/home.png"      width="19%" alt="Dot watchface (home)">
+  <img src="docs/screenshots/menu.png"      width="19%" alt="App menu">
+  <img src="docs/screenshots/music.png"     width="19%" alt="Music player">
+  <img src="docs/screenshots/favorites.png" width="19%" alt="Favorites page">
+  <img src="docs/screenshots/customize.png" width="19%" alt="Watchface customization">
+</p>
+<p align="center">
+  <img src="docs/screenshots/shade.png"    width="19%" alt="Quick-settings shade">
+  <img src="docs/screenshots/settings.png" width="19%" alt="Settings">
+  <img src="docs/screenshots/apps.png"     width="19%" alt="Apps">
+  <img src="docs/screenshots/comms.png"    width="19%" alt="Comms: Meshtastic / Pager / APRS">
+  <img src="docs/screenshots/defense.png"  width="19%" alt="Defense tools">
+</p>
+<p align="center"><sub>Watchface · Menu · Music · Favorites · Customize&nbsp;&nbsp;·&nbsp;&nbsp;Quick settings · Settings · Apps · Comms · Defense</sub></p>
+
+## ⚡ Install it in 2 minutes
+
+This branch (`main`) holds only what you need to put DotOS on your watch:
+
+| File | What it is |
+|---|---|
+| **[`argus-dot-flasher.html`](argus-dot-flasher.html)** | One-file web flasher: open it in Chrome or Edge. **The only file most people need.** |
+| [`INSTALL.md`](INSTALL.md) | The step-by-step guide. |
+| `bootloader.bin`, `partitions.bin`, `boot_app0.bin`, `firmware.bin`, `FLASH.txt` | The raw binaries and their offsets, for advanced users who flash with `esptool`. |
+
+Prefer a hosted page? Open the **[web flasher](https://holrigue.github.io/DotOS-T-Watch-Ultra-Firmware/)** in Chrome/Edge — it always serves the current release. The source code, tests, SD-card assets and the [Technical Reference](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/blob/develop/docs/REFERENCE.md) live on the [`develop` branch](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/tree/develop).
+
+## 📱 Companion app — DotOS Phone Link
+
+The watch is better with its phone app. **[DotOS Phone Link](https://github.com/Holrigue/DotOS-Phone-Link-APK)** (Android, Kotlin / Compose) pairs over a direct BLE link — **no cloud, no account** — and:
+
+- **mirrors your health data** (sleep / steps / heart-rate high–low) from **Health Connect** to the watch,
+- **relays phone notifications** to your wrist, with a *Choose apps* screen to mute the noisy ones (and raises the **Mute / Hang-up** banner for Messenger / Teams / Meet calls),
+- **pushes GPX routes** to the watch — or share a `.gpx` to it from any app (e.g. Gaia GPS),
+- helps you **find your phone or watch** from either side, even with the app closed.
+
+**➡️ [Download the latest APK](https://github.com/Holrigue/DotOS-Phone-Link-APK/releases/latest)** (debug-signed, side-load). iOS needs no app for notifications (ANCS); the health bridge is Android-only for now.
 
 ## Apps
 
 **Daily wear**
-- **Dot watchface** — Nothing-OS dot-matrix clock with a red accent rail, compact date, live status glyphs, and two customizable data tiles.
+- **Dot watchface** — Nothing-OS dot-matrix clock with a red accent rail, compact date, live status glyphs, and two customizable data tiles. Swipe right for your **Favorites** — a page of app shortcuts you pick yourself.
 - **Health** — sleep score, steps, and heart-rate high/low mirrored from your phone over BLE.
 - **Notify** — mirrors phone notifications to your wrist (iPhone via ANCS, Android via Gadgetbridge).
 - **Night time** — quiet hours you choose: no vibration and no screen wake for notifications (alarms still ring).
@@ -67,7 +105,7 @@ The MAC is stored in the clear, deliberately. This log is *your* evidence about
 a device that followed *you*, and a hashed MAC cannot be matched against a
 device you later physically identify. What is bounded is how long it is kept,
 not how useful it is. The policy and the reasoning live in
-[src/detect/log_retention.h](https://github.com/Holrigue/ARGUS-DotOS/blob/develop/src/detect/log_retention.h) and are covered by the
+[src/detect/log_retention.h](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/blob/develop/src/detect/log_retention.h) and are covered by the
 host test suite.
 
 Nothing leaves the watch on its own. The only outbound transmission tied to
@@ -75,28 +113,24 @@ detection is a 32-bit hashed tracker fingerprint on the Meshtastic mesh when a
 tail reaches Confirmed, and only when the mesh is up. Position is never
 broadcast unless you turn on **Broadcast Location**, which defaults to off.
 
-## Companion app
-
-[**ARGD-OS Dashboard**](https://github.com/Holrigue/ARGD-OS-Dashboard-APK-) (Android, Kotlin / Compose) reads sleep / steps / heart-rate from **Health Connect** and pushes them to the watch, relays phone notifications, and can push a GPX route to the watch — over a direct BLE link, no cloud. iOS needs no app for notifications (ANCS); the health bridge is Android-only for now.
-
 ## Hardware
 
 LILYGO T-Watch Ultra: an **ESP32-S3** with a **2.06″ AMOLED**, **LoRa (SX1262)**, **GNSS**, **NFC**, a **6-axis IMU** (accel + gyro, no magnetometer), and a **1100 mAh** battery. It can be bought from [LilyGo](https://www.lilygo.cc/cpstlm) (the US version is the 915 MHz model).
 
 **Screen — pixels and corners to consider.** The firmware renders to a full **410 × 502** framebuffer, but the round watch case masks it to a **~410 px circle**: the centre (about a 290 × 290 px square) is always safe, while the **top and bottom strips (~46 px each)** and the **corners** of any full-width element sit behind the bezel. Only ~64 % of the framebuffer is actually visible, so keep essential UI inside the disc.
 
-Full pinouts, power channels, the component list, radio bands, power-consumption figures, and the exact visible-area geometry are in the [Technical Reference](https://github.com/Holrigue/ARGUS-DotOS/blob/develop/docs/REFERENCE.md#display).
+Full pinouts, power channels, the component list, radio bands, power-consumption figures, and the exact visible-area geometry are in the [Technical Reference](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/blob/develop/docs/REFERENCE.md#display).
 
 ## Build & flash
 
-Built with **PlatformIO** (on the [`develop` branch](https://github.com/Holrigue/ARGUS-DotOS/tree/develop)):
+Built with **PlatformIO** (on the [`develop` branch](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/tree/develop)):
 
 ```bash
 pio run              # build
 pio run -t upload    # flash over USB-C (hold BOOT while connecting for download mode)
 ```
 
-Prebuilt, flashable binaries **and a one-click web flasher** ship with every [Release](https://github.com/Holrigue/ARGUS-DotOS/releases). There is deliberately **no single merged image** (a merged image bricked a watch once by rewriting the bootloader's flash-mode byte). The full build notes, prebuilt-flashing steps (esptool offsets, `--flash_mode keep`), SD-card assets, crash forensics, and library patches are in the [Technical Reference](https://github.com/Holrigue/ARGUS-DotOS/blob/develop/docs/REFERENCE.md#software--development).
+Prebuilt, flashable binaries **and a one-click web flasher** ship with every [Release](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/releases). There is deliberately **no single merged image** (a merged image bricked a watch once by rewriting the bootloader's flash-mode byte). The full build notes, prebuilt-flashing steps (esptool offsets, `--flash_mode keep`), SD-card assets, crash forensics, and library patches are in the [Technical Reference](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/blob/develop/docs/REFERENCE.md#software--development).
 
 ## Credits
 
@@ -108,11 +142,9 @@ Star them, build their projects, **THANK THEM.**
 
 Thanks also to LILYGO for the hardware, the [Meshtastic](https://meshtastic.org/) project, and the maintainers of LVGL, RadioLib, LilyGoLib, and the other libraries this firmware stands on.
 
-
-
 ## License
 
-MIT (see [LICENSE](LICENSE)) for everything under `src/` (on `develop`), `scripts/`, and the project configuration. DotOS retains the upstream projects' licenses and copyright where their code is used; the full third-party license list is in the [Technical Reference](https://github.com/Holrigue/ARGUS-DotOS/blob/develop/docs/REFERENCE.md#third-party-licenses).
+MIT (see [LICENSE](LICENSE)) for everything under `src/` (on `develop`), `scripts/`, and the project configuration. DotOS retains the upstream projects' licenses and copyright where their code is used; the full third-party license list is in the [Technical Reference](https://github.com/Holrigue/DotOS-T-Watch-Ultra-Firmware/blob/develop/docs/REFERENCE.md#third-party-licenses).
 
 ### Responsible use
 
