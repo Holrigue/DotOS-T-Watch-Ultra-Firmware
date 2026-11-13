@@ -27,6 +27,25 @@ typedef enum {
     BLE_SCAN_ERR_CONTROLLER,   // controller / Bluedroid bring-up failed
 } ble_scan_err_t;
 
+// Feed one GAP event through the scan manager's dispatcher (scan re-arm +
+// fan-out to every registered consumer). Bluedroid has a SINGLE GAP callback
+// slot and the last esp_ble_gap_register_callback() call wins, so any other
+// module that takes that slot (ANCS for iOS notifications, the ANS trampoline
+// for Android ones) MUST call this first from its own GAP callback. That keeps
+// the detectors' scan results flowing whoever owns the slot — before v3.0.1
+// the slot was silently stolen and every detector went blind while Notify ran.
+void ble_gap_route(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param);
+
+// Pin the BT controller up for the rest of this boot. Called by the
+// notification stacks (ANCS / ANS) the first time they come up: their GATT
+// state lives on the shared Bluedroid instance, so the scan manager must no
+// longer tear the controller down when its own last consumer leaves (the
+// reverse — Notify tearing the stack down under the scanners — is what crashed
+// and then blackscreen-looped the watch in v3.0.0). With the boot keep-alive
+// (ARGUS_RADIO_COEXIST) the controller is up for the watch's life anyway; this
+// pin covers the keepalive-less fallback the same way.
+void ble_stack_pin();
+
 // Register a consumer. Idempotent — calling twice with the same cb is a no-op.
 // Returns false and sets ble_scan_last_error() if:
 //   - WiFi is currently up (BLE_SCAN_ERR_WIFI_ACTIVE) — bringing the BLE
@@ -41,7 +60,8 @@ bool ble_scan_add(ble_scan_cb_t cb);
 ble_scan_err_t ble_scan_last_error();
 
 // Unregister a consumer. The controller is torn down when the last consumer
-// is removed.
+// is removed — unless ble_stack_pin() ran this boot (a notification stack
+// shares the controller; see above), in which case it stays up.
 void ble_scan_remove(ble_scan_cb_t cb);
 
 // Bring the BLE controller up ONCE at boot and keep it up for the app's life.
