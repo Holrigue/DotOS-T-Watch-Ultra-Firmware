@@ -267,12 +267,27 @@ ServerCb s_server_cb;
 // slots in init(), and its own handlers are PRIVATE — so once ANCS (an iOS
 // interlude) has taken the slots there is no way to hand them back to Arduino.
 // These trampolines are our own slot owners, equivalent to Arduino's handlers
-// for this server-only setup (they call only public BLEDevice / BLEServer /
-// BLEAdvertising methods), so start() can re-assert them at ANY time — they
+// for this server-only setup, so start() can re-assert them at ANY time — they
 // are installed on EVERY start so the common path and the after-iOS path are
 // the same, hardware-exercised code. gap_tramp also forwards every event to
 // the detector scan dispatcher first, so the AirTag / Flock / wardriver scans
 // keep flowing while (and after) Android notifications are up.
+//
+// BLEServer::handleGATTServerEvent — the exact dispatch Arduino's handler
+// performs — is PRIVATE in the vendored core (friend-only, BLEDevice), and so
+// is Arduino's registered handler itself, so there is no public way to point
+// the GATTS slot back at the server. The standard exempts the arguments of an
+// explicit template instantiation from access checks (C++11 [temp.explicit],
+// C++17 [temp.spec]), which lets us capture a pointer to that exact member
+// LEGALLY — no "#define private public", no copied library internals.
+typedef void (BLEServer::*GattsHandlerFn)(esp_gatts_cb_event_t, esp_gatt_if_t,
+                                          esp_ble_gatts_cb_param_t *);
+GattsHandlerFn gatts_handler_fn();   // defined by the friend injection below
+template <GattsHandlerFn M> struct GattsBackdoor {
+    friend GattsHandlerFn gatts_handler_fn() { return M; }
+};
+template struct GattsBackdoor<&BLEServer::handleGATTServerEvent>;
+
 void gap_tramp(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     ble_gap_route(event, param);   // detectors first — never blocked by notify
@@ -290,8 +305,8 @@ void gatts_tramp(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
                  esp_ble_gatts_cb_param_t *param)
 {
     // Same dispatch Arduino's (private) handler performs: hand the event to
-    // the one BLEServer.
-    if (s_server) s_server->handleGATTServerEvent(event, gatts_if, param);
+    // the one BLEServer, via the access backdoor above.
+    if (s_server) (s_server->*gatts_handler_fn())(event, gatts_if, param);
 }
 
 }  // namespace
