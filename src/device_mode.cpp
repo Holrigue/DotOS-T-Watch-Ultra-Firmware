@@ -95,7 +95,15 @@ static constexpr uint32_t RESTORE_RETRY_COUNT = 24;    // ~2 minutes
 static bool try_restore_notifications()
 {
     if (s_mode == DeviceMode::DailyWear) return true;   // already up (user enabled it)
-    if (ble_scan_active()) return false;                // don't fight a BLE scanner
+    // NOTE: this used to refuse while ble_scan_active() — "don't fight a BLE
+    // scanner". With the boot keep-alive (ARGUS_RADIO_COEXIST) a scan consumer
+    // is registered for the watch's whole life, so that check could never
+    // pass and the saved Notify state was silently NEVER restored: the wearer
+    // had to re-enable Notify by hand after every reboot. The notification
+    // stacks now share the controller with the scanners (ble_gap_route /
+    // ble_stack_pin — see ble_scan_manager.h), so starting beside a scan is
+    // the normal, safe case. WiFi exclusivity is still enforced by
+    // device_mode_plan() inside device_mode_set().
     s_restoring = true;
     device_mode_set(DeviceMode::DailyWear);
     s_restoring = false;

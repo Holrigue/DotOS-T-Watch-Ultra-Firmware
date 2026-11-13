@@ -8,10 +8,19 @@
 //   5. Notification Source event -> write Get-Notification-Attributes to the
 //      Control Point -> Data Source delivers app/title/message -> publish.
 //
-// We do our own controller bring-up and MUST NOT run while WiFi is up (the
-// esp_bt_controller_enable() hang documented in ble_scan_manager.cpp). The mode
-// owner enforces that ANCS and the BLE scanners never run together.
+// We bring the controller up state-aware (it is usually already up via the
+// boot keep-alive) and MUST NOT run while WiFi is down-level with it (the
+// esp_bt_controller_enable() hang documented in ble_scan_manager.cpp).
+//
+// SHARED RADIO: the BT controller, Bluedroid, and the single GAP callback slot
+// are shared with the detector scan manager (ble_scan_manager.cpp). Our gap_cb
+// therefore routes every event through ble_gap_route() first so the detectors'
+// scan results keep flowing while we hold the slot, and stop() deliberately
+// NEVER deinits Bluedroid or the controller: tearing the stack down under the
+// scanners' feet is what crashed the watch — and, replayed by the boot
+// restore, blackscreened every boot — in v3.0.0 (2026-11-12).
 #include "ancs.h"
+#include "ble_scan_manager.h"
 #include "notify/notify_center.h"
 #include "notify/notify_log.h"
 
@@ -451,6 +460,11 @@ void gatts_cb(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
 // ---- GAP callback ----------------------------------------------------------
 void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t* param)
 {
+    // We own the single Bluedroid GAP slot while ANCS is (or was last) up:
+    // hand every event to the detector scan dispatcher first so the scanners
+    // keep working, then handle our own advertising/security events.
+    ble_gap_route(event, param);
+
     switch (event) {
     case ESP_GAP_BLE_ADV_DATA_RAW_SET_COMPLETE_EVT:
         // Adv data (name) is set; now (and only now) set the scan response that
@@ -538,6 +552,7 @@ bool start()
 {
     if (s_running) return true;
     if (!bring_up_controller()) return false;
+    ble_stack_pin();   // the shared controller now outlives the scanners
 
     if (esp_ble_gap_register_callback(gap_cb)     != ESP_OK) return false;
     if (esp_ble_gatts_register_callback(gatts_cb) != ESP_OK) return false;
@@ -563,14 +578,24 @@ void stop()
     s_running = false;
     reset_link_state();
     esp_ble_gap_stop_advertising();
-    esp_bluedroid_disable();
-    esp_bluedroid_deinit();
-    esp_bt_controller_disable();
-    esp_bt_controller_deinit();
+
+    // Unregister our GATT apps (this also drops the GATTC link to the phone)
+    // so the next start() re-registers them from scratch via the REG_EVTs.
+    if (s_gatts_if != ESP_GATT_IF_NONE) esp_ble_gatts_app_unregister(s_gatts_if);
+    if (s_gattc_if != ESP_GATT_IF_NONE) esp_ble_gattc_app_unregister(s_gattc_if);
     s_gatts_if = ESP_GATT_IF_NONE;
     s_gattc_if = ESP_GATT_IF_NONE;
     s_adv_ready = false;
     s_advertising = false;
+
+    // DELIBERATELY no esp_bluedroid_deinit / esp_bt_controller_deinit here.
+    // The stack is shared with the detector scan manager (boot keep-alive +
+    // any live detector): deinit-ing it under them made the next scan event
+    // fire into freed state, crashed the watch, corrupted the BT bond data in
+    // NVS, and then blackscreened every boot while the restore replayed it
+    // (v3.0.0, 2026-11-12). The controller stays up; "stopped" just means not
+    // advertising and no GATT apps. Our gap_cb keeps the GAP slot and keeps
+    // routing scan events to the scan manager (first line of gap_cb).
 }
 
 bool is_running()     { return s_running; }

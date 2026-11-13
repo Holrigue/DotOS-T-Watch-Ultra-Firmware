@@ -49,7 +49,10 @@ static void apply_scan_params()
     esp_ble_gap_set_scan_params(&scan_params);
 }
 
-static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+// The dispatch body lives in ble_gap_route() (public) so a module that takes
+// the single Bluedroid GAP slot for itself (ANCS, the ANS trampoline) can keep
+// feeding us events — see ble_scan_manager.h.
+void ble_gap_route(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
 {
     // Re-arm the scan after the controller acknowledges our params. If every
     // consumer left during the brief async window, do nothing.
@@ -65,6 +68,11 @@ static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
     for (int i = 0; i < s_consumer_count; i++) {
         if (s_consumers[i]) s_consumers[i](param);
     }
+}
+
+static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+{
+    ble_gap_route(event, param);
 }
 
 // State-aware bring-up — mirrors the pattern wardriver_screen.cpp had before
@@ -107,6 +115,13 @@ static void tear_down_controller()
     esp_bt_controller_disable();
     esp_bt_controller_deinit();
 }
+
+// Once a notification stack (ANCS / ANS) has come up this boot, its GATT state
+// lives on the shared Bluedroid instance: the last-consumer teardown below
+// must then be skipped. See ble_stack_pin() in the header.
+static bool s_stack_pinned = false;
+
+void ble_stack_pin() { s_stack_pinned = true; }
 
 bool ble_scan_add(ble_scan_cb_t cb)
 {
@@ -159,7 +174,7 @@ void ble_scan_remove(ble_scan_cb_t cb)
             for (int j = i; j < s_consumer_count - 1; j++)
                 s_consumers[j] = s_consumers[j + 1];
             s_consumers[--s_consumer_count] = nullptr;
-            if (s_consumer_count == 0)
+            if (s_consumer_count == 0 && !s_stack_pinned)
                 tear_down_controller();
             return;
         }
@@ -198,9 +213,9 @@ static void keepalive_cb(esp_ble_gap_cb_param_t *) { /* passive-scan keep-alive 
 
 void ble_scan_boot_keepalive()
 {
-    // NOTE: NOT currently invoked — calling this from setup() crashed boot (BLE
-    // brought up too early). Kept as the intended proper fix for the WiFi/BT
-    // coexistence freeze, to be wired at a safe, verified init point later. The
-    // interim mitigation is UI ordering (Bluetooth screen before WiFi).
+    // Wired in main.cpp setup() under ARGUS_RADIO_COEXIST, LATE in init (after
+    // the display/LVGL and clock are up, before WiFi) — the early-setup() call
+    // that once crashed boot was reverted; this late position is the verified
+    // one. See the call site and radio_coexist.h.
     (void)ble_scan_add(keepalive_cb);
 }

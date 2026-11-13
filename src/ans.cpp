@@ -13,6 +13,8 @@
 #include <BLE2902.h>
 #include <BLESecurity.h>
 #include <esp_gap_ble_api.h>   // esp_ble_gap_update_conn_params (link power saving)
+#include <esp_gatts_api.h>     // esp_ble_gatts_register_callback (slot re-assert)
+#include "ble_scan_manager.h"  // ble_gap_route / ble_stack_pin (shared radio)
 #include <LilyGoLib.h>       // instance.isCardReady() for the GPX receiver
 #include <SD.h>
 #include <esp_heap_caps.h>   // PSRAM buffer for the streamed GPX
@@ -148,6 +150,7 @@ void parse_new_alert(const uint8_t *d, size_t len)
 
 class NewAlertCb : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *c) override {
+        if (!s_running) return;   // notify off: a lingering link's writes are ignored
         std::string v = c->getValue();
         parse_new_alert((const uint8_t *)v.data(), v.size());
     }
@@ -158,6 +161,7 @@ NewAlertCb s_new_alert_cb;
 // copies into a mailbox, so the model itself stays on the loop.
 class HealthInCb : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *c) override {
+        if (!s_running) return;
         std::string v = c->getValue();
         health_ingest_packet((const uint8_t *)v.data(), v.size());
     }
@@ -168,6 +172,7 @@ HealthInCb s_health_in_cb;
 // stop). Hand it to the registered handler, which runs the on-watch alert.
 class FindCb : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *c) override {
+        if (!s_running) return;
         std::string v = c->getValue();
         if (!v.empty() && s_find_handler) s_find_handler((uint8_t)v[0]);
     }
@@ -177,6 +182,7 @@ FindCb s_find_cb;
 // GPX frame receiver. Buffers into PSRAM only; the main loop writes the SD file.
 class GpxInCb : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *c) override {
+        if (!s_running) return;
         std::string v = c->getValue();
         const uint8_t *d = (const uint8_t *)v.data();
         size_t len = v.size();
@@ -255,6 +261,39 @@ class ServerCb : public BLEServerCallbacks {
 };
 ServerCb s_server_cb;
 
+// ---- Shared-radio dispatchers ----------------------------------------------
+// Bluedroid has ONE callback slot per layer (GAP, GATTS) and the last
+// esp_ble_*_register_callback() call wins. Arduino's BLEDevice grabs both
+// slots in init(), and its own handlers are PRIVATE — so once ANCS (an iOS
+// interlude) has taken the slots there is no way to hand them back to Arduino.
+// These trampolines are our own slot owners, equivalent to Arduino's handlers
+// for this server-only setup (they call only public BLEDevice / BLEServer /
+// BLEAdvertising methods), so start() can re-assert them at ANY time — they
+// are installed on EVERY start so the common path and the after-iOS path are
+// the same, hardware-exercised code. gap_tramp also forwards every event to
+// the detector scan dispatcher first, so the AirTag / Flock / wardriver scans
+// keep flowing while (and after) Android notifications are up.
+void gap_tramp(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
+{
+    ble_gap_route(event, param);   // detectors first — never blocked by notify
+    if (event == ESP_GAP_BLE_SEC_REQ_EVT) {
+        // Just-works accept (IO cap NONE) — the same answer Arduino's private
+        // handler gives when no security callbacks are installed.
+        esp_ble_gap_security_rsp(param->ble_security.ble_req.bd_addr, true);
+        return;
+    }
+    BLEAdvertising *adv = BLEDevice::getAdvertising();
+    if (adv) adv->handleGAPEvent(event, param);   // advertising state machine
+}
+
+void gatts_tramp(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_if,
+                 esp_ble_gatts_cb_param_t *param)
+{
+    // Same dispatch Arduino's (private) handler performs: hand the event to
+    // the one BLEServer.
+    if (s_server) s_server->handleGATTServerEvent(event, gatts_if, param);
+}
+
 }  // namespace
 
 bool start()
@@ -262,78 +301,96 @@ bool start()
     if (s_running) return true;
     if (wifi_active()) return false;
 
-    // Advertise as an InfiniTime so Gadgetbridge auto-detects the device and
-    // drives it through the standard Alert Notification Service.
-    BLEDevice::init("InfiniTime");
+    if (!s_server) {
+        // First start this boot. Bring the Arduino Bluedroid wrapper up — it is
+        // state-aware, so a controller the detector keep-alive already enabled
+        // is reused, not re-initialised — and build the GATT services ONCE.
+        // They are never torn down again; see stop().
+        //
+        // Advertise as an InfiniTime so Gadgetbridge auto-detects the device and
+        // drives it through the standard Alert Notification Service.
+        BLEDevice::init("InfiniTime");
+        ble_stack_pin();   // the shared controller now outlives the scanners
 
-    s_server = BLEDevice::createServer();
-    if (!s_server) { BLEDevice::deinit(false); return false; }
-    s_server->setCallbacks(&s_server_cb);
+        s_server = BLEDevice::createServer();
+        if (!s_server) return false;
+        s_server->setCallbacks(&s_server_cb);
 
-    // Alert Notification Service with the New Alert (write) characteristic that
-    // Gadgetbridge pushes notifications to, plus the read-only supported-category
-    // bitmask (advertise "all categories").
-    BLEService *ans = s_server->createService(BLEUUID(UUID_ANS));
-    BLECharacteristic *new_alert = ans->createCharacteristic(
-        BLEUUID(UUID_NEW_ALERT),
-        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
-    new_alert->setCallbacks(&s_new_alert_cb);
+        // Alert Notification Service with the New Alert (write) characteristic that
+        // Gadgetbridge pushes notifications to, plus the read-only supported-category
+        // bitmask (advertise "all categories").
+        BLEService *ans = s_server->createService(BLEUUID(UUID_ANS));
+        BLECharacteristic *new_alert = ans->createCharacteristic(
+            BLEUUID(UUID_NEW_ALERT),
+            BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+        new_alert->setCallbacks(&s_new_alert_cb);
 
-    BLECharacteristic *sup = ans->createCharacteristic(
-        BLEUUID(UUID_SUP_NEW_CAT), BLECharacteristic::PROPERTY_READ);
-    uint8_t all_cats[2] = { 0xFF, 0x03 };   // all defined categories supported
-    sup->setValue(all_cats, sizeof(all_cats));
+        BLECharacteristic *sup = ans->createCharacteristic(
+            BLEUUID(UUID_SUP_NEW_CAT), BLECharacteristic::PROPERTY_READ);
+        uint8_t all_cats[2] = { 0xFF, 0x03 };   // all defined categories supported
+        sup->setValue(all_cats, sizeof(all_cats));
 
-    // Health-input characteristic (Phase 2.2): the phone relay writes health
-    // packets here. It lives ON the ANS service rather than a separate 3rd
-    // service - adding a third GATT service did not register reliably on this
-    // BLE stack, so the app found no health service. Gadgetbridge ignores this
-    // extra characteristic; only our companion app writes to it.
-    BLECharacteristic *health_in = ans->createCharacteristic(
-        BLEUUID(UUID_HEALTH_IN),
-        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
-    health_in->setCallbacks(&s_health_in_cb);
+        // Health-input characteristic (Phase 2.2): the phone relay writes health
+        // packets here. It lives ON the ANS service rather than a separate 3rd
+        // service - adding a third GATT service did not register reliably on this
+        // BLE stack, so the app found no health service. Gadgetbridge ignores this
+        // extra characteristic; only our companion app writes to it.
+        BLECharacteristic *health_in = ans->createCharacteristic(
+            BLEUUID(UUID_HEALTH_IN),
+            BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+        health_in->setCallbacks(&s_health_in_cb);
 
-    // Find characteristic (Find-My-Watch / Find-My-Phone). WRITE for phone->watch
-    // ring, NOTIFY (with a CCCD) for watch->phone ring.
-    s_find_char = ans->createCharacteristic(
-        BLEUUID(UUID_FIND),
-        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR |
-            BLECharacteristic::PROPERTY_NOTIFY);
-    s_find_char->addDescriptor(new BLE2902());
-    s_find_char->setCallbacks(&s_find_cb);
+        // Find characteristic (Find-My-Watch / Find-My-Phone). WRITE for phone->watch
+        // ring, NOTIFY (with a CCCD) for watch->phone ring.
+        s_find_char = ans->createCharacteristic(
+            BLEUUID(UUID_FIND),
+            BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR |
+                BLECharacteristic::PROPERTY_NOTIFY);
+        s_find_char->addDescriptor(new BLE2902());
+        s_find_char->setCallbacks(&s_find_cb);
 
-    // GPX-in: the companion app streams a shared route here (see UUID_GPX_IN).
-    BLECharacteristic *gpx_in = ans->createCharacteristic(
-        BLEUUID(UUID_GPX_IN),
-        BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
-    gpx_in->setCallbacks(&s_gpx_cb);
+        // GPX-in: the companion app streams a shared route here (see UUID_GPX_IN).
+        BLECharacteristic *gpx_in = ans->createCharacteristic(
+            BLEUUID(UUID_GPX_IN),
+            BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+        gpx_in->setCallbacks(&s_gpx_cb);
 
-    ans->start();
+        ans->start();
 
-    // Minimal Device Information Service; Gadgetbridge's InfiniTime coordinator
-    // reads a firmware revision during setup.
-    BLEService *dis = s_server->createService(BLEUUID(UUID_DIS));
-    BLECharacteristic *fw = dis->createCharacteristic(
-        BLEUUID(UUID_FW_REV), BLECharacteristic::PROPERTY_READ);
-    fw->setValue("1.7.0");
-    dis->start();
+        // Minimal Device Information Service; Gadgetbridge's InfiniTime coordinator
+        // reads a firmware revision during setup.
+        BLEService *dis = s_server->createService(BLEUUID(UUID_DIS));
+        BLECharacteristic *fw = dis->createCharacteristic(
+            BLEUUID(UUID_FW_REV), BLECharacteristic::PROPERTY_READ);
+        fw->setValue("1.7.0");
+        dis->start();
 
-    // Just-works bonded pairing, same posture as the HID mouse.
-    BLESecurity security;
-    security.setAuthenticationMode(ESP_LE_AUTH_REQ_SC_BOND);
-    security.setCapability(ESP_IO_CAP_NONE);
-    security.setKeySize(16);
-    security.setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
-    security.setRespEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
+        // Just-works bonded pairing, same posture as the HID mouse.
+        BLESecurity security;
+        security.setAuthenticationMode(ESP_LE_AUTH_REQ_SC_BOND);
+        security.setCapability(ESP_IO_CAP_NONE);
+        security.setKeySize(16);
+        security.setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
+        security.setRespEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
 
-    BLEAdvertising *adv = BLEDevice::getAdvertising();
-    adv->addServiceUUID(BLEUUID(UUID_ANS));
-    adv->setScanResponse(true);
-    adv->start();
+
+        BLEAdvertising *adv = BLEDevice::getAdvertising();
+        adv->addServiceUUID(BLEUUID(UUID_ANS));
+        adv->setScanResponse(true);
+    }
+
+    // (Re-)assert OUR dispatchers and name on the single Bluedroid slots.
+    // An iOS (ANCS) interlude takes both slots and renames the device, and
+    // Arduino's own handlers are private, so they cannot be re-registered —
+    // our trampolines can, any number of times. Done on EVERY start so the
+    // common path and the after-iOS path are the same code.
+    esp_ble_gap_register_callback(gap_tramp);
+    esp_ble_gatts_register_callback(gatts_tramp);
+    esp_ble_gap_set_device_name("InfiniTime");
 
     s_running   = true;
     s_connected = false;
+    BLEDevice::getAdvertising()->start();
     NLOGLN("[ans] started - advertising as InfiniTime for Gadgetbridge");
     return true;
 }
@@ -343,9 +400,16 @@ void stop()
     if (!s_running) return;
     s_running   = false;
     s_connected = false;
-    BLEDevice::deinit(false);
-    s_server    = nullptr;
-    s_find_char = nullptr;   // freed with the stack; do not notify after this
+    // Advertising off; a still-connected phone is left to drop on its own
+    // (its writes are gated on s_running). The Bluedroid stack, the GATT
+    // services and s_server are deliberately KEPT: BLEDevice::deinit() here
+    // used to pull the whole shared BT controller down under the detector
+    // scan manager (boot keep-alive + Flock et al. still registered), which
+    // crashed the watch and — replayed by the boot restore — blackscreened
+    // every boot until the boot guard wiped NVS (v3.0.0, 2026-11-12).
+    // "Stopped" now just means not discoverable and not listening.
+    BLEAdvertising *adv = BLEDevice::getAdvertising();
+    if (adv) adv->stop();
 }
 
 bool is_running()   { return s_running;   }
