@@ -82,6 +82,21 @@ Each piece has one job:
 
 After a re-flash that won't reconnect, forget the watch in your phone's Bluetooth settings and **Scan** again.
 
+### Wearing it — the two-band trick
+
+The watch and the band that measures you don't have to share a spot. A setup that
+works well day-to-day:
+
+- Wear the **T-Watch Ultra on top of your wrist** on a comfy **22 mm** band — an
+  elastic one is great for all-day wear (for example [this 22 mm elastic band](https://www.etsy.com/ca/listing/1539304361/22mm-watch-band-elastic-22mm-watch-band);
+  the **22 mm wide** suits most men's wrists).
+- Wear the **Amazfit Helio Strap under your wrist**, ideally with a screen/sensor
+  protector. The optical heart-rate sensor reads better against the softer
+  underside of the wrist, and it stays out of the way of the watch up top.
+
+So the watch is the screen you look at, and the Helio is the sensor doing the
+measuring — each in the spot it's best at.
+
 ## Apps
 
 **Daily wear**
