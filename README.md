@@ -52,6 +52,36 @@ The watch is better with its phone app. **[DotOS Phone Link](https://github.com/
 
 **➡️ [Download the latest APK](https://github.com/Holrigue/DotOS-Phone-Link-APK/releases/latest)** (debug-signed, side-load). iOS needs no app for notifications (ANCS); the health bridge is Android-only for now.
 
+## 🩺 Recommended setup — Android + Amazfit + Gadgetbridge
+
+The pairing is built for **Android**, and it's at its best with an **Amazfit Helio
+Strap** feeding the numbers. The Helio measures your sleep, steps and heart rate;
+DotOS brings them to your wrist through a short, **cloud-free, account-free** chain:
+
+```
+Amazfit Helio Strap  →  Gadgetbridge  →  Health Connect  →  DotOS Phone Link  →  (BLE)  →  watch
+```
+
+Each piece has one job:
+
+- **Amazfit Helio Strap** — the band that actually measures sleep / steps / heart rate.
+- **[Gadgetbridge](https://gadgetbridge.org/)** (F-Droid) — talks to the Helio and exports its data to Health Connect. No Zepp account, no cloud.
+- **Health Connect** — Android's on-device health store; the neutral handoff point.
+- **[DotOS Phone Link](https://github.com/Holrigue/DotOS-Phone-Link-APK)** — reads Health Connect, pushes the data to the watch, **and** forwards your phone notifications — all over one direct BLE link to the watch.
+
+> On iPhone the watch still mirrors notifications over Apple's ANCS, but the
+> health bridge is Android-only.
+
+### Setting it up
+
+1. **Pair the Helio with Gadgetbridge.** Install Gadgetbridge (F-Droid), add your **Amazfit Helio Strap**, and let it sync. *(Gadgetbridge talks only to the band — you do **not** add the watch here; the app below owns the watch link.)*
+2. **Send the Helio's data to Health Connect.** In Gadgetbridge → **External integrations → Health Connect**, turn on **Allow connection with Health Connect** and **Sync after device sync** (install Google's **Health Connect** app if prompted).
+3. **Install DotOS Phone Link.** Side-load the [latest APK](https://github.com/Holrigue/DotOS-Phone-Link-APK/releases/latest). On first launch, grant **Nearby devices / Bluetooth** and the **Health Connect** read permissions (steps, heart rate, sleep); on Android 14+ also allow **background** access so it syncs with the app closed.
+4. **Turn Notify on, on the watch.** Open **Notify** and **Enable** the **Android (Gadgetbridge)** mode — that makes the watch advertise over Bluetooth.
+5. **Connect the watch in the app.** In DotOS Phone Link tap **Scan** and pick **ARGUS Watch**. Health and notifications now flow to the watch over that one link.
+
+After a re-flash that won't reconnect, forget the watch in your phone's Bluetooth settings and **Scan** again.
+
 ## Apps
 
 **Daily wear**
