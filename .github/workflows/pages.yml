@@ -69,7 +69,35 @@ jobs:
 
           # The component binaries, each flashed at its own offset. Offsets must
           # match README "Installing a prebuilt binary" and the pio upload map.
-          for part in bootloader.bin partitions.bin boot_app0.bin firmware.bin; do
+          parts="bootloader.bin partitions.bin boot_app0.bin firmware.bin"
+
+          # Wait for release.yml to finish uploading those assets before fetching
+          # them. On a fresh release this workflow and release.yml BOTH fire on
+          # 'release: published' and start together, so the four .bin files may
+          # not be attached yet - we used to lose that race and fail with
+          # "missing release asset". (A 'workflow_run: after Release' trigger is
+          # not an option: GitHub only honours workflow_run from the workflow
+          # file on the DEFAULT branch, and this file lives on develop.) So poll
+          # the release until every part is present; release.yml's build is
+          # ~4-5 min, so cap the wait at 8.
+          deadline=$(( $(date +%s) + 480 ))
+          while :; do
+            have=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" \
+                     --json assets --jq '[.assets[].name] | join(" ")' 2>/dev/null || echo "")
+            missing=""
+            for part in $parts; do
+              case " $have " in *" $part "*) : ;; *) missing="$missing $part" ;; esac
+            done
+            [ -z "$missing" ] && { echo "all four binaries are attached to $tag"; break; }
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "timed out after 8 min waiting for release assets:$missing (have: ${have:-none})" >&2
+              exit 1
+            fi
+            echo "waiting for release assets:$missing (have: ${have:-none}) - retry in 15s"
+            sleep 15
+          done
+
+          for part in $parts; do
             gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$part" --dir site
             test -s "site/$part" || { echo "missing release asset: $part" >&2; exit 1; }
           done
