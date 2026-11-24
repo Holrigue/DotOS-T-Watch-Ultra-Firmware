@@ -1,9 +1,12 @@
 #include "alarm_screen.h"
 #include "theme.h"
 #include "alarm.h"
+#include "music_lib.h"     // ringtone picker: list the SD music library
+#include "music_group.h"   // MusicTrack
 #include <LilyGoLib.h>
 #include <time.h>
 #include <stdio.h>
+#include <string.h>
 
 // Defined elsewhere.
 void tools_screen_show();
@@ -304,6 +307,146 @@ static void on_snooze(lv_event_t *)
     clock_screen_show();
 }
 
+// ---- ringtone picker -------------------------------------------------------
+// Lets the user pick any track from the SD music library as the alarm sound,
+// or the built-in chime. Playback + the safety fall-back live in alarm.cpp; this
+// is only the chooser. Reuses the music library index (music_lib.h) but builds
+// its own lightweight scrolling list (same flex-row pattern as music_screen).
+
+static lv_obj_t *ringtone_value_label = nullptr;   // the settings-row value text
+static lv_obj_t *ringtone_picker_scr  = nullptr;
+
+// Current ringtone as a short label: its file name, or "Built-in chime".
+static const char *ringtone_display_name()
+{
+    const char *p = alarm_get_ringtone();
+    if (!p || !*p) return "Built-in chime";
+    const char *slash = strrchr(p, '/');
+    return (slash && slash[1]) ? slash + 1 : p;
+}
+
+static void refresh_ringtone_row()
+{
+    if (ringtone_value_label) lv_label_set_text(ringtone_value_label, ringtone_display_name());
+}
+
+static lv_obj_t *picker_make_box(lv_obj_t *parent)
+{
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_set_size(box, 380, 420);
+    lv_obj_align(box, LV_ALIGN_TOP_MID, 0, 56);
+    lv_obj_set_style_bg_color(box, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_border_width(box, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(box, 4, LV_PART_MAIN);
+    lv_obj_set_scroll_dir(box, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(box, LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_layout(box, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+    return box;
+}
+
+static void on_ringtone_pick(lv_event_t *e);
+
+static lv_obj_t *picker_make_row(lv_obj_t *box, const char *text, int track_index)
+{
+    lv_obj_t *row = lv_obj_create(box);
+    lv_obj_set_size(row, LV_PCT(100), 48);
+    lv_obj_set_style_bg_color(row, lv_color_make(0x1c, 0x1c, 0x1c), LV_PART_MAIN);
+    lv_obj_set_style_radius(row, 8, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, on_ringtone_pick, LV_EVENT_CLICKED, (void *)(intptr_t)track_index);
+
+    lv_obj_t *l = lv_label_create(row);
+    lv_obj_set_style_text_color(l, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(l, theme_text_font(18), LV_PART_MAIN);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(l, 340);
+    lv_label_set_text(l, text);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 14, 0);
+    return row;
+}
+
+static void close_ringtone_picker()
+{
+    if (ringtone_picker_scr) {
+        lv_obj_t *dead = ringtone_picker_scr;
+        ringtone_picker_scr = nullptr;
+        lv_scr_load(settings_scr);     // back to the alarm settings
+        lv_obj_del(dead);              // delete only after switching away from it
+    }
+}
+
+// Track index >= 0 picks that library track; -1 is the built-in chime.
+static void on_ringtone_pick(lv_event_t *e)
+{
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0) {
+        alarm_set_ringtone("");                       // built-in chime
+    } else {
+        const MusicTrack *t = music_lib_track(idx);
+        if (t) alarm_set_ringtone(t->path);           // rejects a non-.mp3/.flac internally
+    }
+    refresh_ringtone_row();
+    close_ringtone_picker();
+}
+
+static void on_picker_gesture(lv_event_t *e)
+{
+    // Swipe right (or up) = back, matching the music browser's gestures.
+    lv_dir_t dir = lv_indev_get_gesture_dir(lv_event_get_indev(e));
+    if (dir == LV_DIR_TOP || dir == LV_DIR_RIGHT) close_ringtone_picker();
+}
+
+static void open_ringtone_picker(lv_event_t *)
+{
+    if (!music_lib_is_scanned()) music_lib_scan();    // lazy: only when first needed
+
+    ringtone_picker_scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(ringtone_picker_scr, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_border_width(ringtone_picker_scr, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(ringtone_picker_scr, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(ringtone_picker_scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(ringtone_picker_scr, on_picker_gesture, LV_EVENT_GESTURE, NULL);
+
+    lv_obj_t *title = lv_label_create(ringtone_picker_scr);
+    lv_obj_set_style_text_color(title, argus_base_accent(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, theme_title_font(), LV_PART_MAIN);
+    lv_label_set_text(title, "ALARM SOUND");
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 14);
+
+    lv_obj_t *box = picker_make_box(ringtone_picker_scr);
+    picker_make_row(box, "Built-in chime", -1);       // always first, always available
+
+    // Cap the number of rows: each is a couple of LVGL objects, and the music
+    // index can hold hundreds of tracks on the watch's scarce internal RAM.
+    // 250 covers any realistic ringtone choice without risking an OOM building
+    // the list; a larger library is simply truncated with a note.
+    const int ROW_CAP = 250;
+    int n = music_lib_track_count();
+    int shown = n < ROW_CAP ? n : ROW_CAP;
+    for (int i = 0; i < shown; i++) {
+        const MusicTrack *t = music_lib_track(i);
+        if (!t) continue;
+        picker_make_row(box, t->title[0] ? t->title : t->path, i);
+    }
+    if (n == 0) {
+        lv_obj_t *empty = lv_label_create(box);
+        lv_obj_set_style_text_color(empty, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_font(empty, theme_text_font(16), LV_PART_MAIN);
+        lv_label_set_text(empty, "No music on the SD card.\nAdd .mp3/.flac under /music.");
+    } else if (shown < n) {
+        lv_obj_t *more = lv_label_create(box);
+        lv_obj_set_style_text_color(more, ARGUS_TEXT_DIM, LV_PART_MAIN);
+        lv_obj_set_style_text_font(more, theme_text_font(16), LV_PART_MAIN);
+        lv_label_set_text_fmt(more, "+%d more - showing the first %d", n - shown, shown);
+    }
+
+    lv_scr_load(ringtone_picker_scr);
+}
+
 // ---- layout ----------------------------------------------------------------
 
 static void create_settings_screen()
@@ -495,13 +638,39 @@ static void create_settings_screen()
     lv_obj_set_style_border_color(dd_list, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
     lv_obj_add_event_cb(snooze_dropdown, on_snooze_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // Bottom hint — lives below the snooze row so it doubles as a visual end
+    // Alarm sound row — tap the value to pick an SD track, or the built-in chime.
+    lv_obj_t *snd_lbl = lv_label_create(settings_scr);
+    lv_obj_set_style_text_color(snd_lbl, ARGUS_TEXT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(snd_lbl, theme_text_font(20), LV_PART_MAIN);
+    lv_label_set_text(snd_lbl, "Alarm sound");
+    lv_obj_align(snd_lbl, LV_ALIGN_TOP_LEFT, 30, 672);
+
+    lv_obj_t *snd_btn = lv_obj_create(settings_scr);
+    lv_obj_set_size(snd_btn, 350, 48);
+    lv_obj_align(snd_btn, LV_ALIGN_TOP_MID, 0, 708);
+    lv_obj_set_style_radius(snd_btn, 8, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(snd_btn, lv_color_make(0x22, 0x22, 0x22), LV_PART_MAIN);
+    lv_obj_set_style_border_color(snd_btn, lv_color_make(0x55, 0x55, 0x55), LV_PART_MAIN);
+    lv_obj_set_style_border_width(snd_btn, 1, LV_PART_MAIN);
+    lv_obj_clear_flag(snd_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(snd_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(snd_btn, open_ringtone_picker, LV_EVENT_CLICKED, NULL);
+
+    ringtone_value_label = lv_label_create(snd_btn);
+    lv_obj_set_style_text_color(ringtone_value_label, lv_color_white(), LV_PART_MAIN);
+    lv_obj_set_style_text_font(ringtone_value_label, theme_text_font(18), LV_PART_MAIN);
+    lv_label_set_long_mode(ringtone_value_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(ringtone_value_label, 322);
+    lv_obj_align(ringtone_value_label, LV_ALIGN_LEFT_MID, 14, 0);
+    lv_label_set_text(ringtone_value_label, ringtone_display_name());
+
+    // Bottom hint — lives below the last row so it doubles as a visual end
     // marker for the scrollable content.
     lv_obj_t *hint = lv_label_create(settings_scr);
     lv_obj_set_style_text_color(hint, ARGUS_TEXT_DIM, LV_PART_MAIN);
     lv_obj_set_style_text_font(hint, theme_text_font(16), LV_PART_MAIN);
     lv_label_set_text(hint, "rings once a day at the chosen time");
-    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 670);
+    lv_obj_align(hint, LV_ALIGN_TOP_MID, 0, 775);
 }
 
 static void create_ringing_screen()
@@ -525,16 +694,20 @@ static void create_ringing_screen()
     lv_label_set_text(ring_time_label, "00:00");
     lv_obj_align(ring_time_label, LV_ALIGN_CENTER, 0, -20);
 
-    lv_obj_t *snooze = make_button(ring_scr, "SNOOZE 5 min", 290, 70,
+    // SNOOZE is the secondary action: a smaller button above.
+    lv_obj_t *snooze = make_button(ring_scr, "SNOOZE 5 min", 240, 56,
                                    lv_color_make(0xCC, 0x77, 0x00),
                                    &lv_font_montserrat_28, &snooze_btn_label);
-    lv_obj_align(snooze, LV_ALIGN_BOTTOM_MID, 0, -110);
+    lv_obj_align(snooze, LV_ALIGN_BOTTOM_MID, 0, -162);
     lv_obj_add_event_cb(snooze, on_snooze, LV_EVENT_CLICKED, NULL);
 
-    lv_obj_t *dismiss = make_button(ring_scr, "DISMISS", 290, 70,
+    // DISMISS is the primary action and deliberately big: an alarm with a long
+    // music ringtone has to be effortless to stop, so this is a large,
+    // hard-to-miss target. Kept clear of the bottom ~46 px bezel strip.
+    lv_obj_t *dismiss = make_button(ring_scr, "DISMISS", 340, 100,
                                     lv_color_make(0xCC, 0x22, 0x22),
                                     &lv_font_montserrat_28);
-    lv_obj_align(dismiss, LV_ALIGN_BOTTOM_MID, 0, -30);
+    lv_obj_align(dismiss, LV_ALIGN_BOTTOM_MID, 0, -50);
     lv_obj_add_event_cb(dismiss, on_dismiss, LV_EVENT_CLICKED, NULL);
 }
 
@@ -611,6 +784,7 @@ void alarm_screen_show()
     lv_dropdown_set_selected(snooze_dropdown, sel);
 
     apply_audio_visibility();
+    refresh_ringtone_row();   // reflect the saved ringtone (or "Built-in chime")
 
     // Always open scrolled to the top so the time-picker is in view first.
     lv_obj_scroll_to_y(settings_scr, 0, LV_ANIM_OFF);

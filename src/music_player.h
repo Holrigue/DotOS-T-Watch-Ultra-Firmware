@@ -22,6 +22,17 @@ void music_player_pause();     // no-op if not playing
 void music_player_resume();    // no-op if not paused
 void music_player_stop();      // stop + release the I2S output
 
+// ---- alarm ringtone ---------------------------------------------------------
+// Play an arbitrary SD file (MP3/FLAC), LOOPED, at `volume` (0..100), until
+// music_player_stop(). For the alarm's custom ringtone: the alarm owns the
+// speaker while ringing, so this does NOT refuse on alarm_chime_is_active(),
+// and it uses its own volume so the user's saved music level is untouched.
+// Returns false if the file can't be opened or decoded - the alarm MUST then
+// ring the built-in chime so it is never silent. If decoding fails mid-ring the
+// task ends (music_player_is_playing() goes false); the alarm watches for that
+// and hands off to the chime.
+bool music_player_play_file_loop(const char *path, int volume);
+
 // Move to the next/previous track within the browsed group that started this
 // queue. No-op past either end (v1 doesn't loop/shuffle). Returns false if
 // there is no current track to move from.

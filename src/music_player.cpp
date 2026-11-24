@@ -72,6 +72,16 @@ int  s_pos   = -1;
 char s_title[MUSIC_TITLE_LEN]   = "";
 char s_artist[MUSIC_ARTIST_LEN] = "";
 
+// Alarm ringtone mode. When true the task LOOPS the current file (rewinds at
+// EOF) until stopped, instead of ending the track, and scales PCM by
+// s_loop_volume instead of the saved music volume - so ringing an alarm never
+// changes the user's music level. Set only by music_player_play_file_loop();
+// the normal queue-play path clears it. A decode FAILURE (no audio produced)
+// is never looped: the task dies and the alarm falls back to the built-in
+// chime (see alarm.cpp's ring watchdog).
+volatile bool s_loop        = false;
+int           s_loop_volume = 100;
+
 // Playback volume 0..100 (MAX98357A has no HW volume - we scale PCM). -1 until loaded.
 volatile int s_volume = -1;
 constexpr const char *MUSIC_CFG = "/Settings/music.txt";
@@ -218,6 +228,18 @@ size_t decode_chunk(int16_t *out)
     return 0;
 }
 
+// Rewind the open decoder to the first frame for the alarm-ringtone loop.
+// Returns false if it can't seek (the task then stops and the alarm falls back
+// to the chime). Seeking to position 0 is always valid for a healthy stream.
+bool loop_rewind()
+{
+    bool ok = false;
+    if (s_kind == Kind::Flac)     ok = drflac_seek_to_pcm_frame(s_flac, 0) != DRFLAC_FALSE;
+    else if (s_kind == Kind::Mp3) ok = mp3dec_ex_seek(s_mp3, 0) == 0;
+    if (ok) s_cur_frame = 0;
+    return ok;
+}
+
 void player_task(void *)
 {
     instance.powerControl(POWER_SPEAK, true);
@@ -239,12 +261,20 @@ void player_task(void *)
             }
             size_t frames = decode_chunk(chunk);
             if (frames == 0) {                                 // EOF or decode error
+                // Alarm ringtone loops: a clean EOF (we already produced audio)
+                // rewinds and keeps ringing until dismissed. A failure before
+                // any audio (s_cur_frame == 0) is NOT looped - the task dies and
+                // the alarm's watchdog starts the built-in chime so the alarm is
+                // never silent.
+                if (s_loop && s_cur_frame > 0 && loop_rewind()) continue;
                 if (s_cur_frame == 0) s_last_error = "Decode failed";   // never produced a sample
                 s_running = false; break;
             }
-            // Software volume: scale each sample by s_volume/100 (no HW volume on
-            // the MAX98357A). A plain multiply/shift per sample; cheap at 44.1 kHz.
-            int vol = s_volume;
+            // Software volume: scale each sample by vol/100 (no HW volume on the
+            // MAX98357A). A plain multiply/shift per sample; cheap at 44.1 kHz.
+            // An alarm ringtone uses its own volume so it never clobbers the
+            // user's saved music level.
+            int vol = s_loop ? s_loop_volume : s_volume;
             if (vol < 100) {
                 if (vol < 0) vol = 100;
                 size_t ns = frames * (size_t)s_channels;
@@ -301,6 +331,7 @@ bool music_player_play(MusicBrowse mode, int group, int pos)
     if (alarm_chime_is_active()) { s_last_error = "Speaker busy (alarm)"; return false; }   // try again shortly
 
     stop_task_and_wait();
+    s_loop = false;             // normal queue playback, not an alarm-ringtone loop
 
     if (!open_decoder(t->path)) return false;
 
@@ -341,6 +372,7 @@ void music_player_resume()
 
 void music_player_stop()
 {
+    s_loop = false;              // leave alarm-ringtone mode if it was on
     stop_task_and_wait();
 }
 
@@ -390,4 +422,34 @@ void music_player_set_volume(int pct)
         File f = SD.open(MUSIC_CFG, FILE_WRITE);
         if (f) { f.printf("volume=%d\n", pct); f.close(); }
     }
+}
+
+bool music_player_play_file_loop(const char *path, int volume)
+{
+    if (!path || !*path) return false;
+    s_last_error = "";
+
+    // The alarm owns the speaker while it rings, so - unlike the normal Music
+    // UI - we do NOT refuse on alarm_chime_is_active(); the alarm calls us
+    // instead of the chime. Stop whatever was playing and take the output.
+    stop_task_and_wait();
+
+    if (!open_decoder(path)) { s_loop = false; return false; }   // caller rings the chime
+
+    s_loop        = true;
+    s_loop_volume = (volume < 0) ? 100 : (volume > 100 ? 100 : volume);
+    s_mode = MUSIC_BY_TRACK; s_group = -1; s_pos = -1;
+    s_title[0] = '\0'; s_artist[0] = '\0';
+    s_cur_frame = 0;
+
+    if (!s_pause_sem) s_pause_sem = xSemaphoreCreateBinary();
+    s_running = true;
+    s_paused  = false;
+    if (xTaskCreatePinnedToCore(player_task, "alarm_ringtone", 8192, NULL, 1, &s_task, 0) != pdPASS) {
+        s_running = false; s_task = nullptr; s_loop = false;
+        close_decoder();
+        fail("No memory: ringtone task");
+        return false;
+    }
+    return true;
 }
