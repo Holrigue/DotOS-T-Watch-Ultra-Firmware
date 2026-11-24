@@ -45,6 +45,14 @@ void     alarm_set_volume(uint8_t pct);
 int      alarm_get_snooze_minutes();   // currently 5, 10, or 20
 void     alarm_set_snooze_minutes(int minutes);
 
+// ---- custom ringtone (SD audio file) ---------------------------------------
+// An SD file (MP3/FLAC) played LOOPED as the alarm sound instead of the
+// built-in chime. It is only ever an override: a missing / unsupported /
+// undecodable file always falls back to the built-in chime, so the alarm is
+// never silent. Empty path = built-in chime. Persisted in /Settings/alarm.txt.
+const char *alarm_get_ringtone();                  // "" = built-in chime
+void        alarm_set_ringtone(const char *path);  // "" clears; a non-.mp3/.flac path is ignored
+
 // ---- shared chime ----------------------------------------------------------
 // Lets other modules (timer screen, future notifiers) play the same
 // doorbell-loop chime the alarm uses, without re-implementing the I2S

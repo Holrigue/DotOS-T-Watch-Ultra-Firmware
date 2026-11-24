@@ -1,11 +1,13 @@
 #include "alarm.h"
 #include "usb_sd.h"
 #include "haptic.h"         // haptic_force_gentle() / haptic_reapply() - softer ring
-#include "music_player.h"   // music_player_stop() - shared-I2S priority, see start_chime()
+#include "music_player.h"   // music_player_stop() + music_player_play_file_loop() (SD ringtone)
+#include "music_lib.h"      // music_lib_is_supported_file() - validate a ringtone's extension
 #include <LilyGoLib.h>
 #include <SD.h>
 #include <time.h>
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
 #include <driver/i2s.h>
 
@@ -58,6 +60,18 @@ static bool     s_audio             = true;
 static uint8_t  s_volume            = 100;
 static int      s_snooze_minutes    = 5;
 
+// Custom ringtone: an SD file path (MP3/FLAC) played looped instead of the
+// built-in chime. Empty = built-in chime. The file is only ever an OVERRIDE:
+// if it is missing, unsupported, or fails to open/decode, the alarm rings the
+// built-in chime instead (see start_ringing() and the alarm_tick() watchdog),
+// so a bad file can never make the alarm silent.
+#define ALARM_RINGTONE_LEN 256
+static char     s_ringtone[ALARM_RINGTONE_LEN] = "";
+// True while a custom ringtone FILE is the sound source for the current ring
+// (vs. the synthesized chime). Lets alarm_chime_is_active() report the speaker
+// as busy during a file ring too, and drives the fall-back watchdog.
+static bool     s_ringtone_ringing  = false;
+
 static bool     s_ringing           = false;
 static int      s_last_trigger_yday = -1;
 static uint32_t s_ring_start_ms     = 0;
@@ -80,6 +94,7 @@ static void save_to_sd()
     f.printf("audio=%d\n",   s_audio   ? 1 : 0);
     f.printf("volume=%d\n",  (int)s_volume);
     f.printf("snooze=%d\n",  s_snooze_minutes);
+    f.printf("ringtone=%s\n", s_ringtone);   // empty line = built-in chime
     f.close();
 }
 
@@ -98,13 +113,15 @@ void alarm_init()
     int  audio   = s_audio   ? 1 : 0;
     int  volume  = (int)s_volume;
     int  snooze  = s_snooze_minutes;
+    char ringtone[ALARM_RINGTONE_LEN] = "";   // absent in older files -> built-in chime
     while (f.available()) {
         String line = f.readStringUntil('\n');
         line.trim();
         int eq = line.indexOf('=');
         if (eq <= 0) continue;
         String key = line.substring(0, eq);
-        long   v   = line.substring(eq + 1).toInt();
+        String sval = line.substring(eq + 1);
+        long   v    = sval.toInt();
         if      (key == "version") version = (int)v;
         else if (key == "enabled") enabled = (v != 0);
         else if (key == "hour")    hour    = (int)v;
@@ -113,6 +130,7 @@ void alarm_init()
         else if (key == "audio")   audio   = (int)v;
         else if (key == "volume")  volume  = (int)v;
         else if (key == "snooze")  snooze  = (int)v;
+        else if (key == "ringtone") snprintf(ringtone, sizeof(ringtone), "%s", sval.c_str());
     }
     f.close();
 
@@ -134,6 +152,13 @@ void alarm_init()
     // Snooze options are fixed at 5/10/20 minutes; anything else falls back
     // to 5 so a malformed file can't leave the user with a 1-second snooze.
     s_snooze_minutes = (snooze == 10 || snooze == 20) ? snooze : 5;
+    // Only keep a ringtone path with an extension we can actually decode; a
+    // hand-edited file can't point the alarm at something unplayable. An empty
+    // or non-audio value falls back to the built-in chime.
+    if (ringtone[0] && music_lib_is_supported_file(ringtone))
+        snprintf(s_ringtone, sizeof(s_ringtone), "%s", ringtone);
+    else
+        s_ringtone[0] = '\0';
     s_configured = true;
 }
 
@@ -169,6 +194,25 @@ void alarm_set_snooze_minutes(int minutes)
     if (minutes != 5 && minutes != 10 && minutes != 20) minutes = 5;
     if (s_snooze_minutes != minutes) {
         s_snooze_minutes = minutes;
+        save_to_sd();
+    }
+}
+
+const char *alarm_get_ringtone() { return s_ringtone; }
+
+void alarm_set_ringtone(const char *path)
+{
+    char next[ALARM_RINGTONE_LEN] = "";
+    if (path && *path) {
+        // Only accept a file this watch can decode; anything else (or an empty
+        // path) clears back to the built-in chime. Playability of a real audio
+        // file is still guaranteed at ring time by the chime fall-back, so a
+        // corrupt-but-correctly-named file can never silence the alarm.
+        if (!music_lib_is_supported_file(path)) return;
+        snprintf(next, sizeof(next), "%s", path);
+    }
+    if (strcmp(next, s_ringtone) != 0) {
+        snprintf(s_ringtone, sizeof(s_ringtone), "%s", next);
         save_to_sd();
     }
 }
@@ -356,7 +400,18 @@ void alarm_stop_chime_loop()
                                    // reverts to the saved volume
 }
 
-bool alarm_chime_is_active() { return s_chime_active; }
+// True while the alarm owns the shared speaker - whether via the synthesized
+// chime or a custom ringtone file - so the Music player keeps refusing to start
+// over it. The alarm's own ringtone call (music_player_play_file_loop) bypasses
+// that refusal because the alarm is the owner.
+bool alarm_chime_is_active() { return s_chime_active || s_ringtone_ringing; }
+
+// Stop whichever audio source the current ring is using. A no-op when silent.
+static void stop_ring_audio()
+{
+    stop_chime();
+    if (s_ringtone_ringing) { music_player_stop(); s_ringtone_ringing = false; }
+}
 
 // ---- ring trigger ----------------------------------------------------------
 
@@ -369,7 +424,15 @@ static void start_ringing()
         haptic_force_gentle();           // soft "wake" taps for the whole ring
         instance.vibrator();             // immediate first buzz, if enabled
     }
-    if (s_audio)   start_chime();        // gentle bell loop, if enabled
+    if (s_audio) {
+        // A custom ringtone file (if set and it opens/decodes) plays looped;
+        // otherwise - no ringtone, or it failed to start - the built-in chime.
+        // The alarm is therefore never silent: a bad file just rings the chime.
+        if (s_ringtone[0] && music_player_play_file_loop(s_ringtone, s_volume))
+            s_ringtone_ringing = true;
+        else
+            start_chime();
+    }
     alarm_screen_show_ringing();
 }
 
@@ -377,7 +440,7 @@ void alarm_dismiss()
 {
     s_ringing         = false;
     s_snooze_until_ms = 0;
-    stop_chime();
+    stop_ring_audio();
     haptic_reapply();   // restore the user's normal buzz effect
     // s_last_trigger_yday is left at today — prevents an immediate re-fire on
     // the next tick while the minute still matches.
@@ -387,7 +450,7 @@ void alarm_snooze(int minutes)
 {
     s_ringing         = false;
     s_snooze_until_ms = millis() + (uint32_t)minutes * 60u * 1000u;
-    stop_chime();
+    stop_ring_audio();
     haptic_reapply();   // restore the user's normal buzz effect
 }
 
@@ -406,14 +469,21 @@ void alarm_tick()
         // Buzz once every 1.5 s while still within the auto-quiet window. The
         // ringing screen stays up beyond that until the user taps DISMISS.
         if (now_ms - s_ring_start_ms < ALARM_AUTO_QUIET_MS) {
+            // Safety net: if a custom ringtone FILE stopped on its own (decode
+            // error, out of memory) while we are still meant to be ringing, hand
+            // off to the built-in chime so the alarm is never left silent.
+            if (s_ringtone_ringing && s_audio && !music_player_is_playing()) {
+                s_ringtone_ringing = false;
+                start_chime();
+            }
             if (s_vibrate && now_ms - s_last_vibrate_ms >= ALARM_BUZZ_INTERVAL_MS) {
                 s_last_vibrate_ms = now_ms;
                 instance.vibrator();
             }
         } else {
-            // Auto-quiet: stop the chime as well so the speaker doesn't keep
-            // looping for an unattended alarm.
-            stop_chime();
+            // Auto-quiet: stop the sound (chime or ringtone file) so the speaker
+            // doesn't keep looping for an unattended alarm.
+            stop_ring_audio();
         }
         return;
     }
